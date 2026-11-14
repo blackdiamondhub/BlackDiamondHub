@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% load static %}
+{% block extra_head %}
+<style>
+  .content-wrapper.bdh-app-host { padding: 0 !important; }
+  #bdh-app-frame { display: block; width: 100%; border: 0; background: transparent; }
+</style>
+{% endblock %}
+{% block navbar_title %}<span id="bdh-app-title">{{ title }}</span>{% endblock %}
+{% block content %}
+<iframe id="bdh-app-frame" title="{{ title }}" src="{{ src }}"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        allow="autoplay; fullscreen" data-app-origin="{{ app_origin }}"
+        data-app-id="{{ spec.id }}" data-nav-url="{% url 'broker:navigate' %}"></iframe>
+<script src="{% static 'broker/embed-host.js' %}"></script>
+{% endblock %}
