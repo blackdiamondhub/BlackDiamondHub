@@ -128,7 +128,8 @@ def _send(app_id, payload):
 
     try:
         install = remote._install(app_id)
-        resp = remote.signed_request(install, "POST", "/_bdh/events", payload, timeout=TIMEOUT)
+        # Events don't wake a stopped on-demand app.
+        resp = remote.signed_request(install, "POST", "/_bdh/events", payload, timeout=TIMEOUT, wake=False)
         if resp.status_code != 200:
             log.info("%s refused event %s: HTTP %s", app_id, payload["topic"], resp.status_code)
     except Exception as exc:

@@ -91,14 +91,36 @@ def _upstream(install):
     return install.upstream.rstrip("/")
 
 
-def signed_request(install, method, path, payload=None, timeout=HOOK_TIMEOUT, identity=None):
+def signed_request(install, method, path, payload=None, timeout=HOOK_TIMEOUT, identity=None, wake=True):
     """A signed call from the hub to the app's runtime; returns the Response."""
     body = b"" if payload is None else json.dumps(payload, separators=(",", ":")).encode()
     headers = signed_headers(_token(install), method, path, identity=identity, body=body)
     if payload is not None:
         headers["Content-Type"] = "application/json"
-    return requests.request(method, _upstream(install) + path, data=body or None,
-                            headers=headers, timeout=timeout)
+    url = _upstream(install) + path
+    try:
+        return requests.request(method, url, data=body or None, headers=headers, timeout=timeout)
+    except requests.ConnectionError:
+        # An on-demand container app may be stopped: start it and try once more.
+        if not wake or not _wake(install):
+            raise
+    headers = signed_headers(_token(install), method, path, identity=identity, body=body)
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+    return requests.request(method, url, data=body or None, headers=headers, timeout=timeout)
+
+
+def _wake(install):
+    from . import supervisor
+
+    if not getattr(install, "is_container", False) or not supervisor.enabled():
+        return False
+    try:
+        view = supervisor.start(install.app_id, wait=True)
+    except supervisor.SupervisorError as exc:
+        log.info("%s: couldn't start it: %s", install.app_id, exc)
+        return False
+    return view.get("healthy") is not False
 
 
 def call_hook(app_id, hook, timeout=HOOK_TIMEOUT, **args):
@@ -117,12 +139,12 @@ def call_hook(app_id, hook, timeout=HOOK_TIMEOUT, **args):
         raise RemoteError(f"{app_id} {hook}: bad reply") from exc
 
 
-def fetch_manifest(install, timeout=MANIFEST_TIMEOUT):
+def fetch_manifest(install, timeout=MANIFEST_TIMEOUT, wake=True):
     """Fetch and save ``install``'s manifest; returns it (raises RemoteError)."""
     from .models import AppInstall
 
     try:
-        resp = signed_request(install, "GET", "/_bdh/manifest", timeout=timeout)
+        resp = signed_request(install, "GET", "/_bdh/manifest", timeout=timeout, wake=wake)
     except requests.RequestException as exc:
         raise RemoteError(f"{install.app_id} manifest: {exc}") from exc
     if resp.status_code != 200:
@@ -417,7 +439,7 @@ def _load(local_ids):
             if now - _last_attempt.get(install.app_id, -MANIFEST_RETRY) >= MANIFEST_RETRY:
                 _last_attempt[install.app_id] = now
                 try:
-                    manifest = fetch_manifest(install, timeout=HOT_MANIFEST_TIMEOUT)
+                    manifest = fetch_manifest(install, timeout=HOT_MANIFEST_TIMEOUT, wake=False)
                 except RemoteError as exc:
                     log.warning("%s", exc)
         if manifest is None:

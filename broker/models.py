@@ -9,9 +9,18 @@ AUDIT_TRIM_EVERY = 100
 
 class AppInstall(models.Model):
     """One container app. Its token is derived from SECRET_KEY, ``app_id`` and
-    ``generation``; bump the generation to rotate it."""
+    ``generation``; bump the generation to rotate it.
+
+    ``runtime`` says who runs it: ``container`` apps are installed from the
+    catalog and run by bdh-supervisor (see broker/services.py), ``external``
+    ones are wherever ``upstream`` points (``broker_app``)."""
+
+    EXTERNAL = "external"
+    CONTAINER = "container"
+    RUNTIMES = [(EXTERNAL, "External"), (CONTAINER, "Container (bdh-supervisor)")]
 
     app_id = models.SlugField(max_length=64, unique=True)
+    runtime = models.CharField(max_length=16, choices=RUNTIMES, default=EXTERNAL)
     version = models.CharField(max_length=64, blank=True)
     generation = models.PositiveIntegerField(default=1)
     port = models.PositiveIntegerField(unique=True, help_text="Public port the hub proxies to this app.")
@@ -22,6 +31,11 @@ class AppInstall(models.Model):
     memory_mb = models.PositiveIntegerField(null=True, blank=True)
     requested_permissions = models.JSONField(default=list, blank=True)
     granted_permissions = models.JSONField(default=list, blank=True)
+    # What the admin approved for a container app; an update asking for more
+    # (permissions, network, companions) waits for a new approval.
+    approved_network = models.CharField(max_length=16, blank=True)
+    allow_lan = models.BooleanField(default=False)
+    approved_companions = models.JSONField(default=list, blank=True)
     enabled = models.BooleanField(default=True)
     manifest = models.JSONField(null=True, blank=True)
     manifest_fetched_at = models.DateTimeField(null=True, blank=True)
@@ -39,6 +53,15 @@ class AppInstall(models.Model):
         """Effective grants: what the manifest asks for and an admin approved."""
         requested = set(self.requested_permissions or ())
         return frozenset(p for p in self.granted_permissions or () if p in requested)
+
+    @property
+    def is_container(self):
+        return self.runtime == self.CONTAINER
+
+    @property
+    def slot(self):
+        """The supervisor's slot: the app's index among the app ports."""
+        return self.port - conf.app_port_base()
 
     @property
     def cookie_prefix(self):
