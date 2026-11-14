@@ -10,7 +10,8 @@ from django.test import RequestFactory, SimpleTestCase, TestCase, override_setti
 from display.schedule import lodge_minute, window
 from hub.context_processors import _brand, brand
 from hub.modes import builtin_tiles
-from hub.site import SITES_DIR, app_settings, load_site, section_titles
+from hub.loader import load_plugins
+from hub.site import SITES_DIR, app_settings, container_apps, load_site, section_titles
 from hub_settings import store as hub_store
 from hub_settings.models import AppSetting
 
@@ -38,7 +39,7 @@ class LoadSiteTests(SimpleTestCase):
     def test_site_without_toml_gets_empty_sections(self):
         self.assertEqual(self.site("bare"),
                          {"name": "bare", "brand": {}, "features": {}, "sections": {},
-                          "apps": {}, "events": {}})
+                          "apps": {}, "runtimes": {}, "events": {}})
 
     def test_section_titles_default_to_site_neutral_words(self):
         self.assertEqual(section_titles(self.site("bare")["sections"]),
@@ -64,6 +65,18 @@ class LoadSiteTests(SimpleTestCase):
         self.assertEqual(app_settings(site["apps"]), {
             "BDH_SONOS_CONTROL_MODELS": "*",
             "BDH_SONOS_CONTROL_ROOMS": {"Kitchen": {"icon": "fa-utensils"}}})
+
+    def test_runtime_is_taken_out_of_the_app_settings(self):
+        site = self.site("home", '[apps.cameras]\nruntime = "container"\ngrid = 2\n'
+                                 '[apps.wifi]\nruntime = "inprocess"\n[apps.sonos_control]\nmodels = "*"\n')
+        self.assertEqual(site["apps"]["cameras"], {"grid": 2})
+        self.assertEqual(container_apps(site["runtimes"]), {"cameras"})
+        with self.assertRaisesRegex(ValueError, r"\[apps.wifi\] runtime"):
+            self.site("bad", '[apps.wifi]\nruntime = "vm"\n')
+
+    def test_container_apps_are_not_loaded_in_process(self):
+        self.assertEqual(load_plugins(["radiant.plugin.spec"], include_entry_points=False,
+                                      exclude={"radiant"}), ())
 
     def test_app_entry_must_be_a_table(self):
         with self.assertRaisesRegex(ValueError, r"\[apps.wifi\]"):

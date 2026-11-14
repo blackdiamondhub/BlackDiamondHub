@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 from django.core.exceptions import ImproperlyConfigured
 
 from hub.loader import load_plugins
-from hub.site import app_settings, load_site
+from hub.site import app_settings, container_apps, load_site
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -32,6 +32,8 @@ HUB_SECTIONS = _SITE['sections']  # homepage section titles: see hub.site.sectio
 HUB_EVENT_SOURCES = _SITE['events']  # [events.sources.<name>]: see hub/events.py
 # Per-site app settings ([apps.<app_id>] in site.toml) as BDH_<APP>_<KEY>.
 globals().update(app_settings(_SITE['apps']))
+# Apps the site runs in containers (runtime = "container"): not loaded in-process.
+HUB_CONTAINER_APPS = container_apps(_SITE['runtimes'])
 
 
 # Quick-start development settings - unsuitable for production
@@ -85,7 +87,7 @@ HUB_PLUGINS = load_plugins([
     'feedback.plugin.spec',
     'hub_settings.plugin.spec',
     'display.plugin.spec',
-])
+], exclude=HUB_CONTAINER_APPS)
 INSTALLED_APPS += [spec.app for spec in HUB_PLUGINS]
 
 CHANNEL_LAYERS = {
@@ -108,6 +110,12 @@ APP_PORT_BASE = int(os.getenv('APP_PORT_BASE', '9100'))
 APP_PORTS = int(os.getenv('APP_PORTS', '24'))
 # What app containers are told to use as BDH_BROKER_URL.
 BDH_BROKER_URL = os.getenv('BDH_BROKER_URL', f'http://172.17.0.1:{BROKER_PORT}/_broker')
+# bdh-supervisor runs container apps (broker/supervisor.py); unset = no container apps.
+BDH_SUPERVISOR_SOCKET = os.getenv('BDH_SUPERVISOR_SOCKET', '')
+BDH_SUPERVISOR_TOKEN = os.getenv('BDH_SUPERVISOR_TOKEN', '')
+# The app catalog (broker/catalog.py), cached on disk.
+BDH_CATALOG_URL = os.getenv('BDH_CATALOG_URL', '')
+BDH_CATALOG_CACHE_DIR = os.getenv('BDH_CATALOG_CACHE_DIR', '')
 
 MIDDLEWARE = [
     # Before everything: the broker port serves only the broker RPC.

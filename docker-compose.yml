@@ -56,6 +56,10 @@ services:
       BROKER_PORT: ${BROKER_PORT:-8099}
       APP_PORTS: ${APP_PORTS:-24}
       BDH_BROKER_URL: ${BDH_BROKER_URL:-http://172.17.0.1:8099/_broker}
+      # bdh-supervisor (below) runs the container apps; the hub talks to it
+      # over this socket. BDH_SUPERVISOR_TOKEN is a shared secret (openssl rand -hex 32).
+      BDH_SUPERVISOR_SOCKET: /run/bdh-supervisor/supervisor.sock
+      BDH_SUPERVISOR_TOKEN: ${BDH_SUPERVISOR_TOKEN:-}
 
       # Napoleon fireplaces (Ayla cloud)
       NAPOLEON_EMAIL: ${NAPOLEON_EMAIL:-}
@@ -111,6 +115,8 @@ services:
       # Uploaded files (inventory images, screensaver photos). Without this
       # they live in the container and are lost on every image update.
       - ./media:/app/media
+      # bdh-supervisor's API socket.
+      - bdh-supervisor-socket:/run/bdh-supervisor
     
     restart: unless-stopped
 
@@ -128,6 +134,24 @@ services:
       - "8555:8555/udp" # WebRTC (UDP)
     restart: unless-stopped
 
+  bdh-supervisor:
+    # Runs container apps (https://github.com/blackdiamondlodge/bdh-supervisor).
+    # The only container with the Docker socket besides watchtower; it creates
+    # the bdh-gateway container, bdh-* networks and the bdh-app-* containers and
+    # volumes itself (don't add those here or to watchtower).
+    image: ghcr.io/blackdiamondlodge/bdh-supervisor:latest
+    container_name: bdh-supervisor
+    restart: unless-stopped
+    # Needed for the BDH-APPS firewall helper and the 10.213/16 routes.
+    network_mode: host
+    environment:
+      BDH_SUPERVISOR_TOKEN: ${BDH_SUPERVISOR_TOKEN}
+      BDH_CATALOG_URL: ${BDH_CATALOG_URL:-https://raw.githubusercontent.com/blackdiamondlodge/bdh-app-catalog/main/catalog.json}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - bdh-supervisor-socket:/run/bdh-supervisor
+      - bdh-supervisor-state:/state
+
   watchtower:
     image: containrrr/watchtower
     container_name: watchtower
@@ -136,7 +160,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     # Only these containers are auto-updated. go2rtc follows the go2rtc-nack
     # :latest tag (newest upstream release + NACK fix) so the hub and go2rtc stay on current versions.
-    command: ["BlackDiamondHub", "go2rtc"]
+    # App containers get new runtime images through the supervisor, not watchtower.
+    command: ["BlackDiamondHub", "go2rtc", "bdh-supervisor"]
     # If your Docker registry is private, provide credentials:
     environment:
     #   WATCHTOWER_USERNAME: "${REGISTRY_USERNAME}"
@@ -150,3 +175,7 @@ services:
     # 
     # Keep watchtower running unless it crashes/restarts
     restart: unless-stopped
+
+volumes:
+  bdh-supervisor-socket:
+  bdh-supervisor-state:

@@ -24,7 +24,7 @@ from django.conf import settings
 from django.http.request import validate_host
 from django.utils.encoding import escape_uri_path, iri_to_uri
 
-from . import conf, remote
+from . import conf, lifecycle, remote
 
 log = logging.getLogger(__name__)
 
@@ -208,9 +208,21 @@ async def app_proxy(scope, receive, send):
     install = await sync_to_async(remote.install_for_port)(port)
     if install is None or not install.upstream:
         return await _refuse(scope, receive, send)
+    if not await lifecycle.ensure_running(install):
+        return await _starting(scope, receive, send, install)
+    lifecycle.touch(install)
     if scope["type"] == "websocket":
         return await _websocket(scope, receive, send, install)
     return await _http(scope, receive, send, install)
+
+
+async def _starting(scope, receive, send, install):
+    if scope["type"] == "websocket":
+        await receive()  # websocket.connect
+        await send({"type": "websocket.close", "code": 1013})
+        return
+    page = STARTING_PAGE.format(name=html.escape(install.app_id)).encode()
+    await _plain(send, 503, page, b"text/html; charset=utf-8", [(b"retry-after", b"3")])
 
 
 async def _http(scope, receive, send, install):
@@ -239,8 +251,8 @@ async def _http(scope, receive, send, install):
                 await resp.aclose()
     except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
         log.info("%s is down: %s", install.app_id, exc)
-        page = STARTING_PAGE.format(name=html.escape(install.app_id)).encode()
-        await _plain(send, 503, page, b"text/html; charset=utf-8", [(b"retry-after", b"3")])
+        lifecycle.forget(install.app_id)
+        await _starting(scope, receive, send, install)
     except httpx.HTTPError as exc:
         log.warning("%s proxy error: %s", install.app_id, exc)
         await _plain(send, 502, b"Bad gateway")
@@ -277,6 +289,7 @@ async def _websocket(scope, receive, send, install):
         upstream = await _ws_connect(url, out, subprotocols)
     except Exception as exc:
         log.info("%s websocket refused: %s", install.app_id, exc)
+        lifecycle.forget(install.app_id)
         await send({"type": "websocket.close", "code": 1013})
         return
     try:

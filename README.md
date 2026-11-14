@@ -99,7 +99,9 @@ Each site folder has:
   settings. Each key becomes the Django setting `BDH_<APP_ID>_<KEY>`, read by
   the app with `bdh_sdk.settings.app_setting` (a value on the Settings page or
   in the environment wins). For example `[apps.sonos_control]` sets which
-  speakers, rooms and presets the music app shows.
+  speakers, rooms and presets the music app shows. `runtime = "container"` in
+  an app's table stops the hub loading it in-process, so it can be installed
+  as a container app instead (see below).
 - `apps.txt`: the hashed app wheels baked into that site's image.
 
 The image is built with `--build-arg HUB_SITE=<site>`, which also sets
@@ -125,6 +127,25 @@ and every topic starts with the source name:
   `secret_env`. Publishes `<name>/<topic>`.
 
 Set `HUB_EVENTS=off` to start no sources.
+
+### Container apps
+
+Apps built for hub API 2 run in their own containers, managed by
+[bdh-supervisor](https://github.com/blackdiamondlodge/bdh-supervisor) (a
+compose service; the hub reaches it through `BDH_SUPERVISOR_SOCKET` with
+`BDH_SUPERVISOR_TOKEN`). They are installed from the
+[app catalog](https://github.com/blackdiamondlodge/bdh-app-catalog)
+(`BDH_CATALOG_URL`, cached under `media/.catalog` and refreshed hourly), and
+the hub proxies each one on its own port (9100 + n), starting it on the first
+request and keeping it awake while it is used.
+
+```sh
+python manage.py catalog_refresh                     # fetch the catalog, list what can be installed
+python manage.py app_install <id> [--version X] [--network none|outbound|lan] [--allow-lan]
+python manage.py app_install <id> --approve          # update to a version that asks for more
+python manage.py app_status                          # the hub's and the supervisor's view
+python manage.py app_uninstall <id> [--purge]        # --purge deletes the app's data
+```
 
 ## Deploying a hub server
 

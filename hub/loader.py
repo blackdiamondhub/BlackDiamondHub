@@ -92,11 +92,12 @@ def validate(specs):
     return specs
 
 
-def load_plugins(builtin_paths, include_entry_points=True):
+def load_plugins(builtin_paths, include_entry_points=True, exclude=()):
+    """The in-process apps; ``exclude`` drops ids the site runs in containers."""
     specs = [_import_spec(p) for p in builtin_paths]
     if include_entry_points:
         specs += _entry_point_specs()
-    return tuple(validate(specs))
+    return tuple(validate([spec for spec in specs if spec.id not in exclude]))
 
 
 def websocket_urlpatterns(specs=None):

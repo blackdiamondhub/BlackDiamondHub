@@ -14,6 +14,9 @@ BRAND_FILES = ("monogram", "monogram_light", "og_image")
 # Homepage section titles unless the site's [sections] table renames them.
 # The keys are the bdh_sdk section ids apps put their tiles in.
 SECTION_TITLES = {"mountain": "Outside", "lodge": "Inside", "more": "More"}
+# How an app runs: in the hub process (the default) or in its own container
+# under bdh-supervisor (``runtime = "container"`` in its [apps.<id>] table).
+RUNTIMES = ("inprocess", "container")
 
 
 def section_titles(sections=None):
@@ -29,6 +32,7 @@ def load_site(name=None, sites_dir=SITES_DIR):
 
     ``apps`` is ``{app_id: {key: value}}`` from the ``[apps.<app_id>]`` tables:
     per-site settings for installed apps (see :func:`app_settings`).
+    ``runtimes`` is ``{app_id: runtime}``, taken out of those tables.
     """
     name = name or os.getenv("HUB_SITE") or DEFAULT_SITE
     folder = Path(sites_dir) / name
@@ -42,10 +46,17 @@ def load_site(name=None, sites_dir=SITES_DIR):
             brand[key] = str(folder / brand[key])
             if not Path(brand[key]).is_file():
                 raise ValueError(f"site {name!r}: brand {key} file {brand[key]} not found")
-    apps = conf.get("apps", {})
-    for app_id, values in apps.items():
+    apps = {}
+    runtimes = {}
+    for app_id, values in conf.get("apps", {}).items():
         if not isinstance(values, dict):
             raise ValueError(f"site {name!r}: [apps.{app_id}] must be a table")
+        values = dict(values)
+        runtime = values.pop("runtime", "inprocess")
+        if runtime not in RUNTIMES:
+            raise ValueError(f"site {name!r}: [apps.{app_id}] runtime must be one of {', '.join(RUNTIMES)}")
+        runtimes[app_id] = runtime
+        apps[app_id] = values
     sections = dict(conf.get("sections", {}))
     for key, title in sections.items():
         if key not in SECTION_TITLES or not isinstance(title, str) or not title.strip():
@@ -53,7 +64,7 @@ def load_site(name=None, sites_dir=SITES_DIR):
                              f"{', '.join(SECTION_TITLES)} with a title")
     return {"name": name, "brand": brand,
             "features": dict(conf.get("features", {})), "sections": sections,
-            "apps": {app_id: dict(values) for app_id, values in apps.items()},
+            "apps": apps, "runtimes": runtimes,
             "events": event_sources(name, conf.get("events", {}).get("sources", {}))}
 
 
@@ -74,6 +85,11 @@ def event_sources(site, sources):
             raise ValueError(f"{where}: webhook needs secret_env")
         out[source] = dict(conf)
     return out
+
+
+def container_apps(runtimes):
+    """Ids of the apps the site runs in containers (not loaded in-process)."""
+    return frozenset(app_id for app_id, runtime in runtimes.items() if runtime == "container")
 
 
 def app_settings(apps):
