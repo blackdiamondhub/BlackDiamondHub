@@ -44,6 +44,17 @@ class AppInstall(models.Model):
     def cookie_prefix(self):
         return f"bdh_{self.app_id.replace('-', '_')}_"
 
+    @property
+    def cookie_names(self):
+        """The app's own cookies (as the SDK runtime names them). Matched exactly:
+        a prefix match would hand app ``a`` the cookies of app ``a_b``."""
+        return frozenset({self.cookie_prefix + "session", self.cookie_prefix + "csrf"})
+
+    @staticmethod
+    def cookie_key(app_id):
+        """Ids that differ only by ``-``/``_`` share cookie names, so only one may exist."""
+        return app_id.replace("-", "_")
+
     @staticmethod
     def free_port():
         used = set(AppInstall.objects.values_list("port", flat=True))

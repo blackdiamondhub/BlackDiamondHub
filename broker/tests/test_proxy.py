@@ -1,8 +1,10 @@
+import io
 import httpx
 from asgiref.sync import async_to_sync
 from bdh_sdk.identity import verify
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core.management import CommandError, call_command
+from django.test import TestCase, override_settings
 
 from broker import proxy
 from broker.tokens import token_for
@@ -30,6 +32,8 @@ def run(app, scope, body=b""):
 
 
 def scope(port, path="/", method="GET", headers=(), query=b"", kind="http"):
+    if not any(k == "host" for k, _v in headers):
+        headers = [("host", f"hub.local:{port}"), *headers]
     return {"type": kind, "method": method, "path": path, "raw_path": path.encode(),
             "query_string": query, "scheme": "http", "server": ("hub.local", port),
             "client": ("192.168.1.50", 5555),
@@ -67,6 +71,7 @@ class FakeUpstream:
         return httpx.Response(self.status, headers=self.headers, stream=Body(self.body))
 
 
+@override_settings(ALLOWED_HOSTS=["hub.local", "h"])
 class ProxyTestCase(TestCase):
     def setUp(self):
         reset_broker()
@@ -89,7 +94,8 @@ class AppProxyTests(ProxyTestCase):
         session = self.hub_cookie(is_staff=True)
         headers = [("host", "hub.local:9100"), ("authorization", "Basic abc"), ("x-bdh-identity", "forged"),
                    ("x-bdh-signature", "forged"), ("accept", "text/html"),
-                   ("cookie", f"sessionid={session}; csrftoken=hub; bdh_cams_session=s1; bdh_other_session=o")]
+                   ("cookie", f"sessionid={session}; csrftoken=hub; bdh_cams_session=s1; bdh_other_session=o; "
+                              "bdh_cams_x_session=x")]
         status, _h, body = response(run(proxy.app_proxy, scope(self.port, "/cameras/ü", headers=headers,
                                                                  query=b"a=1&b=2")))
         self.assertEqual((status, body), (200, b"hello"))
@@ -121,12 +127,22 @@ class AppProxyTests(ProxyTestCase):
     def test_response_headers(self):
         self.upstream.headers = [("set-cookie", "bdh_cams_session=new; Path=/"),
                                  ("set-cookie", "sessionid=stolen; Path=/"),
+                                 ("set-cookie", "bdh_cams_x_session=clobber; Path=/"),
                                  ("x-frame-options", "DENY"), ("content-type", "text/html")]
         _s, headers, _b = response(run(proxy.app_proxy, scope(self.port, "/", headers=[("host", "hub.local:9100")])))
         self.assertEqual(headers["set-cookie"], ["bdh_cams_session=new; Path=/"])
         self.assertNotIn("x-frame-options", headers)
         self.assertEqual(headers["content-security-policy"], ["frame-ancestors http://hub.local:8000"])
         self.assertEqual(headers["content-type"], ["text/html"])
+
+    def test_unknown_host_refused(self):
+        # A DNS-rebinding page arrives with its own name in Host (and Origin).
+        sent = run(proxy.app_proxy, scope(self.port, "/", headers=[("host", "evil.example:9100")]))
+        self.assertEqual(response(sent)[0], 400)
+        sent = run(proxy.app_proxy, scope(self.port, "/ws/", kind="websocket", headers=[
+            ("host", "evil.example:9100"), ("origin", "http://evil.example:9100")]))
+        self.assertNotEqual(sent[0]["type"], "websocket.accept")
+        self.assertEqual(self.upstream.requests, [])
 
     def test_internal_paths_blocked(self):
         for path in ("/_bdh/hook", "/_bdh", "/_bdh/manifest"):
@@ -166,9 +182,17 @@ class AppProxyTests(ProxyTestCase):
 
 class HelperTests(TestCase):
     def test_app_cookies(self):
-        self.assertEqual(proxy.app_cookies("a=1; bdh_cams_x=2;bdh_cams_y=3; bdh_camsx_z=4", "bdh_cams_"),
-                         "bdh_cams_x=2; bdh_cams_y=3")
-        self.assertEqual(proxy.app_cookies(None, "bdh_cams_"), "")
+        names = {"bdh_cams_session", "bdh_cams_csrf"}
+        self.assertEqual(proxy.app_cookies("a=1; bdh_cams_session=2;bdh_cams_csrf=3; bdh_cams_x_session=4", names),
+                         "bdh_cams_session=2; bdh_cams_csrf=3")
+        self.assertEqual(proxy.app_cookies(None, names), "")
+
+    def test_app_ids_sharing_cookie_names_refused(self):
+        reset_broker()
+        self.addCleanup(reset_broker)
+        call_command("broker_app", "my_app", stdout=io.StringIO())
+        with self.assertRaises(CommandError):
+            call_command("broker_app", "my-app", stdout=io.StringIO())
 
 
 class DispatcherTests(ProxyTestCase):

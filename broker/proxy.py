@@ -21,6 +21,7 @@ import httpx
 from asgiref.sync import sync_to_async
 from bdh_sdk.identity import signed_headers
 from django.conf import settings
+from django.http.request import validate_host
 from django.utils.encoding import escape_uri_path, iri_to_uri
 
 from . import conf, remote
@@ -107,12 +108,12 @@ def _header(headers, name):
     return next((v for k, v in headers if k == name), "")
 
 
-def app_cookies(cookie_header, prefix):
-    """Only the cookies named with ``prefix`` (the app's own)."""
+def app_cookies(cookie_header, names):
+    """Only the cookies in ``names`` (the app's own)."""
     kept = []
     for part in (cookie_header or "").split(";"):
         name = part.split("=", 1)[0].strip()
-        if name.startswith(prefix):
+        if name in names:
             kept.append(part.strip())
     return "; ".join(kept)
 
@@ -149,7 +150,7 @@ def _client_ip(scope):
 async def _request_headers(scope, headers, install, method):
     ident = await _identity(scope, headers)
     out = [(k, v) for k, v in headers if k not in DROP_REQUEST and not k.startswith("x-bdh-")]
-    cookies = app_cookies(_header(headers, "cookie"), install.cookie_prefix)
+    cookies = app_cookies(_header(headers, "cookie"), install.cookie_names)
     if cookies:
         out.append(("cookie", cookies))
     # The app's CSRF check compares Origin with Host, so it sees the public host.
@@ -170,7 +171,7 @@ def response_headers(raw_headers, install, host):
         raw = value if isinstance(value, bytes) else value.encode("latin1")
         if name == "set-cookie":
             cookie = raw.decode("latin1").split("=", 1)[0].strip()
-            if cookie.startswith(install.cookie_prefix):
+            if cookie in install.cookie_names:
                 out.append((b"set-cookie", raw))
             continue
         if name in DROP_RESPONSE:
@@ -201,6 +202,9 @@ async def app_proxy(scope, receive, send):
     path = scope.get("path") or "/"
     if _is_internal_path(path):
         return await _refuse(scope, receive, send, 403, b"Forbidden")
+    # The hub port gets this from Django; without it a DNS-rebinding page could drive apps.
+    if not validate_host(remote.hostname(_header(_headers(scope), "host")), settings.ALLOWED_HOSTS):
+        return await _refuse(scope, receive, send, 400, b"Bad Request")
     install = await sync_to_async(remote.install_for_port)(port)
     if install is None or not install.upstream:
         return await _refuse(scope, receive, send)

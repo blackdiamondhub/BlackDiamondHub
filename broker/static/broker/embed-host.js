@@ -23,9 +23,14 @@
     fit();
     window.addEventListener('resize', fit);
 
-    function hubPath(path) {
-        return typeof path === 'string' && path.charAt(0) === '/' && path.charAt(1) !== '/' &&
-            path.indexOf('\\') === -1 && !/^\/_broker(\/|$)/.test(path);
+    // A same-origin hub URL for ``path``, or null. Resolved first so tricks the URL
+    // parser strips (tabs, newlines, backslashes) can't point the hub elsewhere.
+    function hubUrl(path) {
+        if (typeof path !== 'string' || path.charAt(0) !== '/' || /[\u0000-\u001f\\]/.test(path)) return null;
+        var u;
+        try { u = new URL(path, target.location.href); } catch (err) { return null; }
+        if (u.origin !== target.location.origin || /^\/_broker(\/|$)/.test(u.pathname)) return null;
+        return u.pathname + u.search + u.hash;
     }
 
     var toastBox = null;
@@ -62,8 +67,9 @@
                 }) : [];
                 target.location.href = navUrl + '?name=' + encodeURIComponent(d.name) +
                     '&args=' + encodeURIComponent(JSON.stringify(args));
-            } else if (hubPath(d.path)) {
-                target.location.href = d.path;
+            } else {
+                var url = hubUrl(d.path);
+                if (url) target.location.href = url;
             }
         },
         toast: function (d) {

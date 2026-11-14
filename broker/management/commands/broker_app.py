@@ -35,6 +35,11 @@ class Command(BaseCommand):
             self.stdout.write(f"removed {app_id}")
             return
         if install is None:
+            key = AppInstall.cookie_key(app_id)
+            clash = next((i.app_id for i in AppInstall.objects.all()
+                          if AppInstall.cookie_key(i.app_id) == key), None)
+            if clash:
+                raise CommandError(f"{app_id} clashes with installed app {clash}")
             install = AppInstall(app_id=app_id)
         if opts["upstream"] is not None:
             install.upstream = opts["upstream"]
