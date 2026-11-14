@@ -1,5 +1,5 @@
 {% extends 'hub_settings/_layout.html' %}
-{% load static %}
+{% load static broker_tags %}
 
 {% block section %}
 <style>
@@ -89,7 +89,7 @@
                 <span class="hl-ico">
                     {% if tile.kind == 'weather' %}<i class="fas fa-mountain" aria-hidden="true"></i>
                     {% elif tile.kind == 'lodge' %}<i class="fas fa-house" aria-hidden="true"></i>
-                    {% elif tile.icon %}<img src="{% static tile.icon %}" alt="">{% endif %}
+                    {% elif tile.icon %}<img src="{{ tile.icon|tile_icon }}" alt="">{% endif %}
                 </span>
                 <span class="lbl">
                     <b>{{ tile.title }}</b>

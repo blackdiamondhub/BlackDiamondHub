@@ -7,9 +7,9 @@ from urllib.parse import urlsplit
 from django.contrib.auth.decorators import user_passes_test
 from django.http import JsonResponse
 from django.shortcuts import render
-from django.templatetags.static import static
 from django.views.decorators.http import require_POST
 
+from broker.templatetags.broker_tags import tile_icon
 from hub.modes import current_stay, plugins
 
 from .models import Feedback
@@ -77,7 +77,7 @@ def _page(page_url):
         return {'title': 'Home', 'icon': ''}
     best, best_len = None, -1
     for spec in plugins():
-        if not spec.urls or not spec.tiles:
+        if not (spec.urls or getattr(spec, 'remote', False)) or not spec.tiles:
             continue
         prefix = '/' + spec.prefix
         if path.startswith(prefix) and len(prefix) > best_len:
@@ -86,7 +86,7 @@ def _page(page_url):
         return {'title': path, 'icon': ''}
     tile = best.tiles[0]
     try:
-        icon = static(tile.icon) if tile.icon else ''
+        icon = tile_icon(tile.icon)
     except Exception:
         icon = ''
     return {'title': tile.title, 'icon': icon}

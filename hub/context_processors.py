@@ -72,6 +72,8 @@ def stay_key(request):
 
 
 def _tile_url(tile):
+    if getattr(tile, "url", None):
+        return tile.url
     try:
         return reverse(tile.url_name)
     except NoReverseMatch:
@@ -87,7 +89,7 @@ def nav_title(request):
     path = request.path
     best, best_len = None, -1
     for spec in plugins():
-        if not spec.urls or not spec.tiles:
+        if not (spec.urls or getattr(spec, "remote", False)) or not spec.tiles:
             continue
         prefix = "/" + spec.prefix
         if path.startswith(prefix) and len(prefix) > best_len:
