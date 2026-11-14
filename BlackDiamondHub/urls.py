@@ -30,6 +30,8 @@ urlpatterns = [
     path('og-image.png', hub_views.og_image, name='og_image'),
     path('hub/api/', include('hub.urls')),
     path('auth/', include('social_django.urls', namespace='social')),
+    # Container apps: the hub's shell around each app's own origin.
+    path('apps/', include('broker.urls')),
 ]
 
 # Hub apps are mounted from their PluginSpec (see settings.HUB_PLUGINS).

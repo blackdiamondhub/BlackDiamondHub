@@ -41,6 +41,8 @@ def _distributions():
 
 
 def _version(spec):
+    if getattr(spec, "remote", False):
+        return spec.version
     module = spec.app.split(".")[0]
     for dist in _distributions().get(module, ()):
         try:
@@ -98,10 +100,12 @@ def _pages(spec):
     """Links to the app's own settings pages; ones that don't resolve are skipped."""
     pages = []
     for page in spec.settings_pages:
-        try:
-            url = reverse(page.url_name)
-        except NoReverseMatch:
-            continue
+        url = getattr(page, "url", None)
+        if not url:
+            try:
+                url = reverse(page.url_name)
+            except NoReverseMatch:
+                continue
         pages.append({"title": page.title, "subtitle": page.subtitle, "icon": page.icon, "url": url})
     return pages
 

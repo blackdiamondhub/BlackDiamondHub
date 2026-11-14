@@ -44,7 +44,13 @@ def resolve_mode(request) -> str:
 
 
 def plugins():
-    return getattr(settings, "HUB_PLUGINS", ())
+    """In-process plugins, then container apps (see ``broker.remote``)."""
+    local = tuple(getattr(settings, "HUB_PLUGINS", ()))
+    if "broker" not in settings.INSTALLED_APPS:
+        return local
+    from broker.remote import remote_specs
+
+    return local + remote_specs(spec.id for spec in local)
 
 
 SIZES = ("s", "m", "l")
@@ -119,10 +125,12 @@ def _catalog(mode=None):
         for tile in spec.tiles:
             if mode is not None and mode not in tile.modes:
                 continue
-            try:
-                url = reverse(tile.url_name)
-            except NoReverseMatch:
-                continue
+            url = getattr(tile, "url", None)
+            if not url:
+                try:
+                    url = reverse(tile.url_name)
+                except NoReverseMatch:
+                    continue
             grouped[tile.section].append({
                 "id": f"{spec.id}:{tile.url_name}",
                 "kind": "app",

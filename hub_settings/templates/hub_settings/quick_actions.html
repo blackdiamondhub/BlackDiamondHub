@@ -1,5 +1,5 @@
 {% extends 'hub_settings/_layout.html' %}
-{% load static %}
+{% load static broker_tags %}
 
 {% block section %}
 <style>
@@ -94,7 +94,7 @@
             <div class="qa-group" data-id="{{ app.id }}">
                 <div class="qa-app">
                     <span class="qa-grip" aria-hidden="true"><i class="fas fa-grip-vertical"></i></span>
-                    <span class="qa-ico">{% if app.img %}<img src="{% static app.img %}" alt="">{% else %}<i class="fas fa-bolt" aria-hidden="true"></i>{% endif %}</span>
+                    <span class="qa-ico">{% if app.img %}<img src="{{ app.img|tile_icon }}" alt="">{% else %}<i class="fas fa-bolt" aria-hidden="true"></i>{% endif %}</span>
                     <span class="lbl">
                         <b>{{ app.label }}</b>
                         <small>{{ app.buttons|length }} button{{ app.buttons|length|pluralize }}</small>

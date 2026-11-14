@@ -49,6 +49,14 @@ services:
       # Development remote control (/hub/api/remote/); blank = off. Keep unset in production.
       HUB_REMOTE_TOKEN: ${HUB_REMOTE_TOKEN:-}
 
+      # Container apps (broker/). The broker RPC listens on BROKER_PORT bound to
+      # BROKER_BIND only: the docker bridge gateway, so app containers reach it
+      # and the LAN does not. App UIs are proxied on 9100..9100+APP_PORTS-1.
+      BROKER_BIND: ${BROKER_BIND:-172.17.0.1}
+      BROKER_PORT: ${BROKER_PORT:-8099}
+      APP_PORTS: ${APP_PORTS:-24}
+      BDH_BROKER_URL: ${BDH_BROKER_URL:-http://172.17.0.1:8099/_broker}
+
       # Napoleon fireplaces (Ayla cloud)
       NAPOLEON_EMAIL: ${NAPOLEON_EMAIL:-}
       NAPOLEON_PASSWORD: ${NAPOLEON_PASSWORD:-}

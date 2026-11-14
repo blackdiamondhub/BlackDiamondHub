@@ -21,6 +21,7 @@ from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
 from channels.security.websocket import AllowedHostsOriginValidator  # noqa: E402
 from django.urls import path  # noqa: E402
 
+from broker.proxy import PortDispatcher  # noqa: E402
 from hub.alerts import AlertConsumer  # noqa: E402
 from hub.loader import websocket_urlpatterns  # noqa: E402
 from hub.remote import RemoteConsumer  # noqa: E402
@@ -30,11 +31,13 @@ core_websocket_urlpatterns = [
     path("ws/hub/remote/", RemoteConsumer.as_asgi()),
 ]
 
-application = ProtocolTypeRouter({
+# PortDispatcher sends the app ports (9100+) to the app proxy and keeps the
+# broker port to /_broker/; everything else is the hub.
+application = PortDispatcher(ProtocolTypeRouter({
     "http": django_asgi_app,
     "websocket": AllowedHostsOriginValidator(
         AuthMiddlewareStack(
             URLRouter(core_websocket_urlpatterns + websocket_urlpatterns())
         )
     ),
-})
+}))

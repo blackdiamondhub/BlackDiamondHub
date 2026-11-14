@@ -59,8 +59,19 @@ class ActionNotFound(Exception):
 
 
 def _resolve(path):
+    if path.startswith("remote:"):
+        from broker.remote import hook
+
+        return hook(path)
     module_path, _, attr = path.rpartition(".")
     return getattr(import_module(module_path), attr)
+
+
+def _converted(result):
+    """A container app's hook result, already in the hub's JSON shape."""
+    from broker.remote import Converted
+
+    return isinstance(result, Converted)
 
 
 def _image_url(url):
@@ -83,6 +94,8 @@ def _actions_value(actions):
 
 
 def _status_value(result):
+    if _converted(result):
+        return result.value
     if result is None:
         return None
     if isinstance(result, str):
@@ -123,6 +136,8 @@ def _status_ttl(value):
 
 
 def _shortcuts_value(result):
+    if _converted(result):
+        return result.value or []
     items = []
     for sc in result or ():
         if not isinstance(sc, Shortcut):
@@ -141,6 +156,8 @@ def _shortcuts_value(result):
 
 
 def _stay_value(result):
+    if _converted(result):
+        return result.value
     if result is None:
         return None
     if not isinstance(result, Stay):
@@ -150,6 +167,8 @@ def _stay_value(result):
 
 
 def _card_value(result):
+    if _converted(result):
+        return result.value
     if result is None:
         return None
     if not isinstance(result, Card):

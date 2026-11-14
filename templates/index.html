@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% load static %}
+{% load static broker_tags %}
 
 {% block title %}{{ hub_brand.name }}{% endblock %}
 
@@ -485,7 +485,7 @@
             {% else %}
             <a class="hub-cell hub-tile hub-tile-{{ tile.size }}" href="{{ tile.url }}" data-plugin="{{ tile.plugin }}">
                 <span class="hub-tile-in">
-                    <img src="{% static tile.icon %}" alt="">
+                    <img src="{{ tile.icon|tile_icon }}" alt="">
                     <span class="hub-tile-txt">
                         <span class="hub-tile-title">{{ tile.title }}</span>
                         <span class="hub-tile-sub" data-subtitle="{{ tile.subtitle }}">{{ tile.subtitle }}</span>

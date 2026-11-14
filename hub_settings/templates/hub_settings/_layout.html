@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static broker_tags %}
 
 {% block navbar_title %}Settings{% endblock %}
 
@@ -124,7 +124,7 @@
         <div class="hst-grp">Apps</div>
         {% for s in app_sections %}
         <a href="{{ s.url }}" class="{% if s.id == active %}on{% endif %}"{% if s.id == active %} aria-current="page"{% endif %}>
-            {% if s.img %}<img src="{% static s.img %}" alt="">{% else %}<i class="fas fa-puzzle-piece" aria-hidden="true"></i>{% endif %}{{ s.label }}
+            {% if s.img %}<img src="{{ s.img|tile_icon }}" alt="">{% else %}<i class="fas fa-puzzle-piece" aria-hidden="true"></i>{% endif %}{{ s.label }}
         </a>
         {% empty %}
         <div class="hst-foot">No app has settings yet.</div>

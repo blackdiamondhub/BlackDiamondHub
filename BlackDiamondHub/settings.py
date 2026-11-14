@@ -75,6 +75,7 @@ INSTALLED_APPS = [
     'crispy_forms',
     'crispy_bootstrap5',
     'hub',
+    'broker',
 ]
 
 # Hub apps. Each one describes itself in <app>/plugin.py; apps installed from
@@ -98,7 +99,19 @@ CRISPY_TEMPLATE_PACK = "bootstrap5"
 ASGI_APPLICATION = 'BlackDiamondHub.asgi.application'
 WSGI_APPLICATION = 'BlackDiamondHub.wsgi.application'
 
+# Container apps (see broker/). The hub listens on HUB_PORT; apps call the
+# broker on BROKER_PORT (bound to the docker bridge only, see
+# docker/entrypoint.sh); app N's UI is proxied on APP_PORT_BASE + N.
+HUB_PORT = int(os.getenv('PORT', '8000'))
+BROKER_PORT = int(os.getenv('BROKER_PORT', '8099'))
+APP_PORT_BASE = int(os.getenv('APP_PORT_BASE', '9100'))
+APP_PORTS = int(os.getenv('APP_PORTS', '24'))
+# What app containers are told to use as BDH_BROKER_URL.
+BDH_BROKER_URL = os.getenv('BDH_BROKER_URL', f'http://172.17.0.1:{BROKER_PORT}/_broker')
+
 MIDDLEWARE = [
+    # Before everything: the broker port serves only the broker RPC.
+    'broker.middleware.BrokerPortMiddleware',
     # First, so container health checks skip the ALLOWED_HOSTS check.
     'hub.health.HealthCheckMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -295,4 +308,4 @@ HUB_OWNER_VISIT_USER = os.environ.get('HUB_OWNER_VISIT_USER', '')
 # over plain HTTP on a LAN IP.
 SECURE_CROSS_ORIGIN_OPENER_POLICY = None   # default "same-origin"
 SECURE_REFERRER_POLICY = None              # default "same-origin"
-X_FRAME_OPTIONS = 'ALLOWALL'               # allow embedding in iframes (Connect Screen may use one)
+X_FRAME_OPTIONS = 'SAMEORIGIN'             # hub pages frame each other (alerts); container apps are other origins

@@ -47,4 +47,15 @@ else
 fi
 
 unset MIGRATE_USER MIGRATE_PASSWORD
-exec daphne --proxy-headers -b 0.0.0.0 -p "${PORT:-8000}" BlackDiamondHub.asgi:application
+# One daphne, several listeners (broker/proxy.py routes by port):
+#   PORT (8000)        the hub, on every interface
+#   BROKER_PORT (8099) the broker RPC for app containers; bind it to the docker
+#                      bridge (BROKER_BIND=172.17.0.1), never to the LAN
+#   APP_PORT_BASE..+APP_PORTS-1 (9100..9123) each container app's UI, proxied
+endpoints=(-e "tcp:port=${PORT:-8000}:interface=0.0.0.0")
+endpoints+=(-e "tcp:port=${BROKER_PORT:-8099}:interface=${BROKER_BIND:-127.0.0.1}")
+app_base="${APP_PORT_BASE:-9100}"
+for ((i = 0; i < ${APP_PORTS:-24}; i++)); do
+    endpoints+=(-e "tcp:port=$((app_base + i)):interface=0.0.0.0")
+done
+exec daphne --proxy-headers "${endpoints[@]}" BlackDiamondHub.asgi:application

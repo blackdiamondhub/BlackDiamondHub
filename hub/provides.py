@@ -12,7 +12,7 @@ from functools import partial
 from bdh_sdk.provides import BACKGROUNDS, CAPABILITIES, SEASON, STATS, Background, SeasonHint, Stat
 
 from .modes import plugins
-from .status import _gather
+from .status import _converted, _gather
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,9 @@ def _iso(when):
 
 
 def _stats_value(allowed, result):
+    if _converted(result):
+        # Re-check against the declared keys: the app's reply is untrusted.
+        return {k: v for k, v in (result.value or {}).items() if k in allowed and isinstance(v, dict)}
     out = {}
     for stat in list(result or ()):
         if not isinstance(stat, Stat):
@@ -66,6 +69,8 @@ def _stats_value(allowed, result):
 
 
 def _backgrounds_value(result):
+    if _converted(result):
+        return result.value or []
     out, seen = [], set()
     for bg in list(result or ()):
         if not isinstance(bg, Background):
@@ -79,6 +84,8 @@ def _backgrounds_value(result):
 
 
 def _season_value(result):
+    if _converted(result):
+        return result.value
     if result is None:
         return None
     if not isinstance(result, SeasonHint):
