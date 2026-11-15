@@ -108,6 +108,15 @@ class OwnDataTests(RpcTestCase):
             self.assertEqual(self.ok("settings.get", {"app": "cams", "key": "grid"}),
                              {"found": False, "value": None})
 
+    def test_any_app_reads_public_hub_settings(self):
+        with mock.patch("hub_settings.store.lookup", return_value="imperial") as lookup:
+            self.assertEqual(self.ok("settings.get", {"app": "hub", "key": "units"}),
+                             {"found": True, "value": "imperial"})
+            self.ok("settings.get", {"app": "hub", "key": "location"})
+        self.assertEqual([c.args for c in lookup.call_args_list], [("hub", "units"), ("hub", "location")])
+        self.refused("settings.get", {"app": "hub", "key": "quick"})
+        self.refused("settings.get", {"app": "hub", "key": "home_layout"})
+
 
 class AlertTests(RpcTestCase):
     def test_push_needs_grant(self):

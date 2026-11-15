@@ -96,10 +96,17 @@ def _jsonable_history(history):
 
 # --- settings / state ---------------------------------------------------------
 
+#: Hub-wide settings every app may read (bdh_sdk.location / bdh_sdk.units).
+PUBLIC_HUB_SETTINGS = frozenset({"location", "units"})
+
+
 def settings_get(install, grants, payload):
     from hub_settings import store
 
-    app = _own(install, payload)
+    if payload.get("app") == "hub" and payload.get("key") in PUBLIC_HUB_SETTINGS:
+        app = "hub"
+    else:
+        app = _own(install, payload)
     try:
         return {"found": True, "value": store.lookup(app, _str(payload, "key"))}
     except KeyError:
