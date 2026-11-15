@@ -33,6 +33,9 @@ runtime = "container"  # bdh-app-weather image under bdh-supervisor
 [apps.wifi]
 runtime = "container"  # bdh-app-wifi image under bdh-supervisor
 
+[apps.timers]
+runtime = "container"  # bdh-app-timers 2.0.0 under bdh-supervisor
+
 [apps.hub]
 units = "imperial"
 
