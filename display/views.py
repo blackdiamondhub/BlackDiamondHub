@@ -16,7 +16,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from hub import provides
 from hub_settings import store
-from hub_settings.views import _render, _save, staff_page
+from hub_settings.views import _render, _save, saved_redirect, staff_page
 
 from . import catalog, options
 from .library import photo_json, season_photos
@@ -211,7 +211,7 @@ def settings_page(request):
         if not errors:
             _save(request, spec, saved, values)
             tab = request.POST.get("tab")
-            return redirect(f"{request.path}?saved=1" + (f"&season={tab}" if tab in SEASON_IDS else ""))
+            return saved_redirect(request, f"{request.path}?saved=1" + (f"&season={tab}" if tab in SEASON_IDS else ""))
         current, status = {**_current(spec, saved), **raw}, 400
     else:
         current = _current(spec, saved)

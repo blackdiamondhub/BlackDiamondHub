@@ -8,6 +8,7 @@ from django.contrib.auth.decorators import user_passes_test
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import NoReverseMatch, reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 
 from hub import quick, status
@@ -27,6 +28,16 @@ def _is_staff(user):
 
 
 staff_page = user_passes_test(_is_staff)
+
+
+def saved_redirect(request, default):
+    """After a successful save, go where "Save & leave" asked (a local path in
+    POST _next) or back to `default`."""
+    target = request.POST.get("_next", "")
+    if (target.startswith("/") and not target.startswith(("//", "/\\"))
+            and url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()})):
+        return redirect(target)
+    return redirect(default)
 
 
 _label = quick.app_label
@@ -172,7 +183,7 @@ def home_layout(request):
                            has_errors=True, status=400)
         AppSetting.objects.update_or_create(
             app_id=LAYOUT_APP, key=LAYOUT_KEY, defaults={"value": layout, "updated_by": request.user})
-        return redirect(f"{request.path}?saved=1")
+        return saved_redirect(request, f"{request.path}?saved=1")
     customised = AppSetting.objects.filter(app_id=LAYOUT_APP, key=LAYOUT_KEY).exists()
     return _render(request, "hub_settings/home_layout.html", "home", sections=sections,
                    customised=customised, just_saved=request.GET.get("saved") == "1",
@@ -245,7 +256,7 @@ def quick_actions(request):
                            has_errors=True, status=400)
         AppSetting.objects.update_or_create(
             app_id=quick.QUICK_APP, key=quick.QUICK_KEY, defaults={"value": value, "updated_by": request.user})
-        return redirect(f"{request.path}?saved=1")
+        return saved_redirect(request, f"{request.path}?saved=1")
     customised = AppSetting.objects.filter(app_id=quick.QUICK_APP, key=quick.QUICK_KEY).exists()
     return _render(request, "hub_settings/quick_actions.html", "quick", apps=apps, prefs=prefs,
                    customised=customised, just_saved=request.GET.get("saved") == "1")
@@ -377,7 +388,7 @@ def app_settings(request, app_id):
                 errors[setting.key] = str(exc)
         if not errors:
             _save(request, spec, saved, values)
-            return redirect(f"{request.path}?saved=1")
+            return saved_redirect(request, f"{request.path}?saved=1")
         return _render(request, "hub_settings/app.html", spec.id, spec=spec, label=_label(spec),
                        rows=_rows(spec, saved, raw, errors), pages=_pages(spec), has_errors=True,
                        status=400)
@@ -497,7 +508,7 @@ def location_settings(request):
                 app_id=LOCATION_APP, key=LOCATION_KEY, defaults={"value": value, "updated_by": request.user})
             from hub import status
             status.forget_units()
-            return redirect(f"{request.path}?saved=1")
+            return saved_redirect(request, f"{request.path}?saved=1")
         current = {k: request.POST.get(k, "") for k in (
             "name", "region", "country", "country_code", "latitude", "longitude", "geo_timezone", "timezone")}
         current["tz_auto"] = bool(request.POST.get("tz_auto"))
