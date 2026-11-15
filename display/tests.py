@@ -675,8 +675,11 @@ class SaverBrokenPhotoSeleniumTest(SeleniumTestCase):
         self.add("missing-1.jpg")
         self.add("missing-2.jpg")
         self.open_saver()
-        WebDriverWait(self.browser, 20).until(lambda d: "on" in self.layer("stock").get_attribute("class"))
-        self.assertNotIn("on", self.layer("photos").get_attribute("class"))
+        # The stock layer is on before the API answers too; wait for the photos to have been tried.
+        WebDriverWait(self.browser, 20).until(lambda d: (
+            d.find_element(By.CSS_SELECTOR, ".bdh-saver .season").get_attribute("textContent")
+            and "on" in self.layer("stock").get_attribute("class")
+            and "on" not in self.layer("photos").get_attribute("class")))
 
     def test_stock_rotates_season_paintings(self):
         self.open_saver()  # no photos yet: the stock layer shows
