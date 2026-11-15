@@ -44,7 +44,7 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
    - Builds the Docker image from the Dockerfile
    - Pushes to GHCR: `ghcr.io/blackdiamondlodge/blackdiamondhub/blackdiamondhub:latest`
 3. **Watchtower** on production polls GHCR every 300s, pulls new images, and recreates the `BlackDiamondHub` and `go2rtc` containers automatically
-   - Watchtower only watches `BlackDiamondHub` and `go2rtc` (go2rtc tracks `ghcr.io/blackdiamondlodge/go2rtc-nack:latest`, a daily rebuild of the newest upstream release with a NACK fix)
+   - Watchtower runs in label mode (`WATCHTOWER_LABEL_ENABLE=true`) and only updates containers labelled `com.centurylinklabs.watchtower.enable=true`: `BlackDiamondHub`, `go2rtc` and `bdh-supervisor`. App containers (`bdh-app-*`, one digest-pinned image per app) are upgraded only by the supervisor (go2rtc tracks `ghcr.io/blackdiamondlodge/go2rtc-nack:latest`, a daily rebuild of the newest upstream release with a NACK fix)
 
 ### What auto-deploys vs. what doesn't
 - **Auto-deploys** (via Watchtower): Any code change inside the Docker image — Django code, templates, static files, Python dependencies

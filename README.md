@@ -177,6 +177,19 @@ Watchtower) against a PostgreSQL server elsewhere on the LAN.
     stack. Re-run it after changing `.env` or `docker-compose.yml`; Watchtower
     only picks up new images.
 
+    Watchtower runs in label mode (`WATCHTOWER_LABEL_ENABLE=true`) and updates
+    only the containers labelled `com.centurylinklabs.watchtower.enable=true`
+    in `docker-compose.yml`: the hub, go2rtc and bdh-supervisor. App
+    containers are never updated by Watchtower. Each app is its own image,
+    pinned by digest in the catalog; the supervisor pulls, verifies and
+    upgrades them (it notices new digests on its own catalog poll, or
+    immediately with `POST /catalog/refresh`). To switch an existing hub from
+    the old name list, `git pull` and re-run `sudo deploy/bootstrap.sh`.
+
+    Offline: running apps keep running and restart from their local images
+    without internet. Installs and upgrades need ghcr.io (the app images are
+    public, so no registry credentials are needed) and the catalog.
+
 3. Admin login (admins see settings and admin-only app features):
 
     ```sh
