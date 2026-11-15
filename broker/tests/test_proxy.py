@@ -111,6 +111,25 @@ class AppProxyTests(ProxyTestCase):
         self.assertEqual((ident["u"], ident["n"], ident["staff"]), ("stephen", "Stephen", True))
         self.assertEqual(ident["o"], "http://hub.local:8000")
 
+    def test_signs_v2_with_a_nonce_and_keeps_v1_for_old_sdks(self):
+        from bdh_sdk.identity import NonceCache, sign
+
+        forged = [("host", "hub.local:9100"), ("x-bdh-nonce", "forged"), ("x-bdh-signature-v2", "forged")]
+        run(proxy.app_proxy, scope(self.port, "/a", headers=forged, query=b"q=1"))
+        run(proxy.app_proxy, scope(self.port, "/a", headers=forged, query=b"q=1"))
+        first, second = (r.headers for r in self.upstream.requests)
+        self.assertNotEqual(first["x-bdh-nonce"], "forged")
+        self.assertNotEqual(first["x-bdh-nonce"], second["x-bdh-nonce"])
+        token = token_for(self.install)
+        # An app on an older SDK only checks the v1 signature, which still matches.
+        self.assertEqual(first["x-bdh-signature"], sign(token, "GET", "/a?q=1", first["x-bdh-time"],
+                                                        first["x-bdh-identity"], "-"))
+        nonces = NonceCache()
+        self.assertIsNotNone(verify(token, "GET", "/a?q=1", first, nonces=nonces))
+        self.assertIsNone(verify(token, "GET", "/a?q=1", first, nonces=nonces), "replay accepted")
+        self.assertIsNone(verify(token, "GET", "/b?q=1", second, nonces=nonces), "v2 not bound to the path")
+        self.assertIsNotNone(verify(token, "GET", "/a?q=1", second, nonces=nonces))
+
     def test_anonymous_visitor(self):
         run(proxy.app_proxy, scope(self.port, "/", headers=[("host", "hub.local:9100"),
                                                            ("cookie", "sessionid=bogus")]))

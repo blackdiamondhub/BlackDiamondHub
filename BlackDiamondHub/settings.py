@@ -55,6 +55,10 @@ if not SECRET_KEY:
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS').split(',') if os.getenv('ALLOWED_HOSTS') else []
 
+# The CSRF token lives in the session, not a csrftoken cookie: container apps run
+# on other ports of this host and cookies aren't port-scoped, so their JS could
+# read (or plant) a CSRF cookie. Pages take the token from {% csrf_token %}.
+CSRF_USE_SESSIONS = True
 # Needed for logins through the HTTPS reverse proxy (HOST is the public URL).
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()

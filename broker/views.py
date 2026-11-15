@@ -19,6 +19,8 @@ log = logging.getLogger(__name__)
 
 RAW_TYPES = ("image/", "audio/", "video/")
 RAW_TIMEOUT = (3.0, 15.0)
+# The hub pages an app may send the visitor to by name (see embed-host.js NAV_NAMES).
+NAV_NAMES = frozenset({"landing_page", "broker:shell", "broker:shell_path"})
 
 
 # --- RPC -------------------------------------------------------------------------
@@ -169,9 +171,14 @@ def raw(request, app_id, path):
 def navigate(request):
     """``/apps/_nav/?name=<url name>&args=[...]``: an app asked for a hub page by name."""
     name = request.GET.get("name", "")
+    if name not in NAV_NAMES:
+        raise Http404("No such page")
     try:
         args = json.loads(request.GET.get("args") or "[]")
         if not isinstance(args, list) or not all(isinstance(a, (str, int)) for a in args):
+            raise ValueError
+        # Not the broker's own pages under an app (_bare, _raw) or /apps/_nav itself.
+        if any(isinstance(a, str) and a.lstrip("/").startswith("_") for a in args):
             raise ValueError
         url = reverse(name, args=args)
     except (ValueError, NoReverseMatch):
