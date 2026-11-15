@@ -179,8 +179,9 @@ def stats(app_id):
     return request("GET", f"/apps/{app_id}/stats")
 
 
-def refresh_runtime():
-    return request("POST", "/runtime/refresh", timeout=START_TIMEOUT)
+def refresh_catalog():
+    """Have the supervisor re-read the catalog now and upgrade apps whose image digest changed."""
+    return request("POST", "/catalog/refresh", timeout=START_TIMEOUT)
 
 
 async def astart(app_id, wait=True):

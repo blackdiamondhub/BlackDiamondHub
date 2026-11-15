@@ -6,6 +6,9 @@ services:
     # Mercer Island; unset means :latest, the Sun Peaks image.
     image: ghcr.io/blackdiamondlodge/blackdiamondhub/blackdiamondhub:${HUB_IMAGE_TAG:-latest}
     container_name: BlackDiamondHub
+    labels:
+      # Watchtower updates only labelled containers (WATCHTOWER_LABEL_ENABLE).
+      com.centurylinklabs.watchtower.enable: "true"
     # Pass environment variables (secrets) to Django
     environment:
       # Django core (DJANGO_SECRET_KEY is required; DJANGO_DEBUG defaults to off)
@@ -126,6 +129,9 @@ services:
     # the newest upstream release).
     image: ghcr.io/blackdiamondlodge/go2rtc-nack:latest
     container_name: go2rtc
+    labels:
+      # Watchtower updates only labelled containers (WATCHTOWER_LABEL_ENABLE).
+      com.centurylinklabs.watchtower.enable: "true"
     volumes:
       - ./go2rtc/go2rtc.yaml:/config/go2rtc.yaml
     ports:
@@ -141,6 +147,9 @@ services:
     # volumes itself (don't add those here or to watchtower).
     image: ghcr.io/blackdiamondlodge/bdh-supervisor:latest
     container_name: bdh-supervisor
+    labels:
+      # Watchtower updates only labelled containers (WATCHTOWER_LABEL_ENABLE).
+      com.centurylinklabs.watchtower.enable: "true"
     restart: unless-stopped
     # Needed for the BDH-APPS firewall helper and the 10.213/16 routes.
     network_mode: host
@@ -158,14 +167,16 @@ services:
     # Mount the Docker socket so Watchtower can manage containers
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    # Only these containers are auto-updated. go2rtc follows the go2rtc-nack
-    # :latest tag (newest upstream release + NACK fix) so the hub and go2rtc stay on current versions.
-    # App containers get new runtime images through the supervisor, not watchtower.
-    command: ["BlackDiamondHub", "go2rtc", "bdh-supervisor"]
+    # Label mode: only containers labelled com.centurylinklabs.watchtower.enable=true
+    # (the hub, go2rtc and bdh-supervisor above) are updated. go2rtc follows the
+    # go2rtc-nack :latest tag (newest upstream release + NACK fix). App containers
+    # (bdh-app-*), their companions and bdh-gateway are never touched: apps are
+    # pinned by digest in the catalog and upgraded only by the supervisor.
     # If your Docker registry is private, provide credentials:
     environment:
     #   WATCHTOWER_USERNAME: "${REGISTRY_USERNAME}"
     #   WATCHTOWER_PASSWORD: "${REGISTRY_PASSWORD}"
+      - WATCHTOWER_LABEL_ENABLE=true
       - WATCHTOWER_POLL_INTERVAL=300
       # containrrr/watchtower defaults to Docker API 1.25, which Docker 29+ rejects.
       - DOCKER_API_VERSION=1.44

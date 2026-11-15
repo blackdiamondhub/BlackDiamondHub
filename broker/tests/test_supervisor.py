@@ -22,8 +22,8 @@ SUPERVISOR = {"BDH_SUPERVISOR_SOCKET": "/run/test.sock", "BDH_SUPERVISOR_TOKEN":
 
 
 def version(v="1.0.0", **kw):
-    out = {"version": v, "wheel_url": f"https://x/app-{v}.whl", "sha256": "0" * 64, "hub_api": 2,
-           "requires_sdk": "", "permissions": ["alerts"], "network": "none", "lifecycle": "on_demand",
+    out = {"version": v, "kind": "image", "image": f"ghcr.io/blackdiamondlodge/bdh-app-hello@sha256:{'0' * 64}",
+           "wheel_url": f"https://x/app-{v}.whl", "sha256": "0" * 64, "hub_api": 2, "requires_sdk": "", "permissions": ["alerts"], "network": "none", "lifecycle": "on_demand",
            "memory_mb": 128, "companions": [], "provides": [], "changelog": ""}
     out.update(kw)
     return out
@@ -187,8 +187,9 @@ class CatalogTests(CatalogTestCase):
     def test_filters_versions_the_hub_cannot_use(self):
         data = catalog_data(version("4.0.0", hub_api=99), version("3.0.0", yanked=True),
                             version("2.0.0", requires_sdk=">=999"), version("1.5.0", requires_sdk=">=0.1"),
-                            version("1.0.0", hub_api=1))
+                            version("1.2.0", kind="wheel"), version("1.1.0", image=""), version("1.0.0", hub_api=1))
         self.assertEqual([v["version"] for v in catalog.versions("hello", data)], ["1.5.0", "1.0.0"])
+        self.assertEqual(catalog.compatible(version(kind="wheel")), (False, "not an image"))
         self.assertEqual(catalog.find("hello", data=data)["version"], "1.5.0")
         with self.assertRaisesMessage(catalog.CatalogError, "yanked"):
             catalog.find("hello", "3.0.0", data=data)

@@ -193,6 +193,8 @@ def compatible(entry, api=None, sdk=None):
     wanted = entry.get("hub_api")
     if not isinstance(wanted, int) or isinstance(wanted, bool) or wanted > api:
         return False, f"needs hub API {wanted}"
+    if wanted >= 2 and (entry.get("kind") != "image" or not entry.get("image")):
+        return False, "not an image"
     spec = entry.get("requires_sdk") or ""
     if spec:
         sdk = sdk_version() if sdk is None else sdk
