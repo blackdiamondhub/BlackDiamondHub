@@ -706,6 +706,22 @@ class SaverBrokenPhotoSeleniumTest(SeleniumTestCase):
         self.assertNotIn("on", self.layer("stock").get_attribute("class").split())
         self.assertFalse(self.browser.find_elements(By.CSS_SELECTOR, ".bdh-saver .layer.stock .frame"))
 
+    def test_fades_in_only_once_the_first_photo_is_there(self):
+        """It used to fade in black with just the clock, then the photo arrived."""
+        self.add(self.GOOD)
+        self.browser.get(self.live_server_url + "/?saver_season=summer")
+        self.browser.execute_script("""
+            new MutationObserver((_, obs) => {
+                const root = document.querySelector('.bdh-saver.on');
+                if (!root) return;
+                window.saverOnWithPhoto = !!root.querySelector('.layer.photos.on .frame');
+                obs.disconnect();
+            }).observe(document.body, {subtree: true, attributes: true, attributeFilter: ['class']});
+            window.BDHSaver.show();
+        """)
+        WebDriverWait(self.browser, 20).until(lambda d: d.execute_script("return 'saverOnWithPhoto' in window"))
+        self.assertTrue(self.browser.execute_script("return window.saverOnWithPhoto"))
+
 
 @tag("selenium")
 @override_settings(HUB_PLUGINS=BASE)
