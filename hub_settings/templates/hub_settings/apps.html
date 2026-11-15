@@ -7,7 +7,7 @@
 <div class="hst-head">
     <div>
         <h2>Apps</h2>
-        <p>{{ total }} installed{% if rows %} · using {{ used_mb }} MB of {{ budget_mb }} MB app budget{% endif %}</p>
+        <p>{{ total }} installed{% if rows %}<span id="ap-usage"></span>{% endif %}</p>
     </div>
     {% if updates %}
     <div class="act">
@@ -30,12 +30,43 @@
             <b>{{ a.label }}{% if a.update %}<span class="ap-pill upd">Update v{{ a.update }}</span>{% endif %}</b>
             <small>v{{ a.version }}{% if a.lifecycle %} · {{ a.lifecycle }}{% endif %}{% if a.lan %} · <span style="color:#ffd36b">local network</span>{% endif %}</small>
         </div>
-        <span class="ap-st"><span class="ap-dot {{ a.dot }}"></span>{{ a.status }}</span>
-        <div class="ap-mem">{% if a.used_mb %}{{ a.used_mb }} / {{ a.limit_mb }} MB<div class="ap-bar"><i style="width: {{ a.pct }}%"></i></div>{% elif a.limit_mb %}up to {{ a.limit_mb }} MB{% endif %}</div>
+        <span class="ap-st" data-app="{{ a.id }}"{% if a.status %} data-job="1"{% endif %}><span class="ap-dot {{ a.dot }}"></span><span class="t">{{ a.status|default:"…" }}</span></span>
+        <div class="ap-mem" data-app="{{ a.id }}"></div>
         <i class="fas fa-chevron-right go" aria-hidden="true"></i>
     </a>
     {% endfor %}
 </section>
+<script>
+(function () {
+    function each(sel, id, fn) { document.querySelectorAll(sel + '[data-app="' + id + '"]').forEach(fn); }
+    fetch("{% url 'hub_settings_apps_live' %}", {credentials: "same-origin"})
+        .then(function (r) { if (!r.ok) throw r; return r.json(); })
+        .then(function (d) {
+            document.getElementById("ap-usage").textContent =
+                " · using " + d.used_mb + " MB of " + d.budget_mb + " MB app budget";
+            Object.keys(d.apps).forEach(function (id) {
+                var a = d.apps[id];
+                each(".ap-st", id, function (el) {
+                    el.querySelector(".ap-dot").className = "ap-dot " + a.dot;
+                    el.querySelector(".t").textContent = a.status;
+                });
+                each(".ap-mem", id, function (el) {
+                    if (a.used_mb) {
+                        el.textContent = a.used_mb + " / " + a.limit_mb + " MB";
+                        var bar = document.createElement("div"), fill = document.createElement("i");
+                        bar.className = "ap-bar"; fill.style.width = a.pct + "%";
+                        bar.appendChild(fill); el.appendChild(bar);
+                    } else if (a.limit_mb) {
+                        el.textContent = "up to " + a.limit_mb + " MB";
+                    }
+                });
+            });
+        })
+        .catch(function () {
+            document.querySelectorAll('.ap-st[data-app]:not([data-job]) .t').forEach(function (t) { t.textContent = "Unavailable"; });
+        });
+})();
+</script>
 {% endif %}
 {% if builtin %}
 <section class="hst-card">

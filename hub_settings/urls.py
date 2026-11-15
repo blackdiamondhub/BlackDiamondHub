@@ -9,6 +9,7 @@ urlpatterns = [
     path("home/", views.home_layout, name="hub_settings_home"),
     path("quick/", views.quick_actions, name="hub_settings_quick"),
     path("apps/", apps_views.installed, name="hub_settings_apps"),
+    path("apps/live/", apps_views.installed_live, name="hub_settings_apps_live"),
     path("apps/update-all/", apps_views.update_all, name="hub_settings_apps_update_all"),
     path("apps/store/", apps_views.store, name="hub_settings_store"),
     path("apps/store/<str:app_id>/", apps_views.store_app, name="hub_settings_store_app"),

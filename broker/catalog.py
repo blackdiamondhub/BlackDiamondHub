@@ -127,6 +127,7 @@ def _ensure_loaded():
 def reset():
     with _lock:
         _cache.update(data=None, etag="", fetched=0.0, dir=None)
+        _background["thread"] = None
 
 
 def refresh(force=False):
@@ -167,6 +168,39 @@ def refresh(force=False):
         _save_disk(raw, etag)
         _cache.update(data=data, etag=etag, fetched=time.time())
         return "updated"
+
+
+_background = {"thread": None}
+
+
+def _refresh_quietly():
+    try:
+        refresh()
+    except CatalogError as exc:
+        log.warning("%s", exc)
+
+
+def get_cached():
+    """The cached catalog right away, refreshing it in the background when stale.
+
+    For pages: they shouldn't wait on GitHub. Only the very first fetch (nothing
+    cached yet) blocks. Returns ``(data, thread)``; ``thread`` is the refresh
+    started, if any (tests join it)."""
+    with _lock:
+        _ensure_loaded()
+        data, stale = _cache["data"], time.time() - _cache["fetched"] >= MAX_AGE
+    if data is None:
+        return get(), None
+    if not stale:
+        return data, None
+    with _lock:
+        running = _background["thread"]
+        if running and running.is_alive():
+            return data, None
+        thread = threading.Thread(target=_refresh_quietly, name="catalog-refresh", daemon=True)
+        _background["thread"] = thread
+    thread.start()
+    return data, thread
 
 
 def get(refresh_stale=True):

@@ -41,7 +41,8 @@ class AppsPageTests(SupervisorMixin, CatalogTestCase, TestCase):
     def test_staff_only(self):
         self.client.logout()
         for name, args in (("hub_settings_apps", []), ("hub_settings_store", []),
-                           ("hub_settings_store_app", ["hello"]), ("hub_settings_app_manage", ["hello"])):
+                           ("hub_settings_store_app", ["hello"]), ("hub_settings_app_manage", ["hello"]),
+                           ("hub_settings_apps_live", [])):
             self.assertEqual(self.client.get(reverse(name, args=args)).status_code, 302)
         self.assertEqual(self.client.post(reverse("hub_settings_app_uninstall", args=["hello"])).status_code, 302)
 
@@ -72,6 +73,17 @@ class AppsPageTests(SupervisorMixin, CatalogTestCase, TestCase):
         self.assertContains(manage, "line1")
         self.assertContains(manage, "Hold to uninstall")
         self.assertContains(manage, 'value="speakers" checked')
+
+    def test_installed_page_doesnt_wait_on_the_supervisor(self):
+        self.install(perm=["alerts"])
+        self.sup.requests.clear()
+        page = self.client.get(reverse("hub_settings_apps"))
+        self.assertEqual(self.sup.requests, [])
+        self.assertContains(page, reverse("hub_settings_apps_live"))
+        live = self.client.get(reverse("hub_settings_apps_live")).json()
+        self.assertEqual((live["apps"]["hello"]["status"], live["apps"]["hello"]["dot"]), ("Sleeping", "y"))
+        self.assertEqual((live["used_mb"], live["budget_mb"] > 0), (0, True))
+        self.assertTrue(self.sup.requests)
 
     def test_permissions_auto_update_and_restart(self):
         self.install(perm=["alerts", "speakers"])
