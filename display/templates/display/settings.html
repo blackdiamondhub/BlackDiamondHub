@@ -213,13 +213,20 @@
 
             <section class="hst-card" id="dsp-lib" data-list="{% url 'display_photos' %}" data-link="{% url 'display_upload_link' %}"
                      data-add="{% url 'display_photo_add' %}" data-base="{% url 'display_photos' %}">
-                <h3>Photo library <span id="dsp-lib-count"></span></h3>
-                <div class="dsp-lib" id="dsp-lib-grid">
+                <h3>Photo library</h3>
+                <div class="dsp-libtabs" role="tablist">
+                    <button type="button" role="tab" data-lib="mine" class="on" aria-selected="true">My photos <span id="dsp-lib-count"></span></button>
+                    <button type="button" role="tab" data-lib="stock" aria-selected="false">Built-in <span id="dsp-stock-count"></span></button>
+                </div>
+                <div class="dsp-lib" id="dsp-lib-grid" data-pane="mine">
                     <button type="button" class="dsp-add" id="dsp-add">
                         <i class="fas fa-qrcode" aria-hidden="true"></i><b>Upload photos</b><small>Scan with your phone</small>
                     </button>
                 </div>
-                <div class="dsp-foot">Tap a season tag to change when a photo shows. Untagged photos show in every season.</div>
+                <div class="dsp-lib dsp-stock" id="dsp-stock-grid" data-pane="stock" hidden></div>
+                <div class="dsp-foot" data-pane="mine">Tap a season tag to change when a photo shows. Untagged photos show in every season.</div>
+                <div class="dsp-foot" data-pane="stock" hidden>The paintings that come with the hub. Tap one to see it full size.</div>
+                <input type="file" id="dsp-pick" accept="image/*" multiple hidden>
             </section>
         </div>
 
@@ -387,6 +394,14 @@
         </label>
         <button type="button" class="hst-btn" data-close>Done</button>
     </div>
+</dialog>
+
+<dialog class="dsp-view" id="dsp-view" aria-label="Painting">
+    <img id="dsp-view-img" alt="">
+    <span class="dsp-view-tag" id="dsp-view-tag"></span>
+    <button type="button" class="dsp-x" data-close aria-label="Close"><i class="fas fa-times" aria-hidden="true"></i></button>
+    <button type="button" class="dsp-step prev" data-step="-1" aria-label="Previous"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
+    <button type="button" class="dsp-step next" data-step="1" aria-label="Next"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
 </dialog>
 
 {{ photos|json_script:"dsp-photos" }}

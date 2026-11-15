@@ -123,7 +123,7 @@
     }
 
     function updateCount() {
-        count.textContent = tiles.size ? `${tiles.size} photo${tiles.size === 1 ? '' : 's'}` : '';
+        count.textContent = `(${tiles.size})`;
         // The per-season counts under each "My photos" source choice.
         document.querySelectorAll('[data-photo-count]').forEach(n => {
             const season = n.dataset.photoCount;
@@ -226,7 +226,57 @@
         }
     }
 
-    addTile.addEventListener('click', open);
+    // A phone uploads straight from its own picker; the QR is for the hub screen and laptops.
+    // Not `pointer: coarse` — the hub itself is a touchscreen.
+    const phone = navigator.userAgentData?.mobile
+        || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const pick = document.getElementById('dsp-pick');
+    const addSub = addTile.querySelector('small');
+
+    function tileStatus(text) { addSub.textContent = text; }
+
+    async function upload(files, report) {
+        let done = 0;
+        for (const f of files) {
+            report(`Uploading ${done + 1} of ${files.length}…`);
+            const fd = new FormData();
+            fd.append('photo', f);
+            try {
+                const data = await post(lib.dataset.add, fd);
+                data.photos.forEach(p => render(p, true));
+                if (report === setStatus) arrived(data.photos);
+                done += 1;
+            } catch (e) {
+                report(`${f.name}: ${e.message}`);
+                return done;
+            }
+        }
+        updateCount();
+        report(`${done} photo${done === 1 ? '' : 's'} added`, true);
+        return done;
+    }
+
+    if (phone) {
+        addTile.classList.add('phone');
+        addTile.querySelector('i').className = 'fas fa-images';
+        tileStatus('From this phone');
+        addTile.addEventListener('click', () => { if (!addTile.disabled) pick.click(); });
+        pick.addEventListener('change', async () => {
+            const files = [...pick.files];
+            pick.value = '';
+            if (!files.length) return;
+            addTile.disabled = true;
+            await upload(files, tileStatus);
+            addTile.disabled = false;
+            setTimeout(() => {
+                tileStatus('From this phone');
+                grid.querySelectorAll('.dsp-ph.new').forEach(t => t.classList.remove('new'));
+            }, 4000);
+        });
+    } else {
+        addTile.addEventListener('click', open);
+    }
     dlg.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => dlg.close()));
     dlg.addEventListener('close', () => {
         stop();
@@ -234,25 +284,68 @@
         grid.querySelectorAll('.dsp-ph.new').forEach(t => setTimeout(() => t.classList.remove('new'), 4000));
     });
 
-    local.addEventListener('change', async () => {
+    local.addEventListener('change', () => {
         const files = [...local.files];
         local.value = '';
-        let done = 0;
-        for (const f of files) {
-            setStatus(`Uploading ${done + 1} of ${files.length}…`);
-            const fd = new FormData();
-            fd.append('photo', f);
-            try {
-                const data = await post(lib.dataset.add, fd);
-                data.photos.forEach(p => render(p, true));
-                arrived(data.photos);
-                done += 1;
-            } catch (e) {
-                setStatus(`${f.name}: ${e.message}`);
-                return;
+        upload(files, setStatus);
+    });
+
+    // Tabs: your photos, and the built-in paintings (read-only).
+    const stockGrid = document.getElementById('dsp-stock-grid');
+    const stock = JSON.parse(document.getElementById('dsp-stock').textContent);
+    const labels = Object.fromEntries(seasons);
+    const paintings = Object.entries(stock).flatMap(([s, urls]) => urls.map(url => ({ url, season: labels[s] || s })));
+    document.getElementById('dsp-stock-count').textContent = `(${paintings.length})`;
+
+    function buildStock() {
+        let season = null;
+        paintings.forEach((p, i) => {
+            if (p.season !== season) {
+                season = p.season;
+                stockGrid.append(el('h4', 'dsp-stock-head', season));
             }
-        }
-        updateCount();
-        setStatus(`${done} photo${done === 1 ? '' : 's'} added`, true);
+            const b = btn('dsp-ph dsp-art');
+            b.setAttribute('aria-label', `${p.season} painting ${i + 1}`);
+            const img = el('img');
+            img.src = p.url;
+            img.alt = '';
+            img.loading = 'lazy';
+            b.append(img);
+            b.addEventListener('click', () => view(i));
+            stockGrid.append(b);
+        });
+    }
+
+    lib.querySelectorAll('[data-lib]').forEach(tab => tab.addEventListener('click', () => {
+        const pane = tab.dataset.lib;
+        if (pane === 'stock' && !stockGrid.childElementCount) buildStock();
+        lib.querySelectorAll('[data-lib]').forEach(t => {
+            t.classList.toggle('on', t === tab);
+            t.setAttribute('aria-selected', String(t === tab));
+        });
+        lib.querySelectorAll('[data-pane]').forEach(p => { p.hidden = p.dataset.pane !== pane; });
+    }));
+
+    const viewer = document.getElementById('dsp-view');
+    const viewImg = document.getElementById('dsp-view-img');
+    const viewTag = document.getElementById('dsp-view-tag');
+    let at = 0;
+
+    function view(i) {
+        at = (i + paintings.length) % paintings.length;
+        viewImg.src = paintings[at].url;
+        viewTag.textContent = paintings[at].season;
+        if (!viewer.open) viewer.showModal();
+    }
+
+    viewer.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', e => {
+        e.stopPropagation();
+        view(at + Number(b.dataset.step));
+    }));
+    viewer.querySelector('[data-close]').addEventListener('click', () => viewer.close());
+    viewer.addEventListener('click', e => { if (e.target === viewer || e.target === viewImg) viewer.close(); });
+    viewer.addEventListener('keydown', e => {
+        if (e.key === 'ArrowLeft') view(at - 1);
+        if (e.key === 'ArrowRight') view(at + 1);
     });
 })();
