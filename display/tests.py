@@ -675,7 +675,7 @@ class SaverBrokenPhotoSeleniumTest(SeleniumTestCase):
         self.add("missing-1.jpg")
         self.add("missing-2.jpg")
         self.open_saver()
-        # The stock layer is on before the API answers too; wait for the photos to have been tried.
+        # Wait for the photos to have been tried and the saver to have fallen back.
         WebDriverWait(self.browser, 20).until(lambda d: (
             d.find_element(By.CSS_SELECTOR, ".bdh-saver .season").get_attribute("textContent")
             and "on" in self.layer("stock").get_attribute("class")
@@ -696,6 +696,15 @@ class SaverBrokenPhotoSeleniumTest(SeleniumTestCase):
         frame = (By.CSS_SELECTOR, ".bdh-saver .layer.photos.on .frame")
         WebDriverWait(self.browser, 20).until(EC.presence_of_element_located(frame))
         self.assertTrue(self.browser.find_element(*frame).get_attribute("data-src").endswith(self.GOOD))
+
+    def test_photos_saver_never_loads_stock(self):
+        """Regression: a stock painting used to flash up before the photos took over."""
+        self.add(self.GOOD)
+        self.open_saver()
+        frame = (By.CSS_SELECTOR, ".bdh-saver .layer.photos.on .frame")
+        WebDriverWait(self.browser, 20).until(EC.presence_of_element_located(frame))
+        self.assertNotIn("on", self.layer("stock").get_attribute("class").split())
+        self.assertFalse(self.browser.find_elements(By.CSS_SELECTOR, ".bdh-saver .layer.stock .frame"))
 
 
 @tag("selenium")
