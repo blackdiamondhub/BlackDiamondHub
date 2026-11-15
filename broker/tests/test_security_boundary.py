@@ -140,6 +140,13 @@ class PostMessageTests(TestCase):
             self.assertEqual(r["nav"], [], r)
         self.assertEqual(results[-1]["nav"], ["/apps/_nav/?name=broker%3Ashell&args=%5B%22cams%22%5D"])
 
+    def test_app_may_only_open_its_own_settings(self):
+        results = frame_messages([msg({"bdh": 1, "type": "navigate", "name": "hub_settings_app", "args": a})
+                                  for a in (["cams"], ["wifi"], [], ["cams", "x"], None)])
+        self.assertEqual(results[0]["nav"], ["/apps/_nav/?name=hub_settings_app&args=%5B%22cams%22%5D"])
+        for r in results[1:]:
+            self.assertEqual(r["nav"], [], r)
+
     def test_theme_cannot_inject_css(self):
         results = frame_messages([msg({"bdh": 1, "type": "theme", "background": c}) for c in (
             "#123456", "red", "#000}body{display:none", "rgb(1,2,3)}*{x:y", "url(http://evil/)", "rgba(0,0,0,0)")])

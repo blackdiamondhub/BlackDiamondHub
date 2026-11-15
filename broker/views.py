@@ -24,7 +24,7 @@ RAW_HEADERS = ("Content-Length", "Cache-Control", "ETag", "Last-Modified")
 RAW_CACHE_MAX = 256 * 1024
 RAW_CACHE_SECONDS = 7 * 24 * 3600
 # The hub pages an app may send the visitor to by name (see embed-host.js NAV_NAMES).
-NAV_NAMES = frozenset({"landing_page", "broker:shell", "broker:shell_path"})
+NAV_NAMES = frozenset({"landing_page", "broker:shell", "broker:shell_path", "hub_settings_app"})
 
 
 # --- RPC -------------------------------------------------------------------------

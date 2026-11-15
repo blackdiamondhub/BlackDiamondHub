@@ -14,9 +14,12 @@
     // Same pattern as _theme.html: hex or rgb()/rgba() only, nothing that could
     // close the CSS rule.
     var THEME_COLOR = /^(#[0-9a-fA-F]{3,8}|rgba?\([0-9.,\s%]+\))$/;
-    // Where an app may send the hub: home and app pages, nothing else (no admin,
-    // settings, logout...). Keep in step with broker.views.NAV_NAMES.
-    var NAV_NAMES = {landing_page: 0, 'broker:shell': 1, 'broker:shell_path': 2};
+    // Where an app may send the hub: home, app pages and its own settings page,
+    // nothing else (no admin, other settings, logout...). Keep in step with
+    // broker.views.NAV_NAMES.
+    var NAV_NAMES = {landing_page: 0, 'broker:shell': 1, 'broker:shell_path': 2, hub_settings_app: 3};
+    // Names an app may only open for itself (args must be exactly [its id]).
+    var OWN_ONLY = {hub_settings_app: 1};
     var NAV_PATH = /^\/(apps\/(?!_)[\w-]+(\/(?!_(bare|raw)(\/|$))[^]*)?)?$/;
 
     var wrapper = frame.closest('.content-wrapper');
@@ -73,6 +76,7 @@
                 var args = Array.isArray(d.args) ? d.args.filter(function (a) {
                     return typeof a === 'string' || typeof a === 'number';
                 }) : [];
+                if (OWN_ONLY[d.name] && !(args.length === 1 && args[0] === frame.dataset.appId)) return;
                 target.location.href = navUrl + '?name=' + encodeURIComponent(d.name) +
                     '&args=' + encodeURIComponent(JSON.stringify(args));
             } else {

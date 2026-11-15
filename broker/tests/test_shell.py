@@ -59,6 +59,9 @@ class ShellPageTests(TestCase):
         self.assertRedirects(resp, "/apps/cams/live/1", fetch_redirect_response=False)
         resp = self.client.get("/apps/_nav/", {"name": "landing_page"})
         self.assertRedirects(resp, "/", fetch_redirect_response=False)
+        # An app's back link to its own settings page (the shell checks the id is its own).
+        resp = self.client.get("/apps/_nav/", {"name": "hub_settings_app", "args": '["cams"]'})
+        self.assertRedirects(resp, "/settings/app/cams/", fetch_redirect_response=False)
         for name, args in (("admin:index", "[]"), ("logout", "[]"), ("display_settings", "[]"),
                            ("hub_settings:index", "[]"), ("broker:raw", '["cams", "x.png"]'),
                            ("broker:bare_root", '["cams"]'), ("broker:shell", '["_nav"]'),
