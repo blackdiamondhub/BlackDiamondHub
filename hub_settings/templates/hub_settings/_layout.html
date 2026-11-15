@@ -11,9 +11,12 @@
         background: radial-gradient(1200px 600px at 15% -10%, #1b2d4a 0%, transparent 60%), linear-gradient(180deg, #121c2c, #0d1420);
         background-attachment: fixed; min-height: 100vh;
     }
-    .hst {
+    /* The save bar and leave dialog sit outside .hst, so they need the palette too. */
+    .hst, .hst-dirty, .hst-modal {
         --card: #18243a; --card2: #1d2b45; --line: #26354f; --fg: #eef3fa; --mut: #8fa3bd;
         --dim: #6f86a3; --acc: #5ba4e6; --acc2: #7cc4ff; --red: #ff9a9a; --ok: #7fd8a4;
+    }
+    .hst {
         display: grid; grid-template-columns: 290px 1fr; gap: 20px;
         min-height: calc(100vh - 62px - 40px); padding: 20px 8px 20px; color: var(--fg);
     }
