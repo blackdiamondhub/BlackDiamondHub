@@ -144,6 +144,7 @@ class SettingsPageTests(TestCase):
     def test_app_with_only_settings_pages(self):
         spec = PluginSpec(id="pages", app="pages", settings_pages=(
             SettingsPage("Feeds", "hub_settings_home", subtitle="iCal links", icon="fas fa-rss"),
+            SettingsPage("Quick", "hub_settings_quick"),
             SettingsPage("Broken", "no_such_url"),
         ))
         self.client.force_login(self.staff)
@@ -154,6 +155,16 @@ class SettingsPageTests(TestCase):
             self.assertContains(page, "iCal links")
             self.assertNotContains(page, "Broken")
             self.assertNotContains(page, " data-save>")
+
+    def test_app_with_one_settings_page_redirects_to_it(self):
+        spec = PluginSpec(id="pages", app="pages", settings_pages=(
+            SettingsPage("Feeds", "hub_settings_home"),
+            SettingsPage("Broken", "no_such_url"),
+        ))
+        self.client.force_login(self.staff)
+        with self.settings(HUB_PLUGINS=PLUGINS + (spec,)):
+            self.assertRedirects(self.client.get("/settings/app/pages/"),
+                                 reverse("hub_settings_home"), fetch_redirect_response=False)
 
     def test_layout_nav_available_to_app_pages(self):
         from django.template.loader import render_to_string
