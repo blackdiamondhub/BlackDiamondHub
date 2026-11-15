@@ -16,6 +16,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from importlib import import_module
 
+from bdh_sdk.hooks import countdown
 from django.core.cache import cache
 from django.db import close_old_connections
 from django.urls import NoReverseMatch, reverse
@@ -103,7 +104,7 @@ def _status_value(result):
     if not isinstance(result, Status):
         raise TypeError(f"status hook returned {type(result).__name__}")
     level = result.level if result.level in STATUS_LEVELS else INFO
-    value = {"text": result.text, "level": level}
+    value = {**countdown("text", result.text, result.ends_at), "level": level}
     rows = []
     for row in result.rows:
         if not isinstance(row, StatusRow):
@@ -114,7 +115,7 @@ def _status_value(result):
         rows.append({
             "id": row.id,
             "title": row.title,
-            "detail": row.detail,
+            **countdown("detail", row.detail, row.ends_at),
             "image": _image_url(row.image),
             "dimmed": bool(row.dimmed),
             "actions": _actions_value(row.actions),
@@ -375,7 +376,9 @@ def home_data(mode, timeout=TIMEOUT):
                 })
     rank = quick.app_rank(bar, labels)
     shortcuts.sort(key=lambda sc: (rank(sc["plugin"]), sc["order"], sc["title"]))
-    return {"status": status, "shortcuts": shortcuts, "grouped": bar["grouped"], "refreshing": refreshing}
+    return {"status": status, "shortcuts": shortcuts, "grouped": bar["grouped"], "refreshing": refreshing,
+            # Lets the screen tick countdowns (ends_at) on the hub's clock.
+            "now": time.time()}
 
 
 def all_shortcuts(timeout=TIMEOUT):

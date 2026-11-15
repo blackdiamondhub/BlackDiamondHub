@@ -529,6 +529,36 @@
             return e;
         }
 
+        // Countdowns: the app sends a template with {left} and ends_at (hub
+        // clock), and the screen ticks it every second between polls.
+        var skew = 0;
+        function fmtLeft(secs) {
+            secs = Math.max(0, Math.ceil(secs));
+            var h = Math.floor(secs / 3600), m = Math.floor(secs % 3600 / 60), s = secs % 60;
+            var ss = (s < 10 ? '0' : '') + s;
+            return h ? h + ':' + (m < 10 ? '0' : '') + m + ':' + ss : m + ':' + ss;
+        }
+        function leftText(tpl, ends) {
+            return tpl.split('{left}').join(fmtLeft(ends - (Date.now() / 1000 + skew)));
+        }
+        function setCount(node, text, tpl, ends) {
+            if (tpl && ends) {
+                node.setAttribute('data-tpl', tpl);
+                node.setAttribute('data-ends', ends);
+                node.textContent = leftText(tpl, ends);
+            } else {
+                node.removeAttribute('data-tpl');
+                node.removeAttribute('data-ends');
+                node.textContent = text || '';
+            }
+            return node;
+        }
+        setInterval(function () {
+            document.querySelectorAll('[data-ends]').forEach(function (n) {
+                n.textContent = leftText(n.getAttribute('data-tpl'), +n.getAttribute('data-ends'));
+            });
+        }, 1000);
+
         function art(src, fallback, cls) {
             var img = el('img', cls);
             img.alt = '';
@@ -570,10 +600,14 @@
             return box;
         }
 
+        function statusText(node, s) {
+            return setCount(node, s.text, s.text_tpl, s.ends_at);
+        }
+
         function rowText(row) {
             var txt = el('span', 'hub-row-txt');
             txt.appendChild(el('span', 'hub-row-title', row.title));
-            if (row.detail) txt.appendChild(el('span', 'hub-row-detail', row.detail));
+            if (row.detail) txt.appendChild(setCount(el('span', 'hub-row-detail'), row.detail, row.detail_tpl, row.ends_at));
             return txt;
         }
 
@@ -581,7 +615,7 @@
             var h = el('div', 'hub-rows-head');
             h.appendChild(art(tile.querySelector('.hub-tile-in img').src, '', ''));
             h.appendChild(el('span', '', tile.querySelector('.hub-tile-title').textContent));
-            h.appendChild(el('span', 'hub-rows-count', s.text));
+            h.appendChild(statusText(el('span', 'hub-rows-count'), s));
             return h;
         }
 
@@ -637,7 +671,7 @@
                 var lead = rows[0];
                 if (lead) box.classList.toggle('is-dimmed', rows.every(function (r) { return r.dimmed; }));
                 box.appendChild(art(lead && lead.image, icon, 'hub-row-art'));
-                box.appendChild(el('span', 'hub-rows-count', s.text));
+                box.appendChild(statusText(el('span', 'hub-rows-count'), s));
                 if (tileActs.length) box.appendChild(actions(s, '', tileActs.slice(0, 1)));
                 else if (lead) box.appendChild(actions(s, lead.id, lead.actions.slice(0, 1)));
             }
@@ -655,11 +689,11 @@
                 renderRows(tile, s);
                 sub.className = 'hub-tile-sub';
                 if (s) {
-                    sub.textContent = s.text;
+                    statusText(sub, s);
                     sub.classList.add('is-status', 'lvl-' + s.level);
                     if (s.stale) sub.classList.add('is-stale');
                 } else {
-                    sub.textContent = sub.getAttribute('data-subtitle');
+                    setCount(sub, sub.getAttribute('data-subtitle'));
                 }
             });
         }
@@ -883,6 +917,7 @@
 
         function apply(d) {
             var status = d.status || {};
+            if (d.now) skew = d.now - Date.now() / 1000;
             applyStatus(status);
             renderShortcuts(d.shortcuts || [], d.grouped);
             // Live tiles (e.g. music) ask for a faster poll.
