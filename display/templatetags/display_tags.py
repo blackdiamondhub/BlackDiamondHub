@@ -7,6 +7,7 @@ register = template.Library()
 @register.inclusion_tag("display/overlay.html")
 def screensaver():
     """The screensaver and burn-in shifter, on every page of the hub."""
+    from ..connect import configured
     from ..options import value
     from ..schedule import window
 
@@ -19,4 +20,6 @@ def screensaver():
                   "chime_volume": value("chime_volume")}
     except Exception:
         config = {"idle_minutes": 10, "burn_in": True, "night": None, "chime_volume": 70}
+    if config["night"] and configured():
+        config["sleep"] = reverse("display_sleep")
     return {"enabled": True, "config": {**config, "api": api}}

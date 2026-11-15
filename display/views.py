@@ -3,7 +3,7 @@ import re
 import secrets
 from datetime import timedelta
 
-from bdh_sdk.plugins import BOOL
+from bdh_sdk.plugins import BOOL, SECRET
 from bdh_sdk.qr import qr_svg
 from bdh_sdk.storage import app_state
 from django.http import HttpResponse, JsonResponse
@@ -12,10 +12,11 @@ from django.templatetags.static import static
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_GET, require_POST
 
 from hub import provides
-from hub_settings import store
+from hub_settings import store, vault
 from hub_settings.views import _render, _save, saved_redirect, staff_page
 
 from . import catalog, options
@@ -140,6 +141,20 @@ def heartbeat(request):
     return HttpResponse(status=204)
 
 
+@csrf_exempt
+@require_POST
+def sleep_api(request):
+    """The screensaver showing at night: turn this screen off if it's a UniFi Connect one."""
+    from . import connect
+
+    try:
+        asleep = connect.sleep(request.META.get("REMOTE_ADDR"))
+    except connect.ConnectError as exc:
+        log.warning("%s", exc)
+        asleep = False
+    return JsonResponse({"asleep": asleep})
+
+
 @require_GET
 def heartbeats_api(request):
     """Last check-in per client IP, for the screen watchdog."""
@@ -165,6 +180,12 @@ def _form_values(post):
     for setting in options.SETTINGS:
         if setting.type == BOOL:
             raw[setting.key] = setting.key in post
+        elif setting.type == SECRET:  # never echoed back into the page
+            try:
+                values[setting.key] = setting.parse(post.get(setting.key, ""))
+            except ValueError as exc:
+                errors[setting.key] = str(exc)
+            continue
         else:
             raw[setting.key] = post.get(setting.key, "")
         try:
@@ -197,10 +218,12 @@ def _slot_value(key, posted):
 
 
 def _current(spec, saved):
-    return {s.key: saved.get(s.key, store.fallback(spec.id, s)) for s in spec.settings}
+    # Secrets are write-only: never in the page's values.
+    return {s.key: saved.get(s.key, store.fallback(spec.id, s)) for s in spec.settings if s.type != SECRET}
 
 
 @staff_page
+@sensitive_post_parameters("connect_password")
 def settings_page(request):
     spec = _spec()
     saved = store.saved(spec.id)
@@ -244,6 +267,7 @@ def settings_page(request):
         stock={sid: stock_art(sid) for sid in SEASON_IDS},
         home_bgs=options.HOME_BACKGROUNDS, home_tiles=options.HOME_TILES, home_pictures=home_pictures(),
         has_errors=bool(errors), just_saved=request.GET.get("saved") == "1", status=status,
+        connect_password_set="connect_password" in vault.names(spec.id),
     )
 
 
