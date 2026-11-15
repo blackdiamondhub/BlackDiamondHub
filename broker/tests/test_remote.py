@@ -1,7 +1,9 @@
 import copy
 import json
+import time
 from unittest import mock
 
+import requests
 from bdh_sdk.identity import verify
 from django.core.cache import cache
 from django.test import TestCase, override_settings
@@ -118,6 +120,87 @@ class RemoteSpecTests(TestCase):
         with mock.patch("broker.remote.requests.request", side_effect=app):
             self.assertEqual(speaker.options, (("a", "Kitchen"), ("b", "Deck")))
         self.assertEqual(app.calls[0][2], {"hook": "setting_options", "key": "speaker"})
+
+
+class SleepingAppTests(TestCase):
+    """On-demand apps stay asleep for tile polls and show their last results."""
+
+    def setUp(self):
+        reset_broker()
+        cache.clear()
+        self.addCleanup(reset_broker)
+        self.install = make_install(runtime="container", lifecycle="on_demand",
+                                    manifest=manifest(wake_every=3600))
+        self.app = FakeApp(self.install, {"status": STATUS, "shortcuts": SHORTCUTS, "run_shortcut": "Done"})
+        self.awake = True
+        self.starts = 0
+        patches = [
+            mock.patch("broker.remote.requests.request", side_effect=self.request),
+            mock.patch("broker.supervisor.enabled", return_value=True),
+            mock.patch("broker.supervisor.start", side_effect=self.start),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def request(self, *args, **kwargs):
+        if not self.awake:
+            raise requests.ConnectionError("refused")
+        return self.app(*args, **kwargs)
+
+    def start(self, app_id, wait=False):
+        self.starts += 1
+        self.awake = True
+        return {"healthy": True}
+
+    def poll(self):
+        cache.delete(status._fresh_key("status", "cams", "guest"))
+        return status.home_data("guest")["status"].get("cams")
+
+    def test_asleep_serves_last_result_without_waking(self):
+        self.poll()
+        self.awake = False
+        got = self.poll()
+        self.assertEqual(got["text"], "2 cameras")
+        self.assertFalse(got["stale"])
+        self.assertEqual(self.starts, 0)
+
+    def test_wakes_once_last_result_is_older_than_wake_every(self):
+        self.poll()
+        self.awake = False
+        key = status._last_key("status", "cams", "guest")
+        cache.set(key, {**cache.get(key), "updated": time.time() - 3601})
+        got = self.poll()
+        self.assertEqual(self.starts, 1)
+        self.assertFalse(got["stale"])
+
+    def test_wakes_when_nothing_cached(self):
+        self.awake = False
+        self.assertEqual(self.poll()["text"], "2 cameras")
+        self.assertGreaterEqual(self.starts, 1)
+
+    def test_last_result_outlives_wake_every(self):
+        hook = status._resolve("remote:cams:status")
+        self.assertEqual(status._keep_for(hook), status.LAST_GOOD_TTL)
+        self.install.manifest = manifest(wake_every=12 * 3600)
+        self.install.save()
+        self.assertEqual(status._keep_for(hook), 13 * 3600)
+        self.install.lifecycle = "always"
+        self.install.save()
+        self.assertEqual(status._keep_for(hook), status.LAST_GOOD_TTL)
+
+    def test_shortcut_wakes_it(self):
+        self.awake = False
+        self.assertEqual(status.run_shortcut("cams", "lights", "guest"), "Done")
+        self.assertEqual(self.starts, 1)
+
+    def test_always_on_app_is_still_woken(self):
+        self.install.lifecycle = "always"
+        self.install.save()
+        remote.installs_changed()
+        self.awake = False
+        self.assertEqual(self.poll()["text"], "2 cameras")
+        self.assertGreaterEqual(self.starts, 1)
 
 
 class ManifestFetchTests(TestCase):

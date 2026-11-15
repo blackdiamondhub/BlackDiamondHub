@@ -16,6 +16,7 @@ import json
 import logging
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 import requests
@@ -34,10 +35,51 @@ HOT_MANIFEST_TIMEOUT = 2.0
 MANIFEST_RETRY = 60.0
 HOOK_TIMEOUT = (2.0, 5.5)
 REMOTE_HOOKS = ("status", "shortcuts", "run_shortcut", "run_action", "stay", "card")
+# How old a sleeping app's cached tiles may get before the hub wakes it, unless
+# its manifest says otherwise (``wake_every``).
+DEFAULT_WAKE_EVERY = 6 * 3600
 
 
 class RemoteError(Exception):
     pass
+
+
+class Asleep(RemoteError):
+    """An on-demand app is stopped and the hook may not wake it: serve what the
+    hub has cached, or call again inside :func:`waking`."""
+
+    def __init__(self, app_id, wake_every):
+        super().__init__(f"{app_id} is asleep")
+        self.app_id = app_id
+        self.wake_every = wake_every
+
+
+_wake_state = threading.local()
+
+
+@contextmanager
+def waking():
+    """Let tile hooks called in this block start a sleeping app."""
+    before = getattr(_wake_state, "on", False)
+    _wake_state.on = True
+    try:
+        yield
+    finally:
+        _wake_state.on = before
+
+
+def can_sleep(install):
+    """On-demand apps the supervisor runs are stopped when idle."""
+    from . import supervisor
+
+    return install.is_container and install.lifecycle == "on_demand" and supervisor.enabled()
+
+
+def wake_every(install):
+    value = (install.manifest or {}).get("wake_every")
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return DEFAULT_WAKE_EVERY
 
 
 class Converted:
@@ -123,12 +165,20 @@ def _wake(install):
     return view.get("healthy") is not False
 
 
-def call_hook(app_id, hook, timeout=HOOK_TIMEOUT, **args):
-    """Run ``hook`` in ``app_id``'s container and return its JSON result."""
+def call_hook(app_id, hook, timeout=HOOK_TIMEOUT, *, wake=True, **args):
+    """Run ``hook`` in ``app_id``'s container and return its JSON result.
+
+    With ``wake=False`` a stopped on-demand app is left asleep (:class:`Asleep`).
+    """
     install = _install(app_id)
+    sleepy = not wake and can_sleep(install)
     payload = {"hook": hook, **{k: v for k, v in args.items() if v is not None}}
     try:
-        resp = signed_request(install, "POST", "/_bdh/hook", payload, timeout=timeout)
+        resp = signed_request(install, "POST", "/_bdh/hook", payload, timeout=timeout, wake=not sleepy)
+    except requests.ConnectionError as exc:
+        if sleepy:
+            raise Asleep(app_id, wake_every(install)) from exc
+        raise RemoteError(f"{app_id} {hook}: {exc}") from exc
     except requests.RequestException as exc:
         raise RemoteError(f"{app_id} {hook}: {exc}") from exc
     if resp.status_code != 200:
@@ -257,12 +307,30 @@ def hook(path):
         capability = name.split(":", 1)[1]
 
         def run(mode=None):
-            return Converted(fix(app_id, call_hook(app_id, "provide", capability=capability)))
+            return Converted(fix(app_id, call_hook(app_id, "provide", capability=capability,
+                                                   wake=_may_wake())))
+        run.keep_for = lambda: _keep_for(app_id)
     else:
+        # Tile hooks: polled all day, so they don't wake a sleeping app.
         def run(mode=None):
-            return Converted(fix(app_id, call_hook(app_id, name, mode=mode)))
+            return Converted(fix(app_id, call_hook(app_id, name, mode=mode, wake=_may_wake())))
+        run.keep_for = lambda: _keep_for(app_id)
     run.__qualname__ = f"remote[{app_id}].{name}"
     return run
+
+
+def _may_wake():
+    return getattr(_wake_state, "on", False)
+
+
+def _keep_for(app_id):
+    """How long the hub should keep this app's last good results: long enough
+    to show while it sleeps."""
+    try:
+        install = _install(app_id)
+    except Exception:
+        return 0
+    return wake_every(install) + 3600 if can_sleep(install) else 0
 
 
 # --- specs -------------------------------------------------------------------
