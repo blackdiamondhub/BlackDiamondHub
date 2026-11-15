@@ -205,16 +205,22 @@ def store(request):
         newest = usable[0]
         apps.append({"id": app_id, "name": entry.get("name") or app_id, "description": entry.get("description") or "",
                      "icon": entry.get("icon") or "", "version": newest["version"],
-                     "memory_mb": newest.get("memory_mb"), "lifecycle": LIFECYCLES.get(newest.get("lifecycle"), ""),
                      "lan": newest.get("network") == "lan",
                      "url": reverse("hub_settings_store_app", args=[app_id])})
     return _render(request, "hub_settings/store.html", "apps", tabs=_tabs("store"), apps=apps,
                    enabled=supervisor.enabled(), catalog_ok=data is not None)
 
 
-def _free_mb():
-    records = _container_records()
-    return budget_mb() - sum(r.memory_mb or 0 for r in records)
+DEFAULT_MEMORY_MB = 96  # the supervisor's limit when a manifest doesn't set one
+
+
+def _fits(entry):
+    """Whether ``entry``'s memory limit fits in what's left of the app budget."""
+    used = sum(r.memory_mb or DEFAULT_MEMORY_MB for r in _container_records())
+    return (entry.get("memory_mb") or DEFAULT_MEMORY_MB) <= budget_mb() - used
+
+
+NO_ROOM = "There isn't enough memory for this app. Uninstall another app first."
 
 
 @staff_page
@@ -234,6 +240,9 @@ def store_app(request, app_id):
         if not supervisor.enabled():
             messages.error(request, "App containers aren't set up on this hub.")
             return redirect("hub_settings_store")
+        if not _fits(entry):
+            messages.error(request, NO_ROOM)
+            return redirect("hub_settings_store_app", app_id)
         chosen = [p for p in request.POST.getlist("perm") if p in want["permissions"]]
         try:
             services.install(app_id, entry["version"], permissions=chosen, wait=False)
@@ -247,8 +256,7 @@ def store_app(request, app_id):
                    version=entry["version"], changelog=entry.get("changelog") or "",
                    perms=[{"value": p, **describe(p)} for p in want["permissions"]],
                    network=NETWORK_INFO.get(want["network"]), lan=want["network"] == "lan",
-                   companions=want["companions"], memory_mb=entry.get("memory_mb"),
-                   lifecycle=LIFECYCLES.get(entry.get("lifecycle"), ""), free_mb=_free_mb(),
+                   companions=want["companions"], fits=_fits(entry), no_room=NO_ROOM,
                    enabled=supervisor.enabled())
 
 
