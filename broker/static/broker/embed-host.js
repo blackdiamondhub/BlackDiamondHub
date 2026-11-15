@@ -1,7 +1,7 @@
 /* The hub side of the iframe contract with container apps (see bdh_sdk's embed.js).
  *
  * Messages are only taken from the app's frame on the app's origin, and only
- * as {bdh: 1, type, ...}: title, resize, activity, navigate, toast, open-overlay.
+ * as {bdh: 1, type, ...}: title, resize, activity, navigate, toast, theme, open-overlay.
  */
 (function () {
     'use strict';
@@ -11,6 +11,9 @@
     var bare = frame.dataset.bare === '1';
     var navUrl = frame.dataset.navUrl;
     var target = bare ? window.top : window;
+    // Same pattern as _theme.html: hex or rgb()/rgba() only, nothing that could
+    // close the CSS rule.
+    var THEME_COLOR = /^(#[0-9a-fA-F]{3,8}|rgba?\([0-9.,\s%]+\))$/;
 
     var wrapper = frame.closest('.content-wrapper');
     if (wrapper) wrapper.classList.add('bdh-app-host');
@@ -74,6 +77,21 @@
         },
         toast: function (d) {
             if (typeof d.message === 'string' && d.message) toast(d.message, d.level);
+        },
+        theme: function (d) {
+            // Paint the hub page behind the frame in the app's background, and
+            // remember it so the next visit starts in it (see _theme.html).
+            var c = d.background;
+            if (bare) return;  // popup pages stay transparent over the overlay backdrop
+            if (typeof c !== 'string' || !THEME_COLOR.test(c) || /^rgba\(.*,\s*0(\.0*)?\s*\)$/.test(c)) return;
+            var s = document.getElementById('bdh-app-bg');
+            if (!s) {
+                s = document.createElement('style');
+                s.id = 'bdh-app-bg';
+                document.head.appendChild(s);
+            }
+            s.textContent = 'html,body,.content-wrapper,#bdh-app-frame{background:' + c + ' !important}';
+            try { localStorage.setItem('bdh-app-bg:' + frame.dataset.appId, c); } catch (err) { /* storage blocked */ }
         },
         'open-overlay': function (d) {
             if (d.kind === 'feedback') {

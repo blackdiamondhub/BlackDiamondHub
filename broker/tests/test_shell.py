@@ -17,6 +17,8 @@ class ShellPageTests(TestCase):
         self.assertContains(resp, f'data-app-origin="http://testserver:{self.install.port}"')
         self.assertContains(resp, 'sandbox="allow-scripts allow-same-origin allow-forms allow-popups"')
         self.assertContains(resp, "broker/embed-host.js")
+        self.assertContains(resp, "localStorage.getItem('bdh-app-bg:cams')")
+        self.assertContains(resp, "#bdh-app-frame:fullscreen")
 
     def test_root(self):
         resp = self.client.get("/apps/cams/")
@@ -35,6 +37,8 @@ class ShellPageTests(TestCase):
     def test_bare_page(self):
         resp = self.client.get("/apps/cams/_bare/cameras/popup/1")
         self.assertContains(resp, f"http://testserver:{self.install.port}/cameras/popup/1")
+        self.assertContains(resp, "#bdh-app-frame:fullscreen")
+        self.assertNotContains(resp, "bdh-app-bg:")
 
     def test_x_frame_options_sameorigin(self):
         resp = self.client.get("/apps/cams/")
