@@ -32,6 +32,7 @@ HUB_SECTIONS = _SITE['sections']  # homepage section titles: see hub.site.sectio
 HUB_EVENT_SOURCES = _SITE['events']  # [events.sources.<name>]: see hub/events.py
 # Per-site app settings ([apps.<app_id>] in site.toml) as BDH_<APP>_<KEY>.
 globals().update(app_settings(_SITE['apps']))
+HUB_SITE_APPS = _SITE['apps']  # {app_id: {key: value}}; served to container apps by the broker
 # Apps the site runs in containers (runtime = "container"): not loaded in-process.
 HUB_CONTAINER_APPS = container_apps(_SITE['runtimes'])
 

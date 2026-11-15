@@ -1,9 +1,10 @@
 import base64
 import json
+import os
 from unittest import mock
 
 from bdh_sdk import ha
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from broker import grants as g
 from broker.models import AppInstall, AuditEntry
@@ -107,6 +108,20 @@ class OwnDataTests(RpcTestCase):
         with mock.patch("hub_settings.store.lookup", side_effect=KeyError("grid")):
             self.assertEqual(self.ok("settings.get", {"app": "cams", "key": "grid"}),
                              {"found": False, "value": None})
+
+    def test_settings_get_falls_back_to_site_config(self):
+        site = {"cams": {"grid": {"a": 1}}, "weather": {"grid": 4}}
+        with mock.patch("hub_settings.store.lookup", side_effect=KeyError("grid")), \
+                override_settings(HUB_SITE_APPS=site):
+            self.assertEqual(self.ok("settings.get", {"app": "cams", "key": "grid"}),
+                             {"found": True, "value": {"a": 1}})
+            self.assertEqual(self.ok("settings.get", {"app": "cams", "key": "other"}),
+                             {"found": False, "value": None})
+            # Never another app's table, and never the hub's environment.
+            self.refused("settings.get", {"app": "weather", "key": "grid"})
+            with mock.patch.dict(os.environ, {"BDH_CAMS_SECRET": "x"}):
+                self.assertEqual(self.ok("settings.get", {"app": "cams", "key": "secret"}),
+                                 {"found": False, "value": None})
 
     def test_any_app_reads_public_hub_settings(self):
         with mock.patch("hub_settings.store.lookup", return_value="imperial") as lookup:

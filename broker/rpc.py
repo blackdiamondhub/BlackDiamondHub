@@ -9,6 +9,7 @@ import binascii
 from datetime import datetime
 
 from bdh_sdk import events as bus
+from django.conf import settings
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.debug import sensitive_variables
 
@@ -112,10 +113,16 @@ def settings_get(install, grants, payload):
         app = "hub"
     else:
         app = _own(install, payload)
+    key = _str(payload, "key")
     try:
-        return {"found": True, "value": store.lookup(app, _str(payload, "key"))}
+        return {"found": True, "value": store.lookup(app, key)}
     except KeyError:
-        return {"found": False, "value": None}
+        pass
+    # Then the site's [apps.<app>] table, as in-process apps get it.
+    site_apps = getattr(settings, "HUB_SITE_APPS", {}) or {}
+    if key in site_apps.get(app, {}):
+        return {"found": True, "value": site_apps[app][key]}
+    return {"found": False, "value": None}
 
 
 def _state():
