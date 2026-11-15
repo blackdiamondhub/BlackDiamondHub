@@ -611,6 +611,19 @@ class StatusRowsValueTests(SimpleTestCase):
         with self.assertRaises(TypeError):
             _status_value(Status("x", rows=[{"id": "a"}]))
 
+    def test_countdowns_carry_template_and_end(self):
+        with patch("bdh_sdk.hooks.time.time", return_value=1000.0):
+            value = _status_value(Status("Eggs {left}", ends_at=1300.0, rows=[
+                StatusRow(id="a", title="Eggs", detail="{left}", ends_at=1300.0),
+                StatusRow(id="b", title="Rice", detail="15:00 · paused"),
+            ]))
+        self.assertEqual((value["text"], value["text_tpl"], value["ends_at"]),
+                         ("Eggs 5:00", "Eggs {left}", 1300.0))
+        a, b = value["rows"]
+        self.assertEqual((a["detail"], a["detail_tpl"], a["ends_at"]), ("5:00", "{left}", 1300.0))
+        self.assertNotIn("ends_at", b)
+        self.assertEqual(b["detail"], "15:00 · paused")
+
 
 @override_settings(HUB_PLUGINS=ROWS_PLUGINS)
 class StatusActionApiTests(TestCase):
