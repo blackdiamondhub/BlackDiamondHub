@@ -607,11 +607,19 @@
             }
             return node;
         }
-        setInterval(function () {
+        // Tick just after each displayed second rolls over, rather than on a
+        // free-running 1 s interval whose phase drifts against ends_at and
+        // makes jitter skip or repeat a second.
+        (function tick() {
+            var now = Date.now() / 1000 + skew, wait = 1;
             document.querySelectorAll('[data-ends]').forEach(function (n) {
-                n.textContent = leftText(n.getAttribute('data-tpl'), +n.getAttribute('data-ends'));
+                var left = +n.getAttribute('data-ends') - now;
+                var txt = leftText(n.getAttribute('data-tpl'), +n.getAttribute('data-ends'));
+                if (n.textContent !== txt) n.textContent = txt;
+                if (left > 0) wait = Math.min(wait, (left - Math.floor(left)) || 1);
             });
-        }, 1000);
+            setTimeout(tick, wait * 1000 + 30);
+        })();
 
         function art(src, fallback, cls) {
             var img = el('img', cls);
@@ -688,7 +696,10 @@
             var size = tile.classList.contains('hub-tile-l') ? 'l' : tile.classList.contains('hub-tile-m') ? 'm' : 's';
             if (size === 'm' && narrow.matches) size = 's';
             var layout = size === 'l' && rows.length === 1 ? 'solo' : size;
-            var key = JSON.stringify([layout, s.text, s.stale, rows, tileActs]);
+            // Countdown text changes every poll; key on the template so the
+            // tile (and its marquees) isn't rebuilt each time.
+            var keyRows = rows.map(function (r) { return r.detail_tpl ? Object.assign({}, r, { detail: null }) : r; });
+            var key = JSON.stringify([layout, s.text_tpl || s.text, s.ends_at, s.stale, keyRows, tileActs]);
             if (tile.getAttribute('data-rows-key') === key) return;
             tile.setAttribute('data-rows-key', key);
 
