@@ -121,16 +121,6 @@ def index(request):
     return redirect("hub_settings_apps")
 
 
-@staff_page
-def apps_overview(request):
-    apps = [
-        {"spec": spec, "label": _label(spec), "img": _icon(spec), "version": _version(spec),
-         "settings_url": _settings_url(spec)}
-        for spec in plugins()
-    ]
-    return _render(request, "hub_settings/apps.html", "apps", apps=apps)
-
-
 def _parse_layout(raw, sections):
     """Validate a posted ``{"groups": [...]}`` layout; None if it's malformed.
 

@@ -68,11 +68,19 @@ def _rank(network):
     return NETWORKS.index(network) if network in NETWORKS else 0
 
 
+def declined(install):
+    """Permissions an earlier version asked for and the admin left off."""
+    return set(install.requested_permissions or ()) - set(install.granted_permissions or ())
+
+
 def widened(install, entry):
-    """What ``entry`` asks for beyond ``install``'s approval (empty when nothing)."""
+    """What ``entry`` asks for beyond ``install``'s approval (empty when nothing).
+
+    Permissions the admin already declined don't count: they stay off without
+    asking again."""
     want = requested(entry)
     out = {}
-    perms = sorted(set(want["permissions"]) - set(install.granted_permissions or ()))
+    perms = sorted(set(want["permissions"]) - set(install.granted_permissions or ()) - declined(install))
     if perms:
         out["permissions"] = perms
     if _rank(want["network"]) > _rank(install.approved_network):
@@ -163,12 +171,21 @@ def _entry(app_id, version):
 
 # --- the operations -----------------------------------------------------------
 
-def install(app_id, version=None, *, network=None, allow_lan=False, approve=False, wait=True,
-            timeout=INSTALL_TIMEOUT):
+def _narrow(asked, permissions):
+    """``asked`` limited to ``permissions`` (all of ``asked`` when that is None)."""
+    if permissions is None:
+        return list(asked)
+    keep = set(_strings(permissions))
+    return [p for p in asked if p in keep]
+
+
+def install(app_id, version=None, *, network=None, allow_lan=False, approve=False, permissions=None,
+            wait=True, timeout=INSTALL_TIMEOUT):
     """Install ``app_id`` from the catalog, or update it when it is installed.
 
     A fresh install approves what the version asks for, narrowed by
-    ``network``. An update that asks for more needs ``approve``.
+    ``network`` and ``permissions``. An update that asks for more needs
+    ``approve``.
     """
     if network is not None and network not in NETWORKS:
         raise ServiceError(f"network must be one of {', '.join(NETWORKS)}")
@@ -183,7 +200,7 @@ def install(app_id, version=None, *, network=None, allow_lan=False, approve=Fals
     entry = _entry(app_id, version)
     if existing is not None:
         return upgrade(existing, entry, network=network, allow_lan=allow_lan, approve=approve,
-                       wait=wait, timeout=timeout)
+                       permissions=permissions, wait=wait, timeout=timeout)
     want = requested(entry)
     approved = want["network"] if network is None else network
     with transaction.atomic():
@@ -194,7 +211,8 @@ def install(app_id, version=None, *, network=None, allow_lan=False, approve=Fals
             raise ServiceError(f"{app_id} clashes with installed app {clash}")
         record = AppInstall(
             app_id=app_id, runtime=AppInstall.CONTAINER, version=entry["version"], enabled=False,
-            requested_permissions=want["permissions"], granted_permissions=want["permissions"],
+            requested_permissions=want["permissions"],
+            granted_permissions=_narrow(want["permissions"], permissions),
             approved_network=approved, allow_lan=bool(allow_lan), approved_companions=want["companions"],
             network=want["network"], lifecycle=entry.get("lifecycle") or "",
             memory_mb=entry.get("memory_mb") if isinstance(entry.get("memory_mb"), int) else None)
@@ -216,16 +234,22 @@ def _finish(record, timeout):
     _load_manifest(record)
 
 
-def upgrade(record, entry, *, network=None, allow_lan=None, approve=False, wait=True,
-            timeout=INSTALL_TIMEOUT):
+def upgrade(record, entry, *, network=None, allow_lan=None, approve=False, permissions=None,
+            wait=True, timeout=INSTALL_TIMEOUT):
     extra = widened(record, entry)
     if extra and not approve:
         raise ReapprovalRequired(record.app_id, entry["version"], extra)
     want = requested(entry)
     if approve:
-        record.granted_permissions = want["permissions"]
+        if permissions is None:
+            skip = declined(record)
+            record.granted_permissions = [p for p in want["permissions"] if p not in skip]
         record.approved_companions = want["companions"]
         record.approved_network = want["network"]
+    if permissions is not None:
+        # Narrowing never needs approval; widening only comes with it.
+        allowed = want["permissions"] if approve else record.granted_permissions or ()
+        record.granted_permissions = _narrow([p for p in want["permissions"] if p in allowed], permissions)
     if network is not None:
         record.approved_network = network
     if allow_lan is not None:
@@ -233,6 +257,7 @@ def upgrade(record, entry, *, network=None, allow_lan=None, approve=False, wait=
     changed = record.version != entry["version"]
     record.version = entry["version"]
     record.requested_permissions = want["permissions"]
+    record.granted_permissions = [p for p in record.granted_permissions or () if p in want["permissions"]]
     if changed:
         record.manifest = None
         record.manifest_fetched_at = None
@@ -241,6 +266,73 @@ def upgrade(record, entry, *, network=None, allow_lan=None, approve=False, wait=
     if wait:
         _finish(record, timeout)
     return record
+
+
+def set_permissions(app_id, permissions):
+    """Grant ``app_id`` exactly ``permissions`` (only ones it asks for)."""
+    record = AppInstall.objects.get(app_id=app_id)
+    record.granted_permissions = _narrow(record.requested_permissions or [], permissions)
+    record.save(update_fields=["granted_permissions", "updated"])
+    remote.installs_changed()
+    return record
+
+
+def finish(app_id, timeout=INSTALL_TIMEOUT):
+    """Finish an install or update started with ``wait=False``."""
+    record = AppInstall.objects.get(app_id=app_id)
+    _finish(record, timeout)
+    return record
+
+
+def update_available(record, data=None):
+    """The newest compatible catalog version newer than ``record``'s, or None."""
+    if not record.is_container:
+        return None
+    api = catalog.hub_api()
+    usable = [v for v in catalog.versions(record.app_id, data) if v.get("hub_api") == api]
+    if not usable:
+        return None
+    newest = usable[0]
+    return newest if _newer(newest["version"], record.version or "") else None
+
+
+def _newer(a, b):
+    def key(v):
+        return [int(x) if x.isdigit() else -1 for x in re.split(r"[.+-]", v)]
+    try:
+        return key(a) > key(b)
+    except Exception:
+        return a != b
+
+
+def pending_updates(data=None, *, only_auto=False):
+    """``[(record, entry)]`` for installed container apps with a newer usable version."""
+    out = []
+    for record in AppInstall.objects.filter(runtime=AppInstall.CONTAINER).order_by("app_id"):
+        if only_auto and not record.auto_update:
+            continue
+        entry = update_available(record, data)
+        if entry is not None:
+            out.append((record, entry))
+    return out
+
+
+def update_all(*, only_auto=False, timeout=INSTALL_TIMEOUT):
+    """Update every app with a newer version that needs no new approval.
+
+    Returns ``{app_id: "updated <v>" | "needs approval" | "failed: ..."}``.
+    """
+    results = {}
+    for record, entry in pending_updates(only_auto=only_auto):
+        try:
+            upgrade(record, entry, timeout=timeout)
+            results[record.app_id] = f"updated {entry['version']}"
+        except ReapprovalRequired:
+            results[record.app_id] = "needs approval"
+        except (ServiceError, catalog.CatalogError, supervisor.SupervisorError) as exc:
+            log.warning("%s: update to %s failed: %s", record.app_id, entry["version"], exc)
+            results[record.app_id] = f"failed: {exc}"
+    return results
 
 
 def uninstall(app_id, purge=False):

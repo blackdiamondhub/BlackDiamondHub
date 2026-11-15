@@ -37,6 +37,7 @@ class AppInstall(models.Model):
     allow_lan = models.BooleanField(default=False)
     approved_companions = models.JSONField(default=list, blank=True)
     enabled = models.BooleanField(default=True)
+    auto_update = models.BooleanField(default=True, help_text="Install new catalog versions overnight.")
     manifest = models.JSONField(null=True, blank=True)
     manifest_fetched_at = models.DateTimeField(null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)

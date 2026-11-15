@@ -1,0 +1,50 @@
+{% extends 'hub_settings/_layout.html' %}
+{% load static broker_tags %}
+
+{% block section %}
+{% include 'hub_settings/_apps_style.html' %}
+<div class="hst-head">
+    <a class="hst-btn ghost" href="{% url 'hub_settings_store' %}" aria-label="Back to the store" style="display:grid;place-items:center;padding:0 16px"><i class="fas fa-chevron-left" aria-hidden="true"></i></a>
+    {% include 'hub_settings/_app_icon.html' with src=app.icon lg=1 %}
+    <div><h2>Install {{ app.name }}</h2><p>v{{ version }} · Runs in its own sandbox. It can only do what you allow below.</p></div>
+</div>
+{% include 'hub_settings/_apps_messages.html' %}
+{% if app.description %}<p class="ap-sub" style="margin:-4px 0 18px">{{ app.description }}</p>{% endif %}
+<form method="post">{% csrf_token %}
+<section class="hst-card">
+    <h3>Permissions</h3>
+    {% for p in perms %}
+    <label class="hst-row ap-perm">
+        <i class="fa-solid {{ p.icon }}" aria-hidden="true"></i>
+        <div class="lbl"><b>{{ p.title }}</b>{% if p.detail %}<small>{{ p.detail }}</small>{% endif %}</div>
+        <span class="hst-tog"><input type="checkbox" name="perm" value="{{ p.value }}" checked aria-label="{{ p.title }}"><span></span></span>
+    </label>
+    {% empty %}
+    <div class="hst-row"><div class="lbl"><small>This app doesn't ask for any permissions.</small></div></div>
+    {% endfor %}
+    {% if network %}
+    <div class="hst-row ap-perm">
+        <i class="fa-solid {{ network.0 }}" aria-hidden="true"{% if lan %} style="color:#ffd36b"{% endif %}></i>
+        <div class="lbl"><b>{{ network.1 }}{% if lan %}<span class="ap-pill trust">trusted</span>{% endif %}</b><small>{{ network.2 }}</small></div>
+        <span class="ap-sub">Required</span>
+    </div>
+    {% endif %}
+    {% for c in companions %}
+    <div class="hst-row ap-perm">
+        <i class="fa-solid fa-cubes" aria-hidden="true"></i>
+        <div class="lbl"><b>Helper service: {{ c }}</b><small>Runs alongside the app</small></div>
+        <span class="ap-sub">Required</span>
+    </div>
+    {% endfor %}
+    <div class="hst-row ap-perm">
+        <i class="fa-solid fa-memory" aria-hidden="true"></i>
+        <div class="lbl"><b>Memory</b><small>Up to {{ memory_mb|default:"96" }} MB{% if lifecycle %} · {{ lifecycle }}{% endif %} · {{ free_mb }} MB free in budget</small></div>
+    </div>
+</section>
+{% if changelog %}<section class="hst-card"><h3>What's new</h3><div class="hst-row"><div class="lbl"><small>{{ changelog|linebreaksbr }}</small></div></div></section>{% endif %}
+<div style="display:flex;align-items:center;gap:16px">
+    <button class="hst-btn" type="submit"{% if not enabled %} disabled{% endif %}><i class="fas fa-download" aria-hidden="true"></i> Install</button>
+    <span class="ap-sub">Turning a permission off may limit features.</span>
+</div>
+</form>
+{% endblock %}

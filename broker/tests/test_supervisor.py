@@ -325,6 +325,54 @@ class ServiceTests(SupervisorMixin, CatalogTestCase, TestCase):
         call_command("app_uninstall", "hello", "--purge", stdout=io.StringIO())
         self.assertFalse(AppInstall.objects.exists())
 
+    def test_declined_permissions_stay_off_without_reapproval(self):
+        record = self.install(version(permissions=["alerts", "speakers"]), permissions=["alerts"])
+        self.assertEqual(record.granted_permissions, ["alerts"])
+        self.assertEqual(services.declined(record), {"speakers"})
+        self.served = catalog_data(version("2.0.0", permissions=["alerts", "speakers"]))
+        catalog.refresh(force=True)
+        record = services.install("hello")
+        self.assertEqual((record.version, record.granted_permissions), ("2.0.0", ["alerts"]))
+        services.set_permissions("hello", ["alerts", "speakers", "not-asked"])
+        record.refresh_from_db()
+        self.assertEqual(record.granted_permissions, ["alerts", "speakers"])
+
+    def test_update_all_skips_updates_that_need_approval(self):
+        self.install(version())
+        self.assertIsNone(services.update_available(AppInstall.objects.get()))
+        self.served = catalog_data(version("1.1.0"), version("1.0.0"))
+        catalog.refresh(force=True)
+        record = AppInstall.objects.get()
+        self.assertEqual(services.update_available(record)["version"], "1.1.0")
+        record.auto_update = False
+        record.save()
+        self.assertEqual(services.update_all(only_auto=True), {})
+        self.assertEqual(services.update_all(), {"hello": "updated 1.1.0"})
+        self.served = catalog_data(version("1.2.0", permissions=["alerts", "speakers"]), version("1.1.0"))
+        catalog.refresh(force=True)
+        self.assertEqual(services.update_all(), {"hello": "needs approval"})
+        self.assertEqual(AppInstall.objects.get().version, "1.1.0")
+
+    def test_newer_compares_numerically(self):
+        self.assertTrue(services._newer("1.10.0", "1.9.0"))
+        self.assertFalse(services._newer("1.9.0", "1.10.0"))
+        self.assertFalse(services._newer("1.0.0", "1.0.0"))
+
+    def test_autoupdate_command(self):
+        from broker.management.commands import app_autoupdate
+
+        self.install(version())
+        self.served = catalog_data(version("1.1.0"), version("1.0.0"))
+        catalog.refresh(force=True)
+        out = io.StringIO()
+        with patch.object(app_autoupdate, "local_hour", return_value=12):
+            call_command("app_autoupdate", "--nightly", stdout=out)
+        self.assertEqual((out.getvalue(), AppInstall.objects.get().version), ("", "1.0.0"))
+        with patch.object(app_autoupdate, "local_hour", return_value=app_autoupdate.NIGHT_HOUR):
+            call_command("app_autoupdate", "--nightly", stdout=out)
+        self.assertIn("hello: updated 1.1.0", out.getvalue())
+        self.assertEqual(AppInstall.objects.get().version, "1.1.0")
+
     def test_status_without_supervisor(self):
         out = io.StringIO()
         with self.settings(BDH_SUPERVISOR_SOCKET=""):

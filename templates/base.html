@@ -502,6 +502,7 @@
                                     <span class="fb-n">{% if unread_feedback_count > 0 %}{{ unread_feedback_count }}{% endif %}</span>
                                 </a>
                                 <a href="{% url 'hub_settings' %}" role="menuitem"><i class="fas fa-sliders-h"></i>Settings</a>
+                                <a href="{% url 'hub_settings_apps' %}" role="menuitem"><i class="fas fa-store"></i>Apps</a>
                                 <hr>
                             {% endif %}
                             <form method="post" action="{% url 'logout' %}?next={{ request.path }}">
