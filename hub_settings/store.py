@@ -3,6 +3,11 @@
 Saved values are read in one query and cached in-process. Saving or deleting
 an ``AppSetting`` clears the cache; the TTL covers changes made by another
 process (e.g. a management command).
+
+Settings that moved to the secret store (``vault.LEGACY_PLAIN``) are still
+found here, decrypted on demand, so apps that read them with ``app_setting``
+keep working after ``migrate_plain_secrets``. Plain-text values are held in
+memory only.
 """
 import logging
 import threading
@@ -18,6 +23,7 @@ _lock = threading.Lock()
 _cache = None
 _loaded_at = 0.0
 _bypass = threading.local()
+_secrets = {}
 
 
 def _load():
@@ -42,16 +48,48 @@ def _values():
     return values
 
 
+def _legacy_secret(app_id, key):
+    from . import vault
+
+    now = time.monotonic()
+    with _lock:
+        hit = _secrets.get((app_id, key))
+    if hit and now - hit[0] < TTL:
+        value = hit[1]
+    else:
+        try:
+            value = vault.get_secret(app_id, key)
+        except KeyError:
+            value = None
+        except Exception as exc:
+            log.debug("secret store unavailable: %s", type(exc).__name__)
+            return None
+        with _lock:
+            _secrets[(app_id, key)] = (now, value)
+    return value
+
+
 def lookup(app_id, key):
     if getattr(_bypass, "on", False):
         raise KeyError(key)
-    return _values()[(app_id, key)]
+    try:
+        return _values()[(app_id, key)]
+    except KeyError:
+        from .vault import is_legacy
+
+        if not is_legacy(app_id, key):
+            raise
+    value = _legacy_secret(app_id, key)
+    if value is None:
+        raise KeyError(key)
+    return value
 
 
 def clear(**_kwargs):
     global _cache
     with _lock:
         _cache = None
+        _secrets.clear()
 
 
 def saved(app_id):

@@ -70,7 +70,10 @@ def rpc(request, op):
         result = fn(install, install.grants, payload)
     except ops.OpError as exc:
         if exc.code == "forbidden" or op in ops.AUDITED:
-            _audit(install.app_id, op, exc.code != "forbidden", f"{exc.code}: {exc}")
+            detail = f"{exc.code}: {exc}"
+            if op in ops.SECRET_OPS:
+                detail += " " + _summary(op, payload)
+            _audit(install.app_id, op, exc.code != "forbidden", detail)
         return _error(exc.code, str(exc), exc.status)
     except Exception as exc:
         log.exception("broker op %s for %s failed", op, install.app_id)
@@ -81,6 +84,9 @@ def rpc(request, op):
 
 
 def _summary(op, payload):
+    if op in ops.SECRET_OPS:
+        name = payload.get("name")
+        return json.dumps({"name": name if isinstance(name, str) else None})[:500]
     keys = ("domain", "service", "entity_id", "key", "topic", "patterns", "filename", "message")
     return json.dumps({k: payload[k] for k in keys if k in payload}, default=str)[:500]
 

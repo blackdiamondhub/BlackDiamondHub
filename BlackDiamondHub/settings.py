@@ -116,6 +116,8 @@ BDH_SUPERVISOR_TOKEN = os.getenv('BDH_SUPERVISOR_TOKEN', '')
 # The app catalog (broker/catalog.py), cached on disk.
 BDH_CATALOG_URL = os.getenv('BDH_CATALOG_URL', '')
 BDH_CATALOG_CACHE_DIR = os.getenv('BDH_CATALOG_CACHE_DIR', '')
+# The secret store's AES key file (hub_settings/vault.py); never in the database.
+BDH_SECRETS_KEY_FILE = os.getenv('BDH_SECRETS_KEY_FILE', '/etc/bdh/secrets.key')
 
 MIDDLEWARE = [
     # Before everything: the broker port serves only the broker RPC.

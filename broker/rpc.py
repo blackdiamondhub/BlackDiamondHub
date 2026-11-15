@@ -10,6 +10,7 @@ from datetime import datetime
 
 from bdh_sdk import events as bus
 from django.utils.dateparse import parse_datetime
+from django.views.decorators.debug import sensitive_variables
 
 from . import grants as g
 
@@ -21,7 +22,11 @@ MAX_SUBSCRIPTIONS = 32
 AUDITED = frozenset({
     "ha.call_service", "ha.upload_media", "ha.ws_commands", "speakers.announce",
     "alerts.push", "alerts.dismiss", "state.set", "state.delete", "events.subscribe",
+    "secrets.get", "secrets.set", "secrets.delete",
 })
+
+# Ops whose audit entry records only the secret's name, never the payload.
+SECRET_OPS = frozenset({"secrets.get", "secrets.set", "secrets.delete"})
 
 
 class OpError(Exception):
@@ -141,6 +146,61 @@ def state_delete(install, grants, payload):
 
 def state_keys(install, grants, payload):
     return list(_state().keys(_own(install, payload)))
+
+
+# --- secrets -------------------------------------------------------------------
+# The app is always the caller's own (from its token); a payload "app" is ignored.
+# Errors never include the value.
+
+def _secret_name(payload):
+    from bdh_sdk.secrets import check_name
+
+    try:
+        return check_name(payload.get("name"))
+    except ValueError:
+        raise invalid("name must be 1-64 of a-z 0-9 _") from None
+
+
+def _vault(fn, *args):
+    from hub_settings.vault import SecretStoreError
+
+    try:
+        return fn(*args)
+    except SecretStoreError:
+        raise OpError("error", "secret store unavailable") from None
+
+
+@sensitive_variables()
+def secrets_get(install, grants, payload):
+    from hub_settings import vault
+
+    name = _secret_name(payload)
+    try:
+        return {"found": True, "value": _vault(vault.get_secret, install.app_id, name)}
+    except KeyError:
+        return {"found": False, "value": None}
+
+
+@sensitive_variables()
+def secrets_set(install, grants, payload):
+    from bdh_sdk.secrets import check_value
+    from hub_settings import vault
+
+    name = _secret_name(payload)
+    value = payload.get("value")
+    try:
+        check_value(value)
+    except (TypeError, ValueError) as exc:
+        raise invalid(str(exc)) from None
+    _vault(vault.set_secret, install.app_id, name, value)
+    return None
+
+
+def secrets_delete(install, grants, payload):
+    from hub_settings import vault
+
+    vault.delete_secret(install.app_id, _secret_name(payload))
+    return None
 
 
 # --- alerts -------------------------------------------------------------------
@@ -392,6 +452,9 @@ OPS = {
     "state.set": state_set,
     "state.delete": state_delete,
     "state.keys": state_keys,
+    "secrets.get": secrets_get,
+    "secrets.set": secrets_set,
+    "secrets.delete": secrets_delete,
     "alerts.push": alerts_push,
     "alerts.dismiss": alerts_dismiss,
     "events.publish": events_publish,

@@ -44,3 +44,34 @@ class AppState(models.Model):
 
     def __str__(self):
         return f"{self.app_id}.{self.key} = {self.value!r}"
+
+
+class AppSecret(models.Model):
+    """One app's secret, encrypted with AES-256-GCM (see :mod:`hub_settings.vault`).
+
+    Only ever read through the vault: the key isn't in the database and the
+    ciphertext is bound to ``app_id|name``.
+    """
+
+    app_id = models.CharField(max_length=64)
+    name = models.CharField(max_length=64)
+    key_id = models.CharField(max_length=32)
+    nonce = models.BinaryField()
+    ciphertext = models.BinaryField()
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["app_id", "name"], name="hub_settings_unique_secret"),
+        ]
+        ordering = ["app_id", "name"]
+
+    def __str__(self):
+        return f"{self.app_id}.{self.name} (secret)"
+
+    def __repr__(self):
+        return f"<AppSecret {self.app_id}.{self.name}>"

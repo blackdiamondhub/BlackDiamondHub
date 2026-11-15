@@ -40,6 +40,23 @@
                 {% endfor %}
             </div>
         </div>
+        {% elif r.secret %}
+        <div class="hst-row secret">
+            <label class="lbl" for="hs-{{ r.s.key }}">
+                <b>{{ r.s.label }}</b>
+                {% if r.error %}<small class="err">{{ r.error }}</small>{% elif r.s.help %}<small>{{ r.s.help }}</small>{% endif %}
+            </label>
+            <div class="ctl">
+                <span class="hst-secret" data-secret-state>{% if r.is_set %}<i class="fas fa-lock" aria-hidden="true"></i> &bull;&bull;&bull;&bull; set{% else %}not set{% endif %}</span>
+                {% if r.is_set %}
+                <button type="submit" name="clear_secret" value="{{ r.s.key }}" class="hst-reset" formnovalidate
+                        title="Forget the saved secret">Clear</button>
+                {% endif %}
+                <input type="password" class="hst-in txt{% if r.error %} bad{% endif %}" id="hs-{{ r.s.key }}" name="{{ r.s.key }}"
+                       value="" autocomplete="new-password" spellcheck="false"
+                       placeholder="{% if r.is_set %}Replace (blank keeps it){% else %}Enter to set{% endif %}">
+            </div>
+        </div>
         {% else %}
         <div class="hst-row">
             <label class="lbl" for="hs-{{ r.s.key }}">
