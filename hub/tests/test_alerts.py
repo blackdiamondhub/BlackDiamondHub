@@ -136,3 +136,20 @@ class AlertKeepOpenTest(SeleniumTestCase):
         self.show(1)  # a fresh alert counts down again
         self.assertEqual(keep.get_attribute("aria-pressed"), "false")
         WebDriverWait(browser, 5).until(EC.invisibility_of_element_located(self.SHOWN))
+
+    def bar_scale(self):
+        return self.browser.execute_script(
+            "return new DOMMatrix(getComputedStyle("
+            "document.querySelector('.hub-alert-bar span')).transform).a")
+
+    def test_repeat_with_the_same_end_keeps_the_countdown(self):
+        browser = self.browser
+        browser.get(f"{self.live_server_url}/accounts/login/")
+        wait_for_paint(browser)
+        self.show(4)
+        time.sleep(2)
+        self.show(2)  # a timer's second chime: ends when the first countdown does
+        self.assertLess(self.bar_scale(), 0.75)
+        self.show(10)  # a later end (another doorbell ring) refills the bar
+        time.sleep(0.2)
+        self.assertGreater(self.bar_scale(), 0.9)

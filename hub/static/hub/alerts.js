@@ -9,7 +9,7 @@
     const isDisplay = () => window.innerWidth >= 1280;
     let ws = null, backoff = 1000, retry = null, resizeTimer = null;
     const KEEP_MAX_S = 600;
-    let root = null, current = null, closeTimer = null, kept = false, stopVoice = null;
+    let root = null, current = null, closeTimer = null, closesAt = 0, kept = false, stopVoice = null;
 
     function el(tag, cls) {
         const e = document.createElement(tag);
@@ -55,7 +55,12 @@
         closeTimer = setTimeout(close, KEEP_MAX_S * 1000);
     }
 
-    function startTimer(ttl) {
+    function startTimer(ttl, repeat) {
+        const ends = Date.now() + ttl * 1000;
+        // A repeat that ends when the running countdown does (e.g. a timer's
+        // second chime) keeps the bar going instead of refilling it.
+        if (repeat && closeTimer && Math.abs(ends - closesAt) < 1500) return;
+        closesAt = ends;
         clearTimeout(closeTimer);
         closeTimer = setTimeout(close, ttl * 1000);
         const bar = root.querySelector('.hub-alert-bar span');
@@ -107,12 +112,13 @@
         root.classList.add('on');
         if (!same) setKept(false);
         // A repeat of a kept alert (e.g. another ring) leaves it kept open.
-        if (!kept) startTimer(Math.max(1, Math.min(600, alert.ttl || 60)));
+        if (!kept) startTimer(Math.max(1, Math.min(600, alert.ttl || 60)), same);
     }
 
     function close() {
         if (!root || !current) return;
         clearTimeout(closeTimer);
+        closeTimer = null;
         hush();
         current = null;
         setKept(false);
