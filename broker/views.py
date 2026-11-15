@@ -10,7 +10,7 @@ from django.urls import NoReverseMatch, reverse
 from django.utils.encoding import escape_uri_path, iri_to_uri
 from django.views.decorators.csrf import csrf_exempt
 
-from . import remote, rpc as ops, visitor
+from . import lifecycle, remote, rpc as ops, visitor
 from .models import AuditEntry
 from .ratelimit import limiter
 from .tokens import authenticate, bearer
@@ -43,6 +43,7 @@ def rpc(request, op):
     if install is None:
         _audit("?", op, False, "bad token")
         return _error("forbidden", "unknown or disabled app token", 403)
+    lifecycle.seen(install)
     fn = ops.OPS.get(op)
     if fn is None:
         return _error("unknown_op", f"no op {op!r}", 404)

@@ -55,6 +55,16 @@ class TokenTests(RpcTestCase):
         self.app.save()
         self.refused("state.keys", {"app": "cams"})
 
+    def test_a_call_marks_the_app_running(self):
+        from broker import lifecycle
+
+        self.addCleanup(lifecycle.reset)
+        with mock.patch.object(lifecycle, "managed", return_value=True):
+            self.refused("state.keys", {"app": "cams"}, token="Bearer nope")
+            self.assertNotIn("cams", lifecycle._running_until)
+            self.ok("state.keys", {"app": "cams"})
+        self.assertIn("cams", lifecycle._running_until)
+
     def test_rotated_generation_invalidates_old_token(self):
         old = auth(self.app)
         self.app.generation += 1
