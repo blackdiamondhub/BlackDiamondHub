@@ -1,5 +1,5 @@
 """The display app's settings and the choices behind them."""
-from bdh_sdk.plugins import BOOL, CHOICE, INT, Setting
+from bdh_sdk.plugins import BOOL, CHOICE, INT, SECRET, Setting
 from bdh_sdk.settings import app_setting
 
 APP = "display"
@@ -49,6 +49,10 @@ def _settings():
         Setting("night", "Dark overnight", BOOL, True, "The screensaver goes black between these times"),
         Setting("night_from", "Dark from", default=DEFAULT_NIGHT["from"], help="HH:MM, 24-hour"),
         Setting("night_until", "Dark until", default=DEFAULT_NIGHT["until"], help="HH:MM, 24-hour"),
+        Setting("connect_host", "UniFi Connect console", default="",
+                help="Turns UniFi Connect screens off overnight; empty for none"),
+        Setting("connect_username", "UniFi Connect user", default="", help="A local user on the console"),
+        Setting("connect_password", "UniFi Connect password", SECRET, None),
         Setting("chime_volume", "Pop-up chime", INT, 70, "Volume of the sound a pop-up plays; quiet overnight",
                 minimum=0, maximum=100, unit="%"),
         Setting("winter_on_lifts", "Let apps bring winter forward", BOOL, True,

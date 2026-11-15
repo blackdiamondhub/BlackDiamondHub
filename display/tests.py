@@ -25,7 +25,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from hub.plugins import PluginSpec
 from hub_settings import store
 from tests.selenium_helpers import SeleniumTestCase, login_via_browser
-from . import catalog, views
+from . import catalog, connect, views
 from hub_settings.models import AppSetting
 from .models import Heartbeat, SaverPhoto, UploadLink
 from .options import DEFAULT_STARTS, SEASONS, STOCK_STYLES
@@ -498,6 +498,122 @@ class ScheduleTests(TestCase):
         for bad in ("", "6", "24:00", "12:60", "ab:cd"):
             with self.assertRaises(ValueError):
                 parse_hhmm(bad)
+
+
+class ConnectTests(TestCase):
+    """Turning UniFi Connect screens off overnight."""
+    SCREEN = {"id": "dev1", "name": "Hub", "extraInfo": {"ethIP": "10.0.0.9"},
+              "type": {"supportedActions": [{"id": "a-off", "name": "display_off"},
+                                            {"id": "a-on", "name": "display_on"}]}}
+
+    def setUp(self):
+        store.clear()
+        self.addCleanup(store.clear)
+        self.state = FakeState()
+        self.state.delete = self.state.pop
+        patcher = mock.patch("display.connect.app_state", return_value=self.state)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        AppSetting.objects.create(app_id="display", key="connect_host", value="10.0.0.1")
+        AppSetting.objects.create(app_id="display", key="connect_username", value="hub")
+        secret = mock.patch("display.connect.secrets.get", return_value="pw")
+        secret.start()
+        self.addCleanup(secret.stop)
+
+    def session(self, screens=None, fail=False):
+        session = mock.MagicMock()
+        session.__enter__.return_value = session
+        session.headers = {}
+        session.post.return_value.headers = {"X-Csrf-Token": "tok"}
+        session.get.return_value.json.return_value = {"data": [self.SCREEN] if screens is None else screens}
+        if fail:
+            session.patch.return_value.raise_for_status.side_effect = connect.requests.HTTPError("401 pw=pw")
+        return mock.patch("display.connect.requests.Session", return_value=session), session
+
+    def night(self, dark):
+        return mock.patch("display.connect.night_now", return_value=dark)
+
+    def test_sleep_turns_the_screen_off_at_night(self):
+        patch, session = self.session()
+        with patch, self.night(True):
+            self.assertTrue(connect.sleep("10.0.0.9"))
+        session.post.assert_called_once_with("https://10.0.0.1/api/auth/login", timeout=connect.TIMEOUT,
+                                             json={"username": "hub", "password": "pw"})
+        self.assertEqual(session.headers["X-Csrf-Token"], "tok")
+        session.patch.assert_called_once_with("https://10.0.0.1/proxy/connect/api/v2/devices/dev1/status",
+                                              timeout=connect.TIMEOUT, json={"id": "a-off", "name": "display_off"})
+        self.assertEqual(self.state[connect.SLEPT], ["10.0.0.9"])
+
+    def test_sleep_does_nothing_by_day_unset_or_unknown_screen(self):
+        patch, session = self.session()
+        with patch, self.night(False):
+            self.assertFalse(connect.sleep("10.0.0.9"))
+        with patch, self.night(True):
+            self.assertFalse(connect.sleep("10.0.0.50"))  # not a Connect screen
+        session.patch.assert_not_called()
+        AppSetting.objects.filter(key="connect_host").delete()
+        store.clear()
+        self.assertFalse(connect.configured())
+        with patch, self.night(True):
+            self.assertFalse(connect.sleep("10.0.0.9"))
+        self.assertNotIn(connect.SLEPT, self.state)
+
+    def test_failure_never_shows_the_password(self):
+        patch, _ = self.session(fail=True)
+        with patch, self.night(True), self.assertRaises(connect.ConnectError) as err:
+            connect.sleep("10.0.0.9")
+        self.assertNotIn("pw", str(err.exception))
+
+    def test_wake_in_the_morning_and_retry_failures(self):
+        self.state[connect.SLEPT] = ["10.0.0.9"]
+        patch, session = self.session()
+        with patch, self.night(True):
+            self.assertEqual(connect.wake_due(), [])  # still night
+        session.patch.assert_not_called()
+        failing, _ = self.session(fail=True)
+        with failing, self.night(False):
+            self.assertEqual(connect.wake_due(), [])
+        self.assertEqual(self.state[connect.SLEPT], ["10.0.0.9"])  # tried again next minute
+        with patch, self.night(False):
+            self.assertEqual(connect.wake_due(), ["10.0.0.9"])
+        session.patch.assert_called_once_with("https://10.0.0.1/proxy/connect/api/v2/devices/dev1/status",
+                                              timeout=connect.TIMEOUT, json={"id": "a-on", "name": "display_on"})
+        self.assertNotIn(connect.SLEPT, self.state)
+
+    def test_sleep_endpoint(self):
+        url = reverse("display_sleep")
+        self.assertEqual(self.client.get(url).status_code, 405)
+        with mock.patch("display.connect.sleep", return_value=True) as sleep:
+            self.assertEqual(self.client.post(url, REMOTE_ADDR="10.0.0.9").json(), {"asleep": True})
+        sleep.assert_called_once_with("10.0.0.9")
+        with mock.patch("display.connect.sleep", side_effect=connect.ConnectError("boom")):
+            self.assertEqual(self.client.post(url).json(), {"asleep": False})
+
+    def test_saver_asks_to_sleep_only_when_set_up(self):
+        from .templatetags.display_tags import screensaver
+        self.assertEqual(screensaver()["config"]["sleep"], reverse("display_sleep"))
+        AppSetting.objects.filter(key="connect_host").delete()
+        store.clear()
+        self.assertNotIn("sleep", screensaver()["config"])
+
+    def test_settings_page_keeps_the_password_secret(self):
+        from hub_settings import vault
+        vault.set_provider(vault.StaticKeyProvider(("k1", b"\x07" * 32)))
+        self.addCleanup(vault.set_provider, None)
+        self.staff = get_user_model().objects.create_user("staff", password="pw", is_staff=True)
+        self.client.force_login(self.staff)
+        page = self.client.get(reverse("display_settings"))
+        self.assertContains(page, 'name="connect_host" value="10.0.0.1"')
+        self.assertContains(page, "Not set")
+        data = ViewTests.form(self, connect_password="s3cret-pass")
+        self.client.post(reverse("display_settings"), data)
+        self.assertEqual(vault.get_secret("display", "connect_password"), "s3cret-pass")
+        self.client.post(reverse("display_settings"), {**data, "connect_password": ""})  # blank keeps it
+        self.assertEqual(vault.get_secret("display", "connect_password"), "s3cret-pass")
+        page = self.client.get(reverse("display_settings"))
+        self.assertContains(page, "Saved; leave blank to keep it")
+        self.assertNotContains(page, "s3cret-pass")
+        self.assertNotIn("connect_password", page.context["v"])
 
 
 def jpeg(size=(800, 600), orientation=None, name="p.jpg", taken=None):

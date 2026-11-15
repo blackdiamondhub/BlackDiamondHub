@@ -152,6 +152,15 @@
         return night.from < night.until ? m >= night.from && m < night.until : m >= night.from || m < night.until;
     }
     function applyNight() { if (root) root.classList.toggle('night', isNight()); }
+    // A UniFi Connect screen can also switch its backlight off; the hub turns it back on in the morning.
+    let askedSleep = false;
+    function sleepAtNight() {
+        applyNight();
+        if (cfg.sleep && !askedSleep && isNight()) {
+            askedSleep = true;
+            navigator.sendBeacon(cfg.sleep);
+        }
+    }
 
     // Nothing is shown until the settings arrive, so the wrong layer can't flash up first.
     let showing = null;
@@ -428,18 +437,19 @@
     function begin() {
         root.style.display = '';
         root.style.pointerEvents = '';
-        applyNight();
+        sleepAtNight();
         tick();
         drift();
         if (showing) showLayer(showing);
         timers.push(setInterval(rotate, rotateSeconds() * 1000));
         timers.push(setInterval(tick, 10 * 1000), setInterval(drift, 120 * 1000), setInterval(load, 5 * 60 * 1000),
-            setInterval(applyNight, 30 * 1000));
+            setInterval(sleepAtNight, 30 * 1000));
         requestAnimationFrame(() => root.classList.add('on'));
     }
 
     function hide(swallow = true) {
         preparing = 0;
+        askedSleep = false;
         if (!root) return;
         timers.forEach(clearInterval);
         timers = [];

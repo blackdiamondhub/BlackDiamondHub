@@ -329,6 +329,18 @@
                                             <input type="time" class="hst-in time{% if errors.night_until %} bad{% endif %}" id="dsp-night-until" name="night_until" value="{{ v.night_until }}" aria-label="Dark until">
                                         </div>
                                     </div>
+                                    <div class="hst-row">
+                                        <label class="lbl" for="dsp-connect-host"><b>UniFi Connect screens</b><small>Also turn the backlight off overnight; a touch wakes it. Console address, empty for none</small></label>
+                                        <div class="ctl"><input type="text" class="hst-in" id="dsp-connect-host" name="connect_host" value="{{ v.connect_host }}" placeholder="192.168.1.26" autocomplete="off"></div>
+                                    </div>
+                                    <div class="hst-row">
+                                        <label class="lbl" for="dsp-connect-user"><b>Console user</b><small>A local user on the console</small></label>
+                                        <div class="ctl"><input type="text" class="hst-in" id="dsp-connect-user" name="connect_username" value="{{ v.connect_username }}" autocomplete="off"></div>
+                                    </div>
+                                    <div class="hst-row">
+                                        <label class="lbl" for="dsp-connect-pw"><b>Console password</b><small>{% if connect_password_set %}Saved; leave blank to keep it{% else %}Not set{% endif %}</small></label>
+                                        <div class="ctl"><input type="password" class="hst-in" id="dsp-connect-pw" name="connect_password" value="" autocomplete="new-password"{% if connect_password_set %} placeholder="••••••••"{% endif %}></div>
+                                    </div>
             </section>
 
             <section class="hst-card">
