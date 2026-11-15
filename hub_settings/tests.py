@@ -58,9 +58,13 @@ class SettingsPageTests(TestCase):
 
     def test_lists_apps_with_settings(self):
         self.client.force_login(self.staff)
-        response = self.client.get(reverse("hub_settings"), follow=True)
+        response = self.client.get(reverse("hub_settings_apps"))
         self.assertContains(response, 'href="/settings/app/demo/"')
         self.assertContains(response, "Feedback")
+
+    def test_settings_opens_on_general(self):
+        self.client.force_login(self.staff)
+        self.assertRedirects(self.client.get(reverse("hub_settings")), reverse("hub_settings_location"))
 
     def test_unknown_app_is_404(self):
         self.client.force_login(self.staff)

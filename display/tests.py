@@ -28,7 +28,7 @@ from tests.selenium_helpers import SeleniumTestCase, login_via_browser
 from . import catalog, views
 from hub_settings.models import AppSetting
 from .models import Heartbeat, SaverPhoto, UploadLink
-from .options import DEFAULT_STARTS
+from .options import DEFAULT_STARTS, SEASONS, STOCK_STYLES
 from .schedule import is_night, parse_hhmm
 from .season import parse_mmdd, resolve
 from .stats import collect, days_until_lifts
@@ -774,3 +774,21 @@ class DisplaySettingsSeleniumTest(SeleniumTestCase):
         WebDriverWait(b, 5).until(lambda d: "on" in d.find_element(*hint).get_attribute("class").split())
         b.execute_script(f"{scrollers}.forEach(e => e.scrollTop = e.scrollHeight)")
         WebDriverWait(b, 5).until(lambda d: "on" not in d.find_element(*hint).get_attribute("class").split())
+
+    def test_built_in_paintings_tab_and_viewer(self):
+        self.open()
+        b = self.browser
+        b.find_element(By.CSS_SELECTOR, '[data-lib="stock"]').click()
+        tiles = b.find_elements(By.CSS_SELECTOR, "#dsp-stock-grid .dsp-art")
+        self.assertEqual(len(tiles), len(STOCK_STYLES) * len(SEASONS))
+        self.assertFalse(b.find_element(By.ID, "dsp-lib-grid").is_displayed())
+        tiles[0].click()
+        viewer = b.find_element(By.ID, "dsp-view")
+        WebDriverWait(b, 5).until(lambda d: viewer.is_displayed())
+        first = b.find_element(By.ID, "dsp-view-img").get_attribute("src")
+        b.find_element(By.CSS_SELECTOR, "#dsp-view .dsp-step.next").click()
+        self.assertNotEqual(b.find_element(By.ID, "dsp-view-img").get_attribute("src"), first)
+        b.find_element(By.CSS_SELECTOR, "#dsp-view [data-close]").click()
+        WebDriverWait(b, 5).until(lambda d: not viewer.is_displayed())
+        b.find_element(By.CSS_SELECTOR, '[data-lib="mine"]').click()
+        self.assertTrue(b.find_element(By.ID, "dsp-add").is_displayed())

@@ -129,7 +129,8 @@ def _render(request, template, active, **context):
 
 @staff_page
 def index(request):
-    return redirect("hub_settings_apps")
+    # Apps has its own entry in the admin menu, so Settings opens on General.
+    return redirect("hub_settings_location")
 
 
 def _parse_layout(raw, sections):
