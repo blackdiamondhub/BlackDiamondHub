@@ -132,6 +132,12 @@
     .hub-rows .hub-row-art { flex: none; margin: 0; width: 58px; height: 58px; border-radius: 10px; object-fit: cover; background: var(--line); }
     .hub-row-txt { flex: 1; min-width: 0; }
     .hub-row-title, .hub-row-detail { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Marquee for text too long for its line (hubMarquee). The left fade sits in a
+       padding gutter so the first letter stays crisp while holding. */
+    .hub-mq-host > .hub-mq { display: inline-block; overflow: visible; white-space: nowrap; will-change: transform; }
+    .hub-mq-host.is-mq { text-overflow: clip; padding-left: 10px; margin-left: -10px;
+        -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 24px), transparent);
+        mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 24px), transparent); }
     .hub-row-title { font-size: 18px; font-weight: 600; }
     .hub-row-detail { font-size: 15px; color: var(--mut); }
     .hub-row.is-dimmed .hub-row-title { color: var(--mut); }
@@ -510,6 +516,54 @@
 {% csrf_token %}
 
 <script>
+    // Text that doesn't fit its line scrolls like a music app's title: hold,
+    // slide left, loop seamlessly. Staggered so tiles don't move in lockstep.
+    var hubMarquee = (function () {
+        var HOLD = 3000, SPEED = 30, GAP = 48;
+        var obs = window.ResizeObserver && new ResizeObserver(function (es) {
+            es.forEach(function (e) {
+                var n = e.target;
+                if (n.isConnected) { run(n); return; }
+                obs.unobserve(n);
+                if (n._mq) n._mq.forEach(function (a) { a.cancel(); });
+            });
+        });
+        function run(node) {
+            if (node._mq) { node._mq.forEach(function (a) { a.cancel(); }); node._mq = null; }
+            var first = node.firstElementChild;
+            var html = first && first.classList.contains('hub-mq') ? first.innerHTML : node.innerHTML;
+            node.classList.remove('is-mq');
+            node.innerHTML = '<span class="hub-mq"></span>';
+            var track = node.firstChild;
+            track.innerHTML = html;
+            if (!node.clientWidth || track.offsetWidth <= node.clientWidth) return;
+            var dist = track.offsetWidth + GAP;
+            var copy = track.cloneNode(true);
+            copy.style.paddingLeft = GAP + 'px';
+            copy.setAttribute('aria-hidden', 'true');
+            node.appendChild(copy);
+            node.classList.add('is-mq');
+            var total = HOLD + dist / SPEED * 1000;
+            var frames = [{ transform: 'translateX(0)', offset: 0 }, { transform: 'translateX(0)', offset: HOLD / total },
+                { transform: 'translateX(-' + dist + 'px)', offset: 1 }];
+            var delay = Math.random() * 1500;
+            node._mq = [track, copy].map(function (s) {
+                return s.animate(frames, { duration: total, iterations: Infinity, delay: delay });
+            });
+        }
+        function add(node) {
+            // Countdowns rewrite their text every second; leave them alone.
+            if (node.hasAttribute('data-ends')) return;
+            node.classList.add('hub-mq-host');
+            if (obs) obs.observe(node); else run(node);
+        }
+        return {
+            add: function (nodes) { Array.prototype.forEach.call(nodes, add); },
+            refresh: function () { document.querySelectorAll('.hub-mq-host').forEach(run); },
+        };
+    })();
+    hubMarquee.add(document.querySelectorAll('.hub-wx-sub, .hub-wx-mini span:last-child'));
+
     (function () {
         var STATUS_URL = "{% url 'hub_status' %}";
         var HUB_MODE = "{{ hub_mode }}";
@@ -677,6 +731,7 @@
             }
             if (old) old.replaceWith(box); else tile.appendChild(box);
             tile.classList.add('has-rows');
+            hubMarquee.add(box.querySelectorAll('.hub-row-title, .hub-row-detail'));
         }
 
         narrow.addEventListener('change', function () { applyStatus(lastStatus); });
@@ -1017,6 +1072,7 @@
             el.appendChild(go);
         }
         slot.appendChild(el);
+        hubMarquee.add(el.querySelectorAll('.hub-reading-label'));
     }
     renderCard(JSON.parse(document.getElementById('hub-card-data').textContent));
 </script>
@@ -1103,6 +1159,7 @@
             el.setAttribute('data-unit', imperial ? 'F' : 'C');
         });
         document.querySelector('.toggle-button').dataset.unit = imperial ? 'F' : 'C';
+        hubMarquee.refresh();
     }
 
     function toggleUnits() {
