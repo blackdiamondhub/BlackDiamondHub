@@ -36,14 +36,16 @@
         <span class="ap-sub">Required</span>
     </div>
     {% endfor %}
+    {% if not fits %}
     <div class="hst-row ap-perm">
-        <i class="fa-solid fa-memory" aria-hidden="true"></i>
-        <div class="lbl"><b>Memory</b><small>Up to {{ memory_mb|default:"96" }} MB{% if lifecycle %} · {{ lifecycle }}{% endif %} · {{ free_mb }} MB free in budget</small></div>
+        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true" style="color:#ffd36b"></i>
+        <div class="lbl"><b>Not enough memory</b><small>{{ no_room }}</small></div>
     </div>
+    {% endif %}
 </section>
 {% if changelog %}<section class="hst-card"><h3>What's new</h3><div class="hst-row"><div class="lbl"><small>{{ changelog|linebreaksbr }}</small></div></div></section>{% endif %}
 <div style="display:flex;align-items:center;gap:16px">
-    <button class="hst-btn" type="submit"{% if not enabled %} disabled{% endif %}><i class="fas fa-download" aria-hidden="true"></i> Install</button>
+    <button class="hst-btn" type="submit"{% if not enabled or not fits %} disabled{% endif %}><i class="fas fa-download" aria-hidden="true"></i> Install</button>
     <span class="ap-sub">Turning a permission off may limit features.</span>
 </div>
 </form>

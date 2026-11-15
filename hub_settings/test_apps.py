@@ -114,6 +114,17 @@ class AppsPageTests(SupervisorMixin, CatalogTestCase, TestCase):
         delete = next(r for r in self.sup.requests if r.method == "DELETE")
         self.assertEqual(delete.url.params["purge_data"], "true")
 
+    def test_install_blocked_when_memory_budget_is_full(self):
+        sheet = self.client.get(reverse("hub_settings_store_app", args=["hello"]))
+        self.assertNotContains(sheet, "budget")
+        self.assertNotContains(sheet, "Not enough memory")
+        with override_settings(BDH_APP_MEMORY_BUDGET_MB=50):
+            sheet = self.client.get(reverse("hub_settings_store_app", args=["hello"]))
+            self.assertContains(sheet, "Not enough memory")
+            self.assertContains(sheet, 'type="submit" disabled')
+            self.install(perm=["alerts"])
+        self.assertFalse(AppInstall.objects.exists())
+
     def test_unknown_app_is_404(self):
         self.assertEqual(self.client.get(reverse("hub_settings_store_app", args=["nope"])).status_code, 404)
         self.assertEqual(self.client.get(reverse("hub_settings_app_manage", args=["nope"])).status_code, 404)

@@ -15,7 +15,7 @@
     <a class="ap-tile" href="{{ a.url }}">
         <div class="top">{% include 'hub_settings/_app_icon.html' with src=a.icon %}<div><b>{{ a.name }}</b><small>v{{ a.version }}</small></div></div>
         <p>{{ a.description|default:"No description." }}</p>
-        <div class="ft"><span>{% if a.memory_mb %}{{ a.memory_mb }} MB{% endif %}{% if a.lifecycle %} · {{ a.lifecycle }}{% endif %}</span>{% if a.lan %}<span class="ap-pill trust">local network</span>{% endif %}</div>
+        <div class="ft"><span></span>{% if a.lan %}<span class="ap-pill trust">local network</span>{% endif %}</div>
     </a>
     {% empty %}
     {% if catalog_ok %}<section class="hst-card" style="grid-column: 1 / -1"><div class="ap-empty">Every app in the catalog is already installed.</div></section>{% endif %}
