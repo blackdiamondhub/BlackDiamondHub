@@ -58,4 +58,8 @@ app_base="${APP_PORT_BASE:-9100}"
 for ((i = 0; i < ${APP_PORTS:-24}; i++)); do
     endpoints+=(-e "tcp:port=$((app_base + i)):interface=0.0.0.0")
 done
+# Nightly app updates (the command itself only acts during the 03:00 hour).
+if [ -n "${BDH_SUPERVISOR_SOCKET:-}" ]; then
+    ( while sleep 1800; do python manage.py app_autoupdate --nightly || true; done ) &
+fi
 exec daphne --proxy-headers "${endpoints[@]}" BlackDiamondHub.asgi:application

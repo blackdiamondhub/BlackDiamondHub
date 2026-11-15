@@ -1,0 +1,24 @@
+{% extends 'hub_settings/_layout.html' %}
+{% load static broker_tags %}
+
+{% block section %}
+{% include 'hub_settings/_apps_style.html' %}
+<div class="hst-head">
+    <div><h2>Apps</h2><p>Apps you can add to this hub. Each runs in its own sandbox.</p></div>
+</div>
+<nav class="ap-tabs">{% for t in tabs %}<a href="{{ t.url }}" class="{% if t.on %}on{% endif %}">{{ t.label }}</a>{% endfor %}</nav>
+{% include 'hub_settings/_apps_messages.html' %}
+{% if not enabled %}<div class="hst-note bad">App containers aren't set up on this hub, so apps can't be installed yet.</div>{% endif %}
+{% if not catalog_ok %}<div class="hst-note bad">The app catalog can't be reached right now.</div>{% endif %}
+<div class="ap-grid">
+    {% for a in apps %}
+    <a class="ap-tile" href="{{ a.url }}">
+        <div class="top">{% include 'hub_settings/_app_icon.html' with src=a.icon %}<div><b>{{ a.name }}</b><small>v{{ a.version }}</small></div></div>
+        <p>{{ a.description|default:"No description." }}</p>
+        <div class="ft"><span>{% if a.memory_mb %}{{ a.memory_mb }} MB{% endif %}{% if a.lifecycle %} · {{ a.lifecycle }}{% endif %}</span>{% if a.lan %}<span class="ap-pill trust">local network</span>{% endif %}</div>
+    </a>
+    {% empty %}
+    {% if catalog_ok %}<section class="hst-card" style="grid-column: 1 / -1"><div class="ap-empty">Every app in the catalog is already installed.</div></section>{% endif %}
+    {% endfor %}
+</div>
+{% endblock %}

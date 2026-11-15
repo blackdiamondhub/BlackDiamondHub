@@ -1,0 +1,37 @@
+<style>
+    .ap-tabs { display: flex; gap: 6px; margin: 0 0 18px; }
+    .ap-tabs a { padding: 10px 22px; border-radius: 12px; color: var(--mut); text-decoration: none; font-size: 15.5px; background: rgba(255,255,255,.04); }
+    .ap-tabs a.on { background: #1d3352; color: var(--fg); font-weight: 600; box-shadow: inset 0 -2px 0 var(--acc); }
+    .ap-st { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--mut); white-space: nowrap; }
+    .ap-dot { width: 9px; height: 9px; border-radius: 50%; background: #5b6b82; flex: none; }
+    .ap-dot.g { background: #4cd28a; } .ap-dot.y { background: #ffc94d; } .ap-dot.r { background: #ff6b6b; }
+    .ap-mem { width: 130px; font-size: 12.5px; color: var(--mut); }
+    .ap-bar { height: 6px; border-radius: 3px; background: #26354f; margin-top: 5px; overflow: hidden; }
+    .ap-bar i { display: block; height: 100%; background: var(--acc); border-radius: 3px; }
+    .ap-pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; vertical-align: 1px; margin-left: 6px; }
+    .ap-pill.upd { background: rgba(91,164,230,.18); color: var(--acc2); }
+    .ap-pill.trust { background: rgba(255,211,107,.14); color: #ffd36b; }
+    .ap-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .ap-tile { display: flex; flex-direction: column; gap: 10px; padding: 18px; border-radius: 20px; background: var(--card); border: 1px solid var(--line); color: var(--fg); text-decoration: none; min-height: 190px; }
+    .ap-tile:hover { border-color: var(--acc); color: var(--fg); }
+    .ap-tile .top { display: flex; gap: 12px; align-items: center; }
+    .ap-tile .top b { font-size: 17px; font-weight: 600; display: block; }
+    .ap-tile .top small { color: var(--mut); font-size: 13px; }
+    .ap-tile p { color: var(--mut); font-size: 14px; margin: 0; flex: 1; line-height: 1.4; }
+    .ap-tile .ft { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--dim); }
+    .ap-ic { width: 48px; height: 48px; border-radius: 12px; background: #22324d; display: grid; place-items: center; flex: none; overflow: hidden; }
+    .ap-ic img { width: 34px; height: 34px; object-fit: contain; }
+    .ap-ic i { color: var(--dim); font-size: 22px; }
+    .ap-ic.lg { width: 64px; height: 64px; border-radius: 16px; } .ap-ic.lg img { width: 46px; height: 46px; }
+    .ap-perm > i:first-child { width: 22px; text-align: center; color: var(--acc2); font-size: 18px; }
+    .ap-logs { margin: 0; padding: 16px 22px; max-height: 340px; overflow: auto; background: #0d1420; color: #b9c8db; font: 12.5px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+    .ap-hold { position: relative; overflow: hidden; background: rgba(255,107,107,.12); color: var(--red); }
+    .ap-hold::before { content: ""; position: absolute; inset: 0; width: 0; background: rgba(255,107,107,.30); }
+    .ap-hold.go::before { width: 100%; transition: width 1.5s linear; }
+    .ap-hold span { position: relative; }
+    .ap-sub { color: var(--mut); font-size: 14px; }
+    .ap-empty { padding: 26px 22px; color: var(--mut); }
+    .hst-row a.hst-btn { display: inline-flex; align-items: center; text-decoration: none; }
+    @media (max-width: 1100px) { .ap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 760px) { .ap-grid { grid-template-columns: 1fr; } .ap-mem { display: none; } }
+</style>

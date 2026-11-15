@@ -1,0 +1,86 @@
+{% extends 'hub_settings/_layout.html' %}
+{% load static broker_tags %}
+
+{% block section %}
+{% if app.busy %}<meta http-equiv="refresh" content="3">{% endif %}
+{% include 'hub_settings/_apps_style.html' %}
+<div class="hst-head">
+    <a class="hst-btn ghost" href="{% url 'hub_settings_apps' %}" aria-label="Back to apps" style="display:grid;place-items:center;padding:0 16px"><i class="fas fa-chevron-left" aria-hidden="true"></i></a>
+    {% include 'hub_settings/_app_icon.html' with src=app.img lg=1 %}
+    <div>
+        <h2>{{ app.label }}</h2>
+        <p><span class="ap-st"><span class="ap-dot {{ app.dot }}"></span>{{ app.status }}</span> · v{{ app.version }}{% if app.used_mb %} · {{ app.used_mb }} of {{ app.limit_mb }} MB{% elif app.limit_mb %} · up to {{ app.limit_mb }} MB{% endif %}</p>
+    </div>
+    <div class="act">
+        <form method="post" action="{% url 'hub_settings_app_restart' app.id %}">{% csrf_token %}<button class="hst-btn ghost" type="submit"{% if app.busy %} disabled{% endif %}><i class="fas fa-rotate-right" aria-hidden="true"></i> Restart</button></form>
+        {% if app.update %}<form method="post" action="{% url 'hub_settings_app_update' app.id %}">{% csrf_token %}<button class="hst-btn" type="submit"{% if app.busy %} disabled{% endif %}>Update to v{{ app.update }}</button></form>{% endif %}
+    </div>
+</div>
+{% include 'hub_settings/_apps_messages.html' %}
+{% if job and job.state == 'failed' %}<div class="hst-note bad">{{ job.label }} failed: {{ job.error }}</div>{% endif %}
+{% if error %}<div class="hst-note bad">{{ error }}</div>{% endif %}
+{% if review %}
+<form method="post" action="{% url 'hub_settings_app_update' app.id %}">{% csrf_token %}<input type="hidden" name="approve" value="1">
+<section class="hst-card">
+    <h3>v{{ review.version }} asks for more access</h3>
+    {% for p in review.perms %}<div class="hst-row ap-perm"><i class="fa-solid {{ p.icon }}" aria-hidden="true"></i><div class="lbl"><b>{{ p.title }}</b>{% if p.detail %}<small>{{ p.detail }}</small>{% endif %}</div></div>{% endfor %}
+    {% if review.network %}<div class="hst-row ap-perm"><i class="fa-solid {{ review.network.0 }}" aria-hidden="true"></i><div class="lbl"><b>{{ review.network.1 }}</b><small>{{ review.network.2 }}</small></div></div>{% endif %}
+    {% for c in review.companions %}<div class="hst-row ap-perm"><i class="fa-solid fa-cubes" aria-hidden="true"></i><div class="lbl"><b>Helper service: {{ c }}</b></div></div>{% endfor %}
+    <div class="hst-row"><div class="lbl"><small>Auto-update skips updates like this until you approve them.</small></div><button class="hst-btn" type="submit">Approve and update</button></div>
+</section>
+</form>
+{% endif %}
+<section class="hst-card">
+    <h3>Details</h3>
+    <form method="post" action="{% url 'hub_settings_app_auto_update' app.id %}" class="hst-row">{% csrf_token %}
+        <div class="lbl"><b>Update automatically</b><small>Overnight, when the update needs no new permissions</small></div>
+        <span class="hst-tog"><input type="checkbox" name="auto_update" {% if record.auto_update %}checked{% endif %} onchange="this.form.submit()" aria-label="Update automatically"><span></span></span>
+    </form>
+    <details class="hst-row" style="display:block">
+        <summary style="display:flex;align-items:center;gap:18px;cursor:pointer;list-style:none">
+            <div class="lbl"><b>Permissions</b><small>{{ summary }}{% if network %} · {{ network.1 }}{% endif %}</small></div>
+            <span class="hst-btn ghost" style="display:inline-flex;align-items:center">Change</span>
+        </summary>
+        <form method="post" action="{% url 'hub_settings_app_permissions' app.id %}" style="margin-top:12px">{% csrf_token %}
+            {% for p in perms %}
+            <label class="hst-row ap-perm" style="padding-left:0;padding-right:0">
+                <i class="fa-solid {{ p.icon }}" aria-hidden="true"></i>
+                <div class="lbl"><b>{{ p.title }}</b>{% if p.detail %}<small>{{ p.detail }}</small>{% endif %}</div>
+                <span class="hst-tog"><input type="checkbox" name="perm" value="{{ p.value }}" {% if p.on %}checked{% endif %} aria-label="{{ p.title }}"><span></span></span>
+            </label>
+            {% empty %}<p class="ap-sub">This app doesn't ask for any permissions.</p>{% endfor %}
+            {% if perms %}<button class="hst-btn" type="submit" data-save>Save</button> <span class="ap-sub">Turning a permission off may limit features.</span>{% endif %}
+        </form>
+    </details>
+    {% if settings_url %}
+    <a class="hst-row hst-link" href="{{ settings_url }}"><div class="lbl"><b>Settings</b><small>This app's own options</small></div><span class="hst-btn ghost" style="display:inline-flex;align-items:center">Open</span></a>
+    {% endif %}
+</section>
+<section class="hst-card">
+    <h3>Recent log</h3>
+    <pre class="ap-logs" id="ap-logs">{{ logs|default:"(no output yet)" }}</pre>
+</section>
+<form method="post" action="{% url 'hub_settings_app_uninstall' app.id %}" id="ap-uninstall" style="display:flex;align-items:center;gap:18px;margin-bottom:24px">{% csrf_token %}
+    <button class="hst-btn ap-hold" type="button" id="ap-hold"{% if app.busy %} disabled{% endif %}><span><i class="fas fa-trash" aria-hidden="true"></i> Hold to uninstall</span></button>
+    <label class="ap-sub" style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="purge" style="width:20px;height:20px;accent-color:#ff6b6b"> Also delete its data</label>
+</form>
+<script>
+(function () {
+    var logs = document.getElementById('ap-logs');
+    if (logs) logs.scrollTop = logs.scrollHeight;
+    var btn = document.getElementById('ap-hold'), form = document.getElementById('ap-uninstall'), timer = null;
+    if (!btn) return;
+    function down(e) {
+        if (btn.disabled) return;
+        e.preventDefault();
+        btn.classList.add('go');
+        timer = setTimeout(function () { btn.disabled = true; form.submit(); }, 1500);
+    }
+    function up() { clearTimeout(timer); timer = null; btn.classList.remove('go'); }
+    btn.addEventListener('pointerdown', down);
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (n) { btn.addEventListener(n, up); });
+    btn.addEventListener('keydown', function (e) { if ((e.key === 'Enter' || e.key === ' ') && !timer) down(e); });
+    btn.addEventListener('keyup', up);
+})();
+</script>
+{% endblock %}

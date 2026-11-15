@@ -2,23 +2,52 @@
 {% load static broker_tags %}
 
 {% block section %}
+{% if busy %}<meta http-equiv="refresh" content="4">{% endif %}
+{% include 'hub_settings/_apps_style.html' %}
 <div class="hst-head">
     <div>
         <h2>Apps</h2>
-        <p>Apps installed on this hub.</p>
+        <p>{{ total }} installed{% if rows %} · using {{ used_mb }} MB of {{ budget_mb }} MB app budget{% endif %}</p>
     </div>
+    {% if updates %}
+    <div class="act">
+        <form method="post" action="{% url 'hub_settings_apps_update_all' %}">{% csrf_token %}
+            <button class="hst-btn" type="submit"><i class="fas fa-arrows-rotate" aria-hidden="true"></i> Update all ({{ updates }})</button>
+        </form>
+    </div>
+    {% endif %}
 </div>
+<nav class="ap-tabs">{% for t in tabs %}<a href="{{ t.url }}" class="{% if t.on %}on{% endif %}">{{ t.label }}</a>{% endfor %}</nav>
+{% include 'hub_settings/_apps_messages.html' %}
+{% if not catalog_ok and rows %}<div class="hst-note bad">The app catalog can't be reached; updates aren't shown.</div>{% endif %}
+{% if rows %}
 <section class="hst-card">
-    <h3>Installed</h3>
-    {% for a in apps %}
-    <div class="hst-app">
-        {% if a.img %}<img src="{{ a.img|tile_icon }}" alt="">{% else %}<span class="ph"><i class="fas fa-puzzle-piece" aria-hidden="true"></i></span>{% endif %}
+    <h3>Store apps</h3>
+    {% for a in rows %}
+    <a class="hst-row hst-link" href="{{ a.manage_url }}">
+        {% include 'hub_settings/_app_icon.html' with src=a.img %}
         <div class="lbl">
-            <b>{{ a.label }}</b>
-            <small>{{ a.spec.id }}{% if a.version %} · v{{ a.version }}{% endif %}</small>
+            <b>{{ a.label }}{% if a.update %}<span class="ap-pill upd">Update v{{ a.update }}</span>{% endif %}</b>
+            <small>v{{ a.version }}{% if a.lifecycle %} · {{ a.lifecycle }}{% endif %}{% if a.lan %} · <span style="color:#ffd36b">local network</span>{% endif %}</small>
         </div>
+        <span class="ap-st"><span class="ap-dot {{ a.dot }}"></span>{{ a.status }}</span>
+        <div class="ap-mem">{% if a.used_mb %}{{ a.used_mb }} / {{ a.limit_mb }} MB<div class="ap-bar"><i style="width: {{ a.pct }}%"></i></div>{% elif a.limit_mb %}up to {{ a.limit_mb }} MB{% endif %}</div>
+        <i class="fas fa-chevron-right go" aria-hidden="true"></i>
+    </a>
+    {% endfor %}
+</section>
+{% endif %}
+{% if builtin %}
+<section class="hst-card">
+    <h3>Built in</h3>
+    {% for a in builtin %}
+    <div class="hst-app">
+        {% include 'hub_settings/_app_icon.html' with src=a.img %}
+        <div class="lbl"><b>{{ a.label }}</b><small>{{ a.id }}{% if a.version %} · v{{ a.version }}{% endif %} · part of this hub</small></div>
         {% if a.settings_url %}<a href="{{ a.settings_url }}">Settings <i class="fas fa-chevron-right" aria-hidden="true"></i></a>{% endif %}
     </div>
     {% endfor %}
 </section>
+{% endif %}
+{% if not rows and not builtin %}<section class="hst-card"><div class="ap-empty">No apps yet. Browse the <a href="{% url 'hub_settings_store' %}">Store</a>.</div></section>{% endif %}
 {% endblock %}
