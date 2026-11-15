@@ -48,3 +48,15 @@ class ShellPageTests(TestCase):
         resp = self.client.get("/apps/_nav/", {"name": "broker:shell", "args": '["cams"]'})
         self.assertRedirects(resp, "/apps/cams/", fetch_redirect_response=False)
         self.assertEqual(self.client.get("/apps/_nav/", {"name": "nope"}).status_code, 404)
+
+    def test_navigate_only_to_home_and_app_pages(self):
+        resp = self.client.get("/apps/_nav/", {"name": "broker:shell_path", "args": '["cams", "live/1"]'})
+        self.assertRedirects(resp, "/apps/cams/live/1", fetch_redirect_response=False)
+        resp = self.client.get("/apps/_nav/", {"name": "landing_page"})
+        self.assertRedirects(resp, "/", fetch_redirect_response=False)
+        for name, args in (("admin:index", "[]"), ("logout", "[]"), ("display_settings", "[]"),
+                           ("hub_settings:index", "[]"), ("broker:raw", '["cams", "x.png"]'),
+                           ("broker:bare_root", '["cams"]'), ("broker:shell", '["_nav"]'),
+                           ("broker:shell_path", '["cams", "_raw/x.png"]')):
+            resp = self.client.get("/apps/_nav/", {"name": name, "args": args})
+            self.assertEqual(resp.status_code, 404, name)

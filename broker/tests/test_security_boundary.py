@@ -125,16 +125,19 @@ class PostMessageTests(TestCase):
 
     def test_navigate_stays_on_the_hub(self):
         nav = [msg({"bdh": 1, "type": "navigate", "path": p}) for p in (
-            "/settings/", "//evil.example/", "https://evil.example/", "javascript:alert(1)",
+            "/apps/cams/live?x=1", "/", "/settings/", "/admin/", "/accounts/logout/", "/display/settings/",
+            "/apps/_nav/?name=admin:index", "/apps/cams/_raw/x.png", "/apps/cams/_bare/",
+            "/apps/../admin/", "//evil.example/", "https://evil.example/", "javascript:alert(1)",
             "/\\evil.example", "/\tevil", "\\\\evil.example", "/_broker/rpc/state.get", "/_broker",
             "/%2e%2e/_broker/rpc/x", "/x/../_broker/rpc/x", None, 5)]
-        nav.append(msg({"bdh": 1, "type": "navigate", "name": "javascript:alert(1)//"}))
+        nav += [msg({"bdh": 1, "type": "navigate", "name": n}) for n in (
+            "javascript:alert(1)//", "admin:index", "logout", "display_settings", "toString", "__proto__")]
         nav.append(msg({"bdh": 1, "type": "navigate", "name": "broker:shell", "args": ["cams", {"x": 1}]}))
         results = frame_messages(nav)
-        self.assertEqual(results[0]["nav"], ["/settings/"])
-        for r in results[1:-2]:
+        self.assertEqual(results[0]["nav"], ["/apps/cams/live?x=1"])
+        self.assertEqual(results[1]["nav"], ["/"])
+        for r in results[2:-1]:
             self.assertEqual(r["nav"], [], r)
-        self.assertEqual(results[-2]["nav"], [])
         self.assertEqual(results[-1]["nav"], ["/apps/_nav/?name=broker%3Ashell&args=%5B%22cams%22%5D"])
 
     def test_theme_cannot_inject_css(self):

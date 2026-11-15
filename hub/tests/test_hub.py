@@ -1,3 +1,4 @@
+import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -678,12 +679,17 @@ class HubUnitsApiTests(TestCase):
     def test_guest_sets_hub_units(self):
         strict = Client(enforce_csrf_checks=True)
         self.assertEqual(strict.post("/hub/api/units/", {"units": "imperial"}).status_code, 403)
-        strict.get("/")
-        token = strict.cookies["csrftoken"].value
+        page = strict.get("/")
+        # CSRF_USE_SESSIONS: no csrftoken cookie for app JS on other ports to read;
+        # the token comes from the page.
+        self.assertNotIn("csrftoken", page.cookies)
+        self.assertNotIn("csrftoken", strict.cookies)
+        token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.content.decode()).group(1)
         response = strict.post("/hub/api/units/", {"units": "imperial"}, HTTP_X_CSRFTOKEN=token)
         self.assertEqual(response.json(), {"ok": True, "units": "imperial"})
         self.assertEqual(self.saved(), "imperial")
         self.assertIsNone(AppSetting.objects.get(app_id="hub", key="units").updated_by)
+        self.assertNotIn("csrftoken", strict.cookies)
 
     def test_rejects_bad_units(self):
         for bad in ("", "kelvin", "IMPERIAL"):
@@ -832,3 +838,40 @@ class LodgeCardTests(TestCase):
     def test_no_card_is_null(self):
         HOOK_STATE["card"] = None
         self.assertIsNone(self.client.get("/hub/api/status/").json()["card"])
+
+def page_token(response):
+    return re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', response.content.decode()).group(1)
+
+
+class CsrfSessionTests(TestCase):
+    """CSRF_USE_SESSIONS: the token never sits in a cookie app JS on other ports could read."""
+
+    def setUp(self):
+        self.client = Client(enforce_csrf_checks=True)
+        User.objects.create_user("owner", password="pw", is_staff=True, is_superuser=True)
+
+    def assertNoCsrfCookie(self, response):
+        self.assertNotIn("csrftoken", response.cookies)
+        self.assertNotIn("csrftoken", self.client.cookies)
+
+    def test_login_and_logout_with_the_page_token(self):
+        page = self.client.get("/accounts/login/")
+        self.assertNoCsrfCookie(page)
+        self.assertEqual(self.client.post("/accounts/login/", {"username": "owner", "password": "pw"}).status_code, 403)
+        resp = self.client.post("/accounts/login/", {"username": "owner", "password": "pw",
+                                                     "csrfmiddlewaretoken": page_token(page)})
+        self.assertEqual(resp.status_code, 302)
+        self.assertNoCsrfCookie(resp)
+        home = self.client.get("/")
+        self.assertContains(home, 'id="logout-button"')
+        resp = self.client.post("/accounts/logout/", {"csrfmiddlewaretoken": page_token(home)})
+        self.assertEqual(resp.status_code, 302)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_admin_login(self):
+        page = self.client.get("/admin/login/")
+        self.assertNoCsrfCookie(page)
+        resp = self.client.post("/admin/login/", {"username": "owner", "password": "pw",
+                                                  "csrfmiddlewaretoken": page_token(page), "next": "/admin/"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(self.client.get("/admin/").status_code, 200)

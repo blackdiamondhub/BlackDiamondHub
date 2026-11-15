@@ -5,7 +5,7 @@ from unittest import mock
 
 from asgiref.sync import async_to_sync
 from channels.testing import WebsocketCommunicator
-from django.test import SimpleTestCase, TestCase, tag
+from django.test import SimpleTestCase, TransactionTestCase, tag
 from selenium.webdriver.support.ui import WebDriverWait
 
 from hub import remote
@@ -73,7 +73,9 @@ class RemoteApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 403)
 
 
-class RemoteOffTests(TestCase):
+# Not TestCase: the websocket's close_old_connections() closes the connection mid-test,
+# which breaks TestCase's wrapping transaction once the page saves a session.
+class RemoteOffTests(TransactionTestCase):
     @mock.patch.dict(os.environ, {"HUB_REMOTE_TOKEN": ""})
     def test_off_without_a_token(self):
         import BlackDiamondHub.asgi as asgi

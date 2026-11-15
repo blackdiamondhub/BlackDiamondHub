@@ -25,6 +25,8 @@ class WebsocketRoutesTests(SimpleTestCase):
 
 
 class AsgiApplicationTests(SimpleTestCase):
+    databases = {"default"}  # the login page's CSRF token saves a session
+
     def setUp(self):
         import BlackDiamondHub.asgi as asgi
 

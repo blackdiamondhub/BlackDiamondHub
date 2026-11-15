@@ -124,7 +124,7 @@ class BrandTests(SimpleTestCase):
         self.assertIn('aria-label="Black Diamond Hub"', base64.b64decode(b["monogram"].split(",", 1)[1]).decode())
 
 
-class OgImageTests(SimpleTestCase):
+class OgImageTests(TestCase):  # pages with a CSRF token save a session (CSRF_USE_SESSIONS)
     def setUp(self):
         _brand.cache_clear()
         self.addCleanup(_brand.cache_clear)

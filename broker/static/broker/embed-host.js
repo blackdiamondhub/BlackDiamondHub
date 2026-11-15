@@ -14,6 +14,10 @@
     // Same pattern as _theme.html: hex or rgb()/rgba() only, nothing that could
     // close the CSS rule.
     var THEME_COLOR = /^(#[0-9a-fA-F]{3,8}|rgba?\([0-9.,\s%]+\))$/;
+    // Where an app may send the hub: home and app pages, nothing else (no admin,
+    // settings, logout...). Keep in step with broker.views.NAV_NAMES.
+    var NAV_NAMES = {landing_page: 0, 'broker:shell': 1, 'broker:shell_path': 2};
+    var NAV_PATH = /^\/(apps\/(?!_)[\w-]+(\/(?!_(bare|raw)(\/|$))[^]*)?)?$/;
 
     var wrapper = frame.closest('.content-wrapper');
     if (wrapper) wrapper.classList.add('bdh-app-host');
@@ -32,7 +36,7 @@
         if (typeof path !== 'string' || path.charAt(0) !== '/' || /[\u0000-\u001f\\]/.test(path)) return null;
         var u;
         try { u = new URL(path, target.location.href); } catch (err) { return null; }
-        if (u.origin !== target.location.origin || /^\/_broker(\/|$)/.test(u.pathname)) return null;
+        if (u.origin !== target.location.origin || !NAV_PATH.test(u.pathname)) return null;
         return u.pathname + u.search + u.hash;
     }
 
@@ -64,7 +68,8 @@
             document.dispatchEvent(new Event('pointermove'));
         },
         navigate: function (d) {
-            if (typeof d.name === 'string' && /^[\w:.-]{1,100}$/.test(d.name)) {
+            if (typeof d.name === 'string') {
+                if (!Object.prototype.hasOwnProperty.call(NAV_NAMES, d.name)) return;
                 var args = Array.isArray(d.args) ? d.args.filter(function (a) {
                     return typeof a === 'string' || typeof a === 'number';
                 }) : [];
