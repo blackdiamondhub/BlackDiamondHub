@@ -3,8 +3,9 @@ import json
 import logging
 
 import requests
+from django.core.cache import cache
 from django.core.serializers.json import DjangoJSONEncoder
-from django.http import Http404, HttpResponseRedirect, JsonResponse, StreamingHttpResponse
+from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse, StreamingHttpResponse
 from django.shortcuts import render
 from django.urls import NoReverseMatch, reverse
 from django.utils.encoding import escape_uri_path, iri_to_uri
@@ -19,6 +20,9 @@ log = logging.getLogger(__name__)
 
 RAW_TYPES = ("image/", "audio/", "video/")
 RAW_TIMEOUT = (3.0, 15.0)
+RAW_HEADERS = ("Content-Length", "Cache-Control", "ETag", "Last-Modified")
+RAW_CACHE_MAX = 256 * 1024
+RAW_CACHE_SECONDS = 7 * 24 * 3600
 # The hub pages an app may send the visitor to by name (see embed-host.js NAV_NAMES).
 NAV_NAMES = frozenset({"landing_page", "broker:shell", "broker:shell_path"})
 
@@ -149,20 +153,50 @@ def raw(request, app_id, path):
     full = escape_uri_path(path) + ("?" + iri_to_uri(query) if query else "")
     from bdh_sdk.identity import signed_headers
 
-    headers = signed_headers(remote._token(install), "GET", full, identity=visitor.for_request(request))
-    try:
-        resp = requests.get(remote._upstream(install) + full, headers=headers, timeout=RAW_TIMEOUT,
+    # An app's /static/ files (tile icons) don't change within a version, so the
+    # hub keeps a copy: the home page can show them while an on-demand app sleeps.
+    static = path.startswith("/static/")
+    key = f"broker:raw:{spec.id}:{install.version}:{full}"
+    if static:
+        hit = cache.get(key)
+        if hit is not None:
+            return _raw_response(HttpResponse(hit["body"], content_type=hit["type"]), hit["headers"])
+
+    def fetch():
+        headers = signed_headers(remote._token(install), "GET", full, identity=visitor.for_request(request))
+        return requests.get(remote._upstream(install) + full, headers=headers, timeout=RAW_TIMEOUT,
                             stream=True, allow_redirects=False)
+
+    try:
+        try:
+            resp = fetch()
+        except requests.ConnectionError:
+            # Asleep: wake it for a static file (once per version, then cached),
+            # but not for other media, which status rows reference all day.
+            if not static or not remote._wake(install):
+                raise
+            resp = fetch()
     except (requests.RequestException, remote.RemoteError):
         raise Http404("App unavailable")
     content_type = resp.headers.get("Content-Type", "")
     if resp.status_code != 200 or not content_type.startswith(RAW_TYPES):
         resp.close()
         raise Http404("No such file")
-    out = StreamingHttpResponse(resp.iter_content(64 * 1024), content_type=content_type)
-    for name in ("Content-Length", "Cache-Control", "ETag", "Last-Modified"):
-        if resp.headers.get(name):
-            out[name] = resp.headers[name]
+    kept = {name: resp.headers[name] for name in RAW_HEADERS if resp.headers.get(name)}
+    size = resp.headers.get("Content-Length", "")
+    if static and size.isdigit() and int(size) <= RAW_CACHE_MAX:
+        try:
+            body = resp.content
+        except requests.RequestException:
+            raise Http404("App unavailable")
+        cache.set(key, {"body": body, "type": content_type, "headers": kept}, RAW_CACHE_SECONDS)
+        return _raw_response(HttpResponse(body, content_type=content_type), kept)
+    return _raw_response(StreamingHttpResponse(resp.iter_content(64 * 1024), content_type=content_type), kept)
+
+
+def _raw_response(out, headers):
+    for name, value in headers.items():
+        out[name] = value
     out["X-Content-Type-Options"] = "nosniff"
     out["Content-Security-Policy"] = "sandbox; default-src 'none'"
     return out
