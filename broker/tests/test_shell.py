@@ -1,3 +1,7 @@
+from unittest import mock
+
+import requests
+from django.core.cache import cache
 from django.test import TestCase
 
 from .base import make_install, reset_broker
@@ -39,6 +43,7 @@ class ShellPageTests(TestCase):
         self.assertContains(resp, f"http://testserver:{self.install.port}/cameras/popup/1")
         self.assertContains(resp, "#bdh-app-frame:fullscreen")
         self.assertNotContains(resp, "bdh-app-bg:")
+        self.assertNotContains(resp, "html, body, .content-wrapper, #bdh-app-frame { background: #000 !important; }")
 
     def test_x_frame_options_sameorigin(self):
         resp = self.client.get("/apps/cams/")
@@ -60,3 +65,66 @@ class ShellPageTests(TestCase):
                            ("broker:shell_path", '["cams", "_raw/x.png"]')):
             resp = self.client.get("/apps/_nav/", {"name": name, "args": args})
             self.assertEqual(resp.status_code, 404, name)
+
+
+class RawTests(TestCase):
+    """``/apps/<app>/_raw/``: tile icons must show while an on-demand app sleeps."""
+
+    def setUp(self):
+        reset_broker()
+        cache.clear()
+        self.addCleanup(reset_broker)
+        self.install = make_install(version="1.2.0")
+
+    def reply(self, body=b"<svg/>"):
+        resp = mock.Mock(status_code=200, content=body,
+                         headers={"Content-Type": "image/svg+xml", "Content-Length": str(len(body))})
+        resp.iter_content.return_value = iter([body])
+        return resp
+
+    def upstream(self, *results):
+        """``requests.get`` answering the app's upstream with ``results`` in turn.
+
+        Patching it patches every caller (the page's Home Assistant lookups too),
+        so anything else just fails as if offline.
+        """
+        results = list(results)
+        calls = []
+
+        def get(url, *args, **kwargs):
+            if not url.startswith(self.install.upstream):
+                raise requests.ConnectionError("offline")
+            calls.append(url)
+            result = results.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
+        return mock.patch("broker.views.requests.get", side_effect=get), calls
+
+    def test_asleep_static_wakes_app_once_then_served_from_cache(self):
+        patch, calls = self.upstream(requests.ConnectionError(), self.reply())
+        with patch, \
+                mock.patch("broker.remote._wake", return_value=True) as wake:
+            first = self.client.get("/apps/cams/_raw/static/cams/icon.svg")
+            second = self.client.get("/apps/cams/_raw/static/cams/icon.svg")
+        self.assertEqual((first.status_code, first.content), (200, b"<svg/>"))
+        self.assertEqual((second.status_code, second.content), (200, b"<svg/>"))
+        self.assertEqual(second["Content-Security-Policy"], "sandbox; default-src 'none'")
+        self.assertEqual(wake.call_count, 1)
+        self.assertEqual(len(calls), 2)
+
+    def test_asleep_non_static_media_does_not_wake(self):
+        patch, _ = self.upstream(requests.ConnectionError())
+        with patch, mock.patch("broker.remote._wake") as wake:
+            resp = self.client.get("/apps/cams/_raw/cameras/snap/front.jpg")
+        self.assertEqual(resp.status_code, 404)
+        wake.assert_not_called()
+
+    def test_new_version_refetches(self):
+        patch, _ = self.upstream(self.reply(b"old"), self.reply(b"new"))
+        with patch:
+            self.client.get("/apps/cams/_raw/static/cams/icon.svg")
+            type(self.install).objects.filter(pk=self.install.pk).update(version="1.3.0")
+            reset_broker()
+            resp = self.client.get("/apps/cams/_raw/static/cams/icon.svg")
+        self.assertEqual(resp.content, b"new")
