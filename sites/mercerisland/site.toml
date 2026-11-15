@@ -24,6 +24,9 @@ runtime = "container"  # bdh-app-cameras image under bdh-supervisor
 # Pop up the Front Door camera when the door opens or a person is seen there.
 event_popups = { "ha/state/binary_sensor.storage_room_alarm_panel_pro_front_door" = "Front Door Camera", "ha/state/binary_sensor.front_door_camera_person_detected" = "Front Door Camera" }
 
+[apps.weather]
+runtime = "container"  # bdh-app-weather image under bdh-supervisor
+
 [apps.hub]
 units = "imperial"
 
