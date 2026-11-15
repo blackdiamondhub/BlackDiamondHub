@@ -147,9 +147,16 @@ def _client_ip(scope):
     return client[0] or ""
 
 
+def _forwardable(name):
+    # Django reads ``X_Forwarded_For`` as ``X-Forwarded-For`` (both are
+    # HTTP_X_FORWARDED_FOR), so a name with an underscore could smuggle past the
+    # drop list. Like nginx, drop those outright.
+    return "_" not in name and name not in DROP_REQUEST and not name.startswith("x-bdh-")
+
+
 async def _request_headers(scope, headers, install, method):
     ident = await _identity(scope, headers)
-    out = [(k, v) for k, v in headers if k not in DROP_REQUEST and not k.startswith("x-bdh-")]
+    out = [(k, v) for k, v in headers if _forwardable(k)]
     cookies = app_cookies(_header(headers, "cookie"), install.cookie_names)
     if cookies:
         out.append(("cookie", cookies))
