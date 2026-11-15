@@ -125,10 +125,11 @@
     .hub-rows { display: flex; flex-direction: column; gap: 8px; height: 100%; padding: 14px 14px 10px; }
     .hub-rows.is-stale { opacity: .55; }
     .hub-rows-head { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 0 4px 2px; font-size: 20px; font-weight: 600; }
-    .hub-rows-head img { width: 28px; height: 28px; }
+    /* .hub-rows prefix: outrank the tile-icon sizes (.hub-tile-l img etc). */
+    .hub-rows .hub-rows-head img { width: 28px; height: 28px; margin: 0; }
     .hub-rows-count { margin-left: auto; font-size: 15px; font-weight: 400; color: var(--acc); white-space: nowrap; }
     .hub-row { display: flex; align-items: center; gap: 12px; min-height: 0; padding: 8px 10px; background: var(--card2); border-radius: 14px; }
-    .hub-row-art { flex: none; width: 58px; height: 58px; border-radius: 10px; object-fit: cover; background: var(--line); }
+    .hub-rows .hub-row-art { flex: none; margin: 0; width: 58px; height: 58px; border-radius: 10px; object-fit: cover; background: var(--line); }
     .hub-row-txt { flex: 1; min-width: 0; }
     .hub-row-title, .hub-row-detail { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .hub-row-title { font-size: 18px; font-weight: 600; }
@@ -161,7 +162,7 @@
     .hub-rows-solo { align-items: center; gap: 4px; text-align: center; }
     .hub-rows-solo .hub-rows-head { align-self: stretch; }
     .hub-rows-solo .hub-row-txt { flex: none; max-width: 100%; }
-    .hub-rows-bigart { width: 150px; height: 150px; margin: 2px 0 6px; border-radius: 18px; object-fit: cover; background: var(--line); }
+    .hub-rows .hub-rows-bigart { width: 150px; height: 150px; margin: 2px 0 6px; border-radius: 18px; object-fit: cover; background: var(--line); }
     .hub-rows-solo .hub-row-title { font-size: 24px; }
     .hub-rows-solo .hub-row-detail { font-size: 17px; }
     .hub-rows-solo .hub-acts { gap: 18px; margin-top: auto; }
