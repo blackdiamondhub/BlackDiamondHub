@@ -147,6 +147,68 @@ python manage.py app_status                          # the hub's and the supervi
 python manage.py app_uninstall <id> [--purge]        # --purge deletes the app's data
 ```
 
+### Secrets
+
+App passwords, API keys and tokens live in an encrypted secret store
+(`hub_settings/vault.py`, table `hub_settings_appsecret`), not in plain
+`AppSetting` rows. Each value is encrypted with AES-256-GCM and bound to its
+app and name (associated data `app|name`), so a ciphertext copied to another
+row fails to decrypt. Each secret belongs to one app: apps read and write
+their own through `bdh_sdk.secrets` (`get`, `set`, `delete`), in-process
+straight from the database and in a container over the broker
+(`secrets.get/set/delete`, which always use the app id from the token).
+Broker calls are rate limited and audited with the app, the name and the
+operation only.
+
+Settings declared `type=SECRET` are write-only on the Settings page: it shows
+"set" or "not set" with Replace and Clear and never renders the value. Secrets
+are not in `AppSetting`, the app's `appdata` export or the Django admin, and
+values are kept out of logs, audit details and error pages. Database backups
+(`pg_dump`) hold only ciphertext.
+
+The key is **not** in the database. It is read from `BDH_SECRETS_KEY_FILE`
+(default `/etc/bdh/secrets.key`; the compose file mounts the host's
+`/etc/bdh` read-only). The file has one `<key id>:<base64 32-byte key>` line
+per key, and the last is current; every ciphertext records its key id, so old
+keys keep working until rotated away. Without the file the hub runs normally,
+but secrets can't be read or saved. Back the key up: without it the stored
+secrets are lost. Key loading sits behind `vault.KeyProvider` so it can move
+to a vTPM or unlock-at-boot later.
+
+```sh
+# first time, on the hub server (refuses to overwrite an existing key)
+sudo install -d -m 0700 /etc/bdh
+sudo docker compose run --rm --no-deps -v /etc/bdh:/keys djangoapp \
+    .venv/bin/python manage.py generate_secrets_key --path /keys/secrets.key
+# move plain-text passwords/API keys saved in Settings into the store
+sudo docker compose exec djangoapp .venv/bin/python manage.py migrate_plain_secrets --dry-run
+sudo docker compose exec djangoapp .venv/bin/python manage.py migrate_plain_secrets
+# rotate: add a new current key, re-encrypt, then delete the old line from the file
+sudo docker compose run --rm --no-deps -v /etc/bdh:/keys djangoapp \
+    .venv/bin/python manage.py generate_secrets_key --path /keys/secrets.key --append
+sudo docker compose exec djangoapp .venv/bin/python manage.py rotate_secrets_key
+```
+
+`migrate_plain_secrets` moves the settings listed in `vault.LEGACY_PLAIN`
+(cameras `protect_password_n`/`protect_api_key_n`, device_control
+`gemstone_password`, restaurants `google_places_api_key`, shuttle
+`reminders_api_key`, vacation_mode `modes_api_key`) and deletes the plain
+rows; it is safe to run again. Apps that still read those with `app_setting`
+keep working, since the settings store finds them in the secret store, and
+the Settings page already treats them as secrets. Usernames (cameras
+`protect_username_n`) stay plain: alone they unlock nothing. The wifi app's
+`password_n` stays plain on purpose; it is shown to guests.
+
+Limits: anyone with root on the hub VM (or a shell in the hub container) can
+read the key and so every secret, and an app can leak a secret it has been
+given. The hub's own credentials (`DJANGO_SECRET_KEY`, `DB_PASSWORD`,
+`HOMEASSISTANT_ACCESS_TOKEN`, `HA_TOKEN`, `NAPOLEON_*`, `GEMSTONE_PASSWORD`,
+`UNIFI_PROTECT_API_KEY_n`, `BDH_CAMERAS_PROTECT_PASSWORD_n`,
+`BDL_MODES_API_KEY`, `GOOGLE_PLACES_API_KEY`, `BDH_SHUTTLE_REMINDERS_API_KEY`,
+`SPOTIFY_CLIENT_SECRET`, `HUB_REMOTE_TOKEN`, `BDH_SUPERVISOR_TOKEN`,
+`WIFI_PASSWORD_FOR_*`, ...) still come from `.env`; environment values remain
+the fallback when nothing is saved.
+
 ## Deploying a hub server
 
 A hub server is an Ubuntu VM running the compose stack (hub, go2rtc,

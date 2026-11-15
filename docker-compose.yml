@@ -120,6 +120,10 @@ services:
       - ./media:/app/media
       # bdh-supervisor's API socket.
       - bdh-supervisor-socket:/run/bdh-supervisor
+      # Secret store key (secrets.key, made by generate_secrets_key; see the
+      # README). The directory, not the file, is mounted: if the file were
+      # missing Docker would create a directory in its place.
+      - /etc/bdh:/etc/bdh:ro
     
     restart: unless-stopped
 

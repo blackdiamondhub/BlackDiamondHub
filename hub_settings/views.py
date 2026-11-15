@@ -8,6 +8,7 @@ from django.contrib.auth.decorators import user_passes_test
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import NoReverseMatch, reverse
+from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 
 from hub import quick, status
 from hub.modes import (
@@ -15,9 +16,9 @@ from hub.modes import (
 )
 from bdh_sdk import units
 from bdh_sdk.location import location as hub_location
-from bdh_sdk.plugins import BOOL, MULTI
+from bdh_sdk.plugins import BOOL, MULTI, SECRET
 
-from . import store
+from . import store, vault
 from .models import AppSetting
 
 
@@ -267,9 +268,24 @@ def _spec(app_id):
     return spec
 
 
+def _is_secret(spec, setting):
+    """Declared ``type=SECRET``, or a plain setting that moved to the secret store."""
+    return setting.type == SECRET or vault.is_legacy(spec.id, setting.key)
+
+
 def _rows(spec, saved, posted=None, errors=None):
     rows = []
+    stored = None
     for setting in spec.settings:
+        if _is_secret(spec, setting):
+            # Write-only: whether it's set, never the value (not even the posted one).
+            # A legacy plain value not yet moved by migrate_plain_secrets counts as set.
+            if stored is None:
+                stored = vault.names(spec.id)
+            rows.append({"s": setting, "secret": True, "value": None, "default": None, "saved": False,
+                         "is_set": setting.key in stored or bool(saved.get(setting.key)),
+                         "error": (errors or {}).get(setting.key, "")})
+            continue
         default = store.fallback(spec.id, setting)
         if posted is not None and setting.key in posted:
             value = posted[setting.key]
@@ -294,9 +310,15 @@ def _picks(setting, value):
     ]
 
 
+@sensitive_variables("values", "value")
 def _save(request, spec, saved, values):
     for setting in spec.settings:
         key, value = setting.key, values[setting.key]
+        if _is_secret(spec, setting):
+            if value:  # blank = keep the current secret
+                vault.set_secret(spec.id, key, value, user=request.user)
+                AppSetting.objects.filter(app_id=spec.id, key=key).delete()
+            continue
         if key in saved:
             if saved[key] != value:
                 row = AppSetting.objects.get(app_id=spec.id, key=key)
@@ -306,7 +328,13 @@ def _save(request, spec, saved, values):
             AppSetting.objects.create(app_id=spec.id, key=key, value=value, updated_by=request.user)
 
 
+def _secret_keys(spec):
+    return {s.key for s in spec.settings if _is_secret(spec, s)}
+
+
 @staff_page
+@sensitive_post_parameters()
+@sensitive_variables("values", "raw")
 def app_settings(request, app_id):
     if _custom_url(app_id):
         return redirect(_custom_url(app_id))
@@ -318,8 +346,28 @@ def app_settings(request, app_id):
         if reset:
             AppSetting.objects.filter(app_id=spec.id, key=reset).delete()
             return redirect(f"{request.path}?saved=1")
+        clear = request.POST.get("clear_secret")
+        if clear:
+            if clear in _secret_keys(spec):
+                vault.delete_secret(spec.id, clear)
+                AppSetting.objects.filter(app_id=spec.id, key=clear).delete()
+            return redirect(f"{request.path}?saved=1")
         values, errors, raw = {}, {}, {}
+        store_ok = None
         for setting in spec.settings:
+            secret = _is_secret(spec, setting)
+            if secret:
+                raw[setting.key] = None
+                posted = request.POST.get(setting.key, "")
+                if not posted:
+                    values[setting.key] = ""
+                    continue
+                if store_ok is None:
+                    store_ok = vault.available()
+                if not store_ok:
+                    values[setting.key] = ""
+                    errors[setting.key] = "The secret store has no key on this hub; see the README."
+                    continue
             if setting.type == BOOL:
                 raw[setting.key] = setting.key in request.POST
             elif setting.type == MULTI:
@@ -330,10 +378,11 @@ def app_settings(request, app_id):
                     raw[setting.key] = store.fallback(spec.id, setting)
                     values[setting.key] = raw[setting.key]
                     continue
-            else:
+            elif not secret:
                 raw[setting.key] = request.POST.get(setting.key, "")
             try:
-                values[setting.key] = setting.parse(raw[setting.key])
+                values[setting.key] = setting.parse(
+                    request.POST.get(setting.key, "") if secret else raw[setting.key])
             except ValueError as exc:
                 errors[setting.key] = str(exc)
         if not errors:
