@@ -72,6 +72,17 @@ async def _start(app_id):
     return True
 
 
+def seen(install):
+    """``install`` just called the broker, so it is up: skip the start check for a while.
+
+    Without this the first page after a hub restart waits on the supervisor and
+    shows "Starting…" even for an app that has been running all along (a
+    doorbell pop-up from an ``always`` app, say).
+    """
+    if managed(install):
+        _running_until[install.app_id] = time.monotonic() + RUNNING_TTL
+
+
 async def ensure_running(install, hold=None):
     """True when the app is (or within ``hold`` seconds becomes) ready.
 

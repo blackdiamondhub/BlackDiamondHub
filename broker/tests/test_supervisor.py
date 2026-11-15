@@ -377,6 +377,13 @@ class ContainerProxyTests(ProxyTestCase):
         self.assertEqual(headers["retry-after"], ["3"])
         self.assertEqual(self.upstream.requests, [])
 
+    def test_an_app_calling_the_broker_skips_the_start_check(self):
+        lifecycle.seen(self.install)
+        self.start_delay = 0.5
+        with patch.object(lifecycle, "HOLD", 0.05):
+            self.assertEqual(self.get()[0], 200)
+        self.assertEqual(self.starts, [])
+
     def test_failed_start_lets_the_request_through_and_backs_off(self):
         async def broken(app_id, wait=True):
             self.starts.append(app_id)
