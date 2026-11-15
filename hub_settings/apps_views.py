@@ -19,7 +19,7 @@ from broker import catalog, jobs, services, supervisor
 from broker.models import AppInstall
 from hub.modes import plugins
 
-from .views import _icon, _label, _render, _settings_url, _version, staff_page
+from .views import _icon, _label, _render, _settings_url, _version, saved_redirect, staff_page
 
 log = logging.getLogger(__name__)
 
@@ -386,7 +386,7 @@ def manage_permissions(request, app_id):
     services.set_permissions(app_id, [p for p in request.POST.getlist("perm")
                                       if p in (record.requested_permissions or ())])
     messages.success(request, "Permissions saved.")
-    return _back(app_id)
+    return saved_redirect(request, reverse("hub_settings_app_manage", args=[app_id]))
 
 
 @staff_page

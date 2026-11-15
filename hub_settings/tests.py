@@ -71,6 +71,17 @@ class SettingsPageTests(TestCase):
         self.assertRedirects(self.post(), self.url + "?saved=1")
         self.assertFalse(AppSetting.objects.exists())
 
+    def test_save_and_leave_goes_to_local_next(self):
+        self.client.force_login(self.staff)
+        response = self.post(title="Bye", _next="/settings/location/?x=1")
+        self.assertRedirects(response, "/settings/location/?x=1", fetch_redirect_response=False)
+        self.assertEqual(AppSetting.objects.get(app_id="demo", key="title").value, "Bye")
+
+    def test_save_ignores_offsite_next(self):
+        self.client.force_login(self.staff)
+        for bad in ("//evil.com/x", "https://evil.com/x", "/\\evil.com", "javascript:alert(1)"):
+            self.assertRedirects(self.post(_next=bad), self.url + "?saved=1", fetch_redirect_response=False)
+
     def test_save_overrides_app_setting(self):
         self.client.force_login(self.staff)
         self.post(enabled=None, idle="15", theme="dark", start="22:30")

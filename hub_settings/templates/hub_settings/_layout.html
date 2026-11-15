@@ -103,6 +103,23 @@
     .hst-app .lbl b { display: block; font-size: 16px; font-weight: 500; }
     .hst-app .lbl small { color: var(--mut); font-size: 13px; }
     .hst-app a { color: var(--acc2); text-decoration: none; font-size: 14.5px; }
+    .hst-dirty { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 140%); z-index: 1070;
+        display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 22px; border-radius: 18px;
+        background: var(--card2); border: 1px solid var(--line); box-shadow: 0 14px 40px rgba(0,0,0,.55);
+        transition: transform .18s ease; color: var(--fg); font-size: 15px; }
+    .hst-dirty.on { transform: translate(-50%, 0); }
+    .hst-dirty span { color: var(--mut); margin-right: 6px; }
+    .hst-modal { position: fixed; inset: 0; z-index: 1080; display: none; place-items: center; background: rgba(0,0,0,.6); }
+    .hst-modal.on { display: grid; }
+    .hst-modal .box { width: min(440px, 92vw); padding: 26px 26px 20px; border-radius: 22px; background: var(--card2);
+        border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(0,0,0,.6); color: var(--fg); }
+    .hst-modal h2 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
+    .hst-modal p { color: var(--mut); margin: 0 0 22px; font-size: 15px; }
+    .hst-modal .acts { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+    .hst-modal .danger { color: var(--red); }
+    .hst-toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 0); z-index: 1070; padding: 12px 22px;
+        border-radius: 16px; background: var(--card2); border: 1px solid var(--line); color: var(--ok); font-size: 15px;
+        box-shadow: 0 14px 40px rgba(0,0,0,.55); transition: opacity .4s ease; }
     @media (max-width: 760px) {
         .hst { grid-template-columns: 1fr; padding: 12px 4px; }
         .hst-nav { position: static; }
@@ -136,12 +153,49 @@
         {% block section %}{% endblock %}
     </main>
 </div>
+<div class="hst-dirty" id="hst-dirty" role="region" aria-label="Unsaved changes" aria-hidden="true">
+    <span>Unsaved changes</span>
+    <button type="button" class="hst-btn ghost" data-act="discard" tabindex="-1">Discard</button>
+    <button type="button" class="hst-btn" data-act="save" tabindex="-1">Save</button>
+</div>
+<div class="hst-modal" id="hst-leave" role="dialog" aria-modal="true" aria-labelledby="hst-leave-t">
+    <div class="box">
+        <h2 id="hst-leave-t">Unsaved changes</h2>
+        <p>You changed settings on this page but haven't saved them.</p>
+        <div class="acts">
+            <button type="button" class="hst-btn ghost danger" data-act="discard">Discard</button>
+            <button type="button" class="hst-btn ghost" data-act="keep">Keep editing</button>
+            <button type="button" class="hst-btn" data-act="save">Save &amp; leave</button>
+        </div>
+    </div>
+</div>
 <script>
     // Save stays disabled until the form differs from how the page loaded.
     // A page whose state lives in the DOM rather than in fields sets form.bdhState.
     // Fields marked data-clean (e.g. the open tab) don't count; data-dirty on the
     // form (a failed save) keeps Save enabled.
+    // While a form is dirty a sticky bar offers Save/Discard, and leaving the page
+    // through a link asks first. No beforeunload prompt: the kiosk navigates
+    // programmatically (remote control) and a native dialog would block it.
+    // Links marked data-noguard (e.g. a preview that carries unsaved values) pass.
     document.addEventListener('DOMContentLoaded', function () {
+        var bar = document.getElementById('hst-dirty');
+        var modal = document.getElementById('hst-leave');
+        var tracked = [];
+        var submitting = false;
+        var pendingHref = null;
+
+        function dirtyOne() {
+            for (var i = 0; i < tracked.length; i++) if (tracked[i].dirty()) return tracked[i];
+            return null;
+        }
+        function refresh() {
+            var on = !submitting && !!dirtyOne();
+            bar.classList.toggle('on', on);
+            bar.setAttribute('aria-hidden', on ? 'false' : 'true');
+            bar.querySelectorAll('button').forEach(function (b) { b.tabIndex = on ? 0 : -1; });
+        }
+
         document.querySelectorAll('button[data-save]').forEach(function (btn) {
             var form = btn.form;
             if (!form) return;
@@ -150,11 +204,14 @@
                 var data = new FormData(form);
                 form.querySelectorAll('[data-clean][name]').forEach(function (el) { data.delete(el.name); });
                 data.delete('csrfmiddlewaretoken');
+                data.delete('_next');
                 return new URLSearchParams(data).toString();
             }
             var start = state();
             var always = form.hasAttribute('data-dirty');
-            function check() { btn.disabled = !always && state() === start; }
+            var entry = { form: form, btn: btn, dirty: function () { return always || state() !== start; } };
+            tracked.push(entry);
+            function check() { btn.disabled = !entry.dirty(); refresh(); }
             form.addEventListener('input', check);
             form.addEventListener('change', check);
             new MutationObserver(check).observe(form, {
@@ -162,6 +219,81 @@
             });
             check();
         });
+        // Any submit (Save, Reset, Clear) leaves the page on purpose.
+        document.addEventListener('submit', function () { submitting = true; refresh(); });
+
+        function save(entry, href) {
+            var form = entry.form;
+            var next = form.querySelector('input[name="_next"]');
+            if (href) {
+                if (!next) {
+                    next = document.createElement('input');
+                    next.type = 'hidden'; next.name = '_next';
+                    form.appendChild(next);
+                }
+                var u = new URL(href, location.href);
+                next.value = u.pathname + u.search;
+            } else if (next) {
+                next.remove();
+            }
+            entry.btn.disabled = false;
+            if (form.requestSubmit) form.requestSubmit(entry.btn); else entry.btn.click();
+        }
+        function discard(href) {
+            submitting = true;
+            location.href = href || location.pathname + location.search.replace(/([?&])saved=1(&|$)/, '$1').replace(/[?&]$/, '');
+        }
+        function closeModal() { modal.classList.remove('on'); pendingHref = null; }
+
+        bar.addEventListener('click', function (e) {
+            var act = e.target.closest('[data-act]');
+            var entry = dirtyOne();
+            if (!act || !entry) return;
+            if (act.dataset.act === 'save') save(entry, null);
+            else discard(null);
+        });
+        modal.addEventListener('click', function (e) {
+            var act = e.target.closest('[data-act]');
+            if (e.target === modal) { closeModal(); return; }
+            if (!act) return;
+            var href = pendingHref, entry = dirtyOne();
+            if (act.dataset.act === 'keep' || !entry) { closeModal(); if (!entry && href) location.href = href; return; }
+            modal.classList.remove('on');
+            if (act.dataset.act === 'save') save(entry, href);
+            else discard(href);
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && modal.classList.contains('on')) closeModal();
+        });
+        document.addEventListener('click', function (e) {
+            if (submitting || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            var a = e.target.closest('a[href]');
+            if (!a || (a.target && a.target !== '_self') || a.hasAttribute('download') || a.hasAttribute('data-noguard')) return;
+            var raw = a.getAttribute('href');
+            if (!raw || raw.charAt(0) === '#' || /^(javascript|mailto|tel):/i.test(raw)) return;
+            if (!dirtyOne()) return;
+            e.preventDefault();
+            e.stopPropagation();
+            pendingHref = a.href;
+            modal.classList.add('on');
+            modal.querySelector('[data-act="keep"]').focus();
+        }, true);
+
+        // ?saved=1 -> a short toast instead of the inline note, and drop the
+        // param so a reload doesn't repeat it.
+        var params = new URLSearchParams(location.search);
+        if (params.get('saved') === '1') {
+            document.querySelectorAll('.hst-note.ok[role="status"]').forEach(function (n) { n.remove(); });
+            var t = document.createElement('div');
+            t.className = 'hst-toast'; t.setAttribute('role', 'status');
+            t.textContent = 'Saved \u2713';
+            document.body.appendChild(t);
+            setTimeout(function () { t.style.opacity = '0'; }, 1800);
+            setTimeout(function () { t.remove(); }, 2300);
+            params.delete('saved');
+            var q = params.toString();
+            history.replaceState(history.state, '', location.pathname + (q ? '?' + q : '') + location.hash);
+        }
     });
 </script>
 {% endblock %}
