@@ -382,8 +382,12 @@ def app_settings(request, app_id):
                        rows=_rows(spec, saved, raw, errors), pages=_pages(spec), has_errors=True,
                        status=400)
 
+    pages = _pages(spec)
+    if not spec.settings and len(pages) == 1:
+        # Nothing to show here but one link: skip straight to the page.
+        return redirect(pages[0]["url"])
     return _render(request, "hub_settings/app.html", spec.id, spec=spec, label=_label(spec),
-                   rows=_rows(spec, saved), pages=_pages(spec),
+                   rows=_rows(spec, saved), pages=pages,
                    just_saved=request.GET.get("saved") == "1")
 
 
