@@ -1,0 +1,22 @@
+<style>
+  /* Chrome paints this page's canvas while the app goes fullscreen, and the
+     frame is transparent until the app's first paint: keep both off white. */
+  #bdh-app-frame:fullscreen { background: #000 !important; }
+  #bdh-app-frame::backdrop { background: #000; }
+</style>
+{% if not bare %}
+<script>
+  // The app's background from its last visit (embed-host.js caches the theme
+  // message), applied before first paint so the page doesn't flash white.
+  (function () {
+    try {
+      var c = localStorage.getItem('bdh-app-bg:{{ spec.id|escapejs }}');
+      if (!c || !/^(#[0-9a-fA-F]{3,8}|rgba?\([0-9.,\s%]+\))$/.test(c)) return;
+      var s = document.createElement('style');
+      s.id = 'bdh-app-bg';
+      s.textContent = 'html,body,.content-wrapper,#bdh-app-frame{background:' + c + ' !important}';
+      document.head.appendChild(s);
+    } catch (err) { /* storage blocked */ }
+  })();
+</script>
+{% endif %}
