@@ -62,4 +62,7 @@ done
 if [ -n "${BDH_SUPERVISOR_SOCKET:-}" ]; then
     ( while sleep 1800; do python manage.py app_autoupdate --nightly || true; done ) &
 fi
+# Daily: delete expired sessions (CSRF tokens live in sessions, so every
+# anonymous visitor gets a row).
+( while sleep 86400; do python manage.py clearsessions || true; done ) &
 exec daphne --proxy-headers "${endpoints[@]}" BlackDiamondHub.asgi:application
