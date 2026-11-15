@@ -104,6 +104,7 @@
     function build() {
         root = document.createElement('div');
         root.className = 'bdh-saver';
+        root.style.display = 'none';
         root.innerHTML = '<div class="layer stock"></div><div class="layer photos"></div><div class="layer cam"></div><div class="shade"></div>'
             + '<div class="info"><div class="clock"></div><div class="date"></div><div class="row"></div></div>'
             + '<div class="cam-name"></div><div class="caption"></div><div class="season"></div><div class="hint">Tap anywhere</div>';
@@ -399,26 +400,46 @@
         showLayer(next);
     }
 
+    // Has the layer about to be shown got its first image (or is it the drawn stock scene)?
+    function ready() {
+        if (!data) return false;
+        if (showing === 'cam') return !!$('.layer.cam').firstChild;
+        if (DECKS.includes(showing)) return !!currentFrame(showing) || (showing === 'stock' && !items('stock').length);
+        return true;
+    }
+
+    // Fetch the settings and the first image off screen, then fade in with them (or after a few seconds anyway).
+    // Any touch meanwhile cancels it, like it would the saver itself.
+    let preparing = 0;
     function show() {
         if (root && root.classList.contains('on')) return;
+        if (preparing) return;
         if (!root) build();
+        const token = preparing = Date.now();
+        const started = Date.now();
+        load().then(function wait() {
+            if (preparing !== token) return;
+            if (!ready() && Date.now() - started < 4000) { setTimeout(wait, 100); return; }
+            preparing = 0;
+            begin();
+        });
+    }
+
+    function begin() {
         root.style.display = '';
         root.style.pointerEvents = '';
         applyNight();
         tick();
         drift();
         if (showing) showLayer(showing);
-        load().then(() => {
-            if (!root.classList.contains('on')) return;
-            const every = rotateSeconds() * 1000;
-            timers.push(setInterval(rotate, every));
-        });
+        timers.push(setInterval(rotate, rotateSeconds() * 1000));
         timers.push(setInterval(tick, 10 * 1000), setInterval(drift, 120 * 1000), setInterval(load, 5 * 60 * 1000),
             setInterval(applyNight, 30 * 1000));
         requestAnimationFrame(() => root.classList.add('on'));
     }
 
     function hide(swallow = true) {
+        preparing = 0;
         if (!root) return;
         timers.forEach(clearInterval);
         timers = [];
@@ -438,6 +459,7 @@
     const held = !!document.querySelector('meta[name="bdh-screensaver"][content="off"]');
     const isDisplay = () => window.innerWidth >= 1280;
     function arm() {
+        preparing = 0;
         clearTimeout(idleTimer);
         if (!paused && !held && isDisplay()) idleTimer = setTimeout(show, idleMs);
     }
@@ -450,6 +472,7 @@
     /* Something else (an alert) owns the screen: keep the saver away until resume(). */
     function pause() {
         paused = true;
+        preparing = 0;
         clearTimeout(idleTimer);
     }
     function resume() {
