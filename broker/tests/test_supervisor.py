@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import tempfile
+import time
 from unittest.mock import patch
 
 import httpx
@@ -177,6 +178,20 @@ class CatalogTests(CatalogTestCase):
         count = len(self.fetches)
         catalog.get()
         self.assertEqual(len(self.fetches), count)
+
+    def test_get_cached_never_waits_on_a_stale_catalog(self):
+        data, thread = catalog.get_cached()  # nothing cached yet: the one blocking fetch
+        self.assertIsNone(thread)
+        self.assertEqual((data["apps"]["hello"]["name"], len(self.fetches)), ("Hello", 1))
+        self.assertEqual(catalog.get_cached(), (data, None))  # fresh: no fetch
+        self.assertEqual(len(self.fetches), 1)
+        catalog._cache["fetched"] = time.time() - catalog.MAX_AGE - 1
+        self.served = catalog_data(version("2.0.0"))
+        data, thread = catalog.get_cached()
+        self.assertEqual(data["apps"]["hello"]["versions"][0]["version"], "1.0.0")  # the old copy, right away
+        thread.join(5)
+        self.assertEqual(len(self.fetches), 2)
+        self.assertEqual(catalog.get_cached()[0]["apps"]["hello"]["versions"][0]["version"], "2.0.0")
 
     def test_rejects_unknown_schema(self):
         self.served = catalog_data(schema=2)

@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
 from django.contrib import messages
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.views.decorators.http import require_POST
@@ -74,8 +74,9 @@ def _short(permissions):
 
 
 def _catalog():
+    """The cached catalog; a stale one is refreshed in the background."""
     try:
-        return catalog.get()
+        return catalog.get_cached()[0]
     except catalog.CatalogError as exc:
         log.warning("catalog: %s", exc)
         return None
@@ -134,22 +135,31 @@ def _status(record, live, job):
     return "", "Stopped"
 
 
-def _row(record, live, data):
-    meta = _meta(record.app_id, data)
-    spec = _spec(record.app_id)
-    job = jobs.get(record.app_id)
+def _live_fields(record, live, job):
+    """Status and memory for a row, from the supervisor's ``live`` view."""
     limit = live.get("memory_mb") or record.memory_mb
     used = live.get("memory_bytes")
     used_mb = round(used / MB) if used else None
     dot, text = _status(record, live, job)
+    return {"dot": dot, "status": text, "used_mb": used_mb, "limit_mb": limit,
+            "pct": min(100, round(100 * used_mb / limit)) if used_mb and limit else 0}
+
+
+def _row(record, data):
+    """A row without the supervisor's view; the page fetches that afterwards."""
+    meta = _meta(record.app_id, data)
+    spec = _spec(record.app_id)
+    job = jobs.get(record.app_id)
+    if job and job["state"] in (jobs.RUNNING, jobs.FAILED):
+        dot, text = _status(record, {}, job)
+    else:
+        dot, text = "", ""
     update = services.update_available(record, data) if data else None
     return {
         "id": record.app_id, "label": _label(spec) if spec else meta["name"],
         "img": (_icon(spec) if spec else "") or meta["icon"], "version": record.version,
         "lifecycle": LIFECYCLES.get(record.lifecycle, ""), "lan": record.approved_network == "lan",
         "dot": dot, "status": text, "busy": bool(job and job["state"] == jobs.RUNNING),
-        "used_mb": used_mb, "limit_mb": limit,
-        "pct": min(100, round(100 * used_mb / limit)) if used_mb and limit else 0,
         "update": update["version"] if update else "",
         "manage_url": reverse("hub_settings_app_manage", args=[record.app_id]),
     }
@@ -178,17 +188,24 @@ def _tabs(active):
 def installed(request):
     data = _catalog()
     records = _container_records()
-    live = _live_all([r.app_id for r in records])
-    rows = [_row(r, live.get(r.app_id, {}), data) for r in records]
-    used = sum(r["used_mb"] or 0 for r in rows)
+    rows = [_row(r, data) for r in records]
     builtin = _builtin_rows({r.app_id for r in records})
     return _render(request, "hub_settings/apps.html", "apps",
                    tabs=_tabs("installed"), rows=rows, builtin=builtin,
-                   total=len(rows) + len(builtin), used_mb=used, budget_mb=budget_mb(),
-                   budget_pct=min(100, round(100 * used / budget_mb())),
+                   total=len(rows) + len(builtin), budget_mb=budget_mb(),
                    updates=sum(1 for r in rows if r["update"]),
                    busy=any(r["busy"] for r in rows) or jobs.running("*"),
                    enabled=supervisor.enabled(), catalog_ok=data is not None)
+
+
+@staff_page
+def installed_live(request):
+    """Status and memory for every installed app (the Apps page fills these in)."""
+    records = _container_records()
+    live = _live_all([r.app_id for r in records])
+    apps = {r.app_id: _live_fields(r, live.get(r.app_id, {}), jobs.get(r.app_id)) for r in records}
+    return JsonResponse({"apps": apps, "used_mb": sum(a["used_mb"] or 0 for a in apps.values()),
+                         "budget_mb": budget_mb()})
 
 
 @staff_page
@@ -280,7 +297,7 @@ def manage(request, app_id):
     live = _live(app_id) if supervisor.enabled() else {}
     _heal(record, live)
     data = _catalog()
-    row = _row(record, live, data)
+    row = {**_row(record, data), **_live_fields(record, live, jobs.get(app_id))}
     logs = ""
     if supervisor.enabled() and "unreachable" not in live:
         try:
