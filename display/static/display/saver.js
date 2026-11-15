@@ -152,7 +152,9 @@
     }
     function applyNight() { if (root) root.classList.toggle('night', isNight()); }
 
-    let showing = 'stock';
+    // Nothing is shown until the settings arrive, so the wrong layer can't flash up first.
+    let showing = null;
+    let camBroken = false;
     // Photos and stock art each rotate through their own shuffled deck.
     const decks = {photos: {order: [], key: '', pos: 0}, stock: {order: [], key: '', pos: 0}};
     // Images that failed to load are skipped for a while, so one bad file can't leave the screen black.
@@ -320,6 +322,11 @@
         img.dataset.src = url;
         img.onload = () => {
             if (data && data.cam && data.cam.url === url) $('.layer.cam').replaceChildren(img);
+            camBroken = false;
+        };
+        img.onerror = () => {
+            // Only fall back if there's no earlier frame to keep showing.
+            if (!$('.layer.cam').firstChild && !camBroken && data) { camBroken = true; render(data); }
         };
         img.src = fresh ? url + (url.includes('?') ? '&' : '?') + 't=' + Date.now() : url;
     }
@@ -351,16 +358,21 @@
             clearInterval(camTimer); camTimer = null; camEvery = 0;
             camLayer.replaceChildren();
         }
+        const sources = d.sources || ['stock'];
+        // A cam still loading counts as there: its layer stays dark until the image arrives.
+        const empty = name => (name === 'cam' && (!(d.cam && d.cam.url) || camBroken))
+            || (name === 'photos' && !photoList().length);
+        const target = sources.includes(showing) && !empty(showing) ? showing : (sources.find(s => !empty(s)) || 'stock');
         DECKS.forEach(kind => {
+            // Load only what can be shown, so e.g. a stock painting can't flash up before the photos.
+            if (!sources.includes(kind) && kind !== target) { clearFrames(kind); return; }
             const loaded = currentFrame(kind);
             syncOrder(kind);
             if (!items(kind).length) clearFrames(kind);
             else if (!loaded || !items(kind).some(p => p.url === loaded.dataset.src)) nextFrame(kind, false);
         });
         showCaption();
-        const sources = d.sources || ['stock'];
-        const empty = name => (name === 'cam' && !camLayer.firstChild) || (name === 'photos' && !photoList().length);
-        if (!sources.includes(showing) || empty(showing)) showLayer(sources.find(s => !empty(s)) || 'stock');
+        if (target !== showing) showLayer(target);
     }
 
     function load() {
@@ -395,7 +407,7 @@
         applyNight();
         tick();
         drift();
-        showLayer(showing);
+        if (showing) showLayer(showing);
         load().then(() => {
             if (!root.classList.contains('on')) return;
             const every = rotateSeconds() * 1000;
