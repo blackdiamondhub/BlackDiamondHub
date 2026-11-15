@@ -3,6 +3,12 @@
      frame is transparent until the app's first paint: keep both off white. */
   #bdh-app-frame:fullscreen { background: #000 !important; }
   #bdh-app-frame::backdrop { background: #000; }
+  {% if not bare %}
+  /* Until the app paints (or on a first visit, before its theme is cached),
+     show dark rather than the hub's light page background. The app's own
+     colour, appended later in <head>, overrides this. */
+  html, body, .content-wrapper, #bdh-app-frame { background: #000 !important; }
+  {% endif %}
 </style>
 {% if not bare %}
 <script>
