@@ -214,10 +214,32 @@ def _takes_mode(path):
         return False
 
 
+def _keep_for(hook):
+    """How long to keep ``hook``'s last good result (longer for apps that sleep)."""
+    keep_for = getattr(hook, "keep_for", None)
+    return max(LAST_GOOD_TTL, keep_for() if keep_for else 0)
+
+
+def _call(hook, mode):
+    return hook(mode=mode) if mode else hook()
+
+
 def _run_hook(kind, plugin_id, path, convert, ttl, mode=None):
+    from broker.remote import Asleep, waking
+
     try:
         hook = _resolve(path)
-        value = convert(hook(mode=mode) if mode else hook())
+        try:
+            value = convert(_call(hook, mode))
+        except Asleep as asleep:
+            last = cache.get(_last_key(kind, plugin_id, mode))
+            if last is not None and time.time() - last["updated"] < asleep.wake_every:
+                # Keep showing what it said last time; don't start it just for a tile.
+                cache.set(_fresh_key(kind, plugin_id, mode), last,
+                          ttl(last["value"]) if callable(ttl) else ttl)
+                return last
+            with waking():
+                value = convert(_call(hook, mode))
     except Exception:
         # Remembered so a background refresh that fails still shows as stale.
         cache.set(_failed_key(kind, plugin_id, mode), True, LAST_GOOD_TTL)
@@ -226,7 +248,7 @@ def _run_hook(kind, plugin_id, path, convert, ttl, mode=None):
         entry = {"value": value, "updated": time.time()}
         cache.set(_fresh_key(kind, plugin_id, mode), entry,
                   ttl(value) if callable(ttl) else ttl)
-        cache.set(_last_key(kind, plugin_id, mode), entry, LAST_GOOD_TTL)
+        cache.set(_last_key(kind, plugin_id, mode), entry, _keep_for(hook))
         cache.delete(_failed_key(kind, plugin_id, mode))
         return entry
     finally:
