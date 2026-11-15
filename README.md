@@ -101,7 +101,9 @@ Each site folder has:
   in the environment wins). For example `[apps.sonos_control]` sets which
   speakers, rooms and presets the music app shows. `runtime = "container"` in
   an app's table stops the hub loading it in-process, so it can be installed
-  as a container app instead (see below).
+  as a container app instead (see below). Container apps get the rest of the
+  table through the broker's `settings.get`, after a value saved on the
+  Settings page; they never see the hub's environment.
 - `apps.txt`: the hashed app wheels baked into that site's image.
 
 The image is built with `--build-arg HUB_SITE=<site>`, which also sets
