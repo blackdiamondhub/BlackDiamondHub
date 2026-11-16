@@ -15,6 +15,7 @@ import os
 from dotenv import load_dotenv
 from django.core.exceptions import ImproperlyConfigured
 
+from hub.hosts import allowed_hosts
 from hub.loader import load_plugins
 from hub.site import app_settings, container_apps, load_site
 
@@ -53,7 +54,8 @@ if not SECRET_KEY:
         raise ImproperlyConfigured('DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is off.')
     SECRET_KEY = 'django-insecure-local-development-only'
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS').split(',') if os.getenv('ALLOWED_HOSTS') else []
+# Plus local DNS names (e.g. bdh.bdl) and localhost: see hub/hosts.py.
+ALLOWED_HOSTS = allowed_hosts(os.getenv('ALLOWED_HOSTS', '').split(','))
 
 # The CSRF token lives in the session, not a csrftoken cookie: container apps run
 # on other ports of this host and cookies aren't port-scoped, so their JS could
