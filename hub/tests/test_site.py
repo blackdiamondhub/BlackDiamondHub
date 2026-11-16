@@ -15,6 +15,8 @@ from hub.site import SITES_DIR, app_settings, container_apps, load_site, section
 from hub_settings import store as hub_store
 from hub_settings.models import AppSetting
 
+from .test_hub import REGISTRY_PLUGINS
+
 
 class LoadSiteTests(SimpleTestCase):
     def setUp(self):
@@ -84,8 +86,8 @@ class LoadSiteTests(SimpleTestCase):
 
     def test_site_app_settings_reach_the_apps(self):
         from bdh_sdk.settings import app_setting
-        self.assertEqual(app_setting("sonos_control", "models"), "Amp")
-        self.assertEqual([p["id"] for p in app_setting("sonos_control", "presets")], ["dining_deck", "whole"])
+        self.assertEqual(app_setting("speakers", "models"), "Amp")
+        self.assertEqual([p["id"] for p in app_setting("speakers", "presets")], ["dining_deck", "whole"])
 
     def test_brand_files_resolve_inside_the_site_folder(self):
         site = self.site("home", '[brand]\nname = "Home"\nmonogram = "brand/m.svg"\n', ["brand/m.svg"])
@@ -157,6 +159,7 @@ class MountainWeatherTests(TestCase):
     def scraped(self):
         return any("weather-webcams/weather" in str(c.args[:1]) for c in self.get.call_args_list)
 
+    @override_settings(HUB_PLUGINS=REGISTRY_PLUGINS)
     def test_sun_peaks_has_the_weather_tile(self):
         self.assertIn("weather", [t["kind"] for t in builtin_tiles()])
         response = self.client.get("/")
@@ -164,7 +167,8 @@ class MountainWeatherTests(TestCase):
         self.assertContains(response, "In the lodge")
 
     @override_settings(HUB_FEATURES={"mountain_weather": False}, HUB_SECTIONS={"lodge": "In the home"},
-                       HUB_BRAND={"name": "Slivinski Hub", "subtitle": "Mercer Island"})
+                       HUB_BRAND={"name": "Slivinski Hub", "subtitle": "Mercer Island"},
+                       HUB_PLUGINS=REGISTRY_PLUGINS)
     def test_site_without_it_has_no_tile_and_no_scrape(self):
         self.assertNotIn("weather", [t["kind"] for t in builtin_tiles()])
         response = self.client.get("/")

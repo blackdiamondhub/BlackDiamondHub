@@ -58,7 +58,8 @@ def _plugin_modules():
 
 class PluginEntrypointTests(SimpleTestCase):
     def test_builtin_plugins_found(self):
-        self.assertGreaterEqual(len(list(_plugin_modules())), 12)
+        # Only built-ins (and a site's leftover in-process apps) are entry points now.
+        self.assertGreaterEqual(len(list(_plugin_modules())), 3)
 
     def test_plugin_modules_import_without_side_effects(self):
         env = {k: v for k, v in os.environ.items()
