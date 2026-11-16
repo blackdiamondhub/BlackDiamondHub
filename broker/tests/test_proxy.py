@@ -7,6 +7,7 @@ from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
 
 from broker import proxy
+from broker.models import AppInstall
 from broker.tokens import token_for
 
 from .base import make_install, reset_broker
@@ -177,7 +178,8 @@ class AppProxyTests(ProxyTestCase):
         self.upstream.error = httpx.ConnectError("refused")
         status, headers, body = response(run(proxy.app_proxy, scope(self.port)))
         self.assertEqual(status, 503)
-        self.assertIn(b"cams is starting", body)
+        self.assertIn(b"Cameras is starting", body)
+        self.assertNotIn(b"cams is starting", body)
         self.upstream.error = httpx.ReadTimeout("slow")
         self.assertEqual(response(run(proxy.app_proxy, scope(self.port)))[0], 502)
 
@@ -203,6 +205,13 @@ class HelperTests(TestCase):
         self.assertEqual(proxy.app_cookies("a=1; bdh_cams_session=2;bdh_cams_csrf=3; bdh_cams_x_session=4", names),
                          "bdh_cams_session=2; bdh_cams_csrf=3")
         self.assertEqual(proxy.app_cookies(None, names), "")
+
+    def test_display_name_falls_back_to_id(self):
+        install = AppInstall(app_id="snow_report", manifest={"tiles": [{"title": "Mountain Conditions"}]})
+        self.assertEqual(proxy.display_name(install), "Mountain Conditions")
+        for manifest in (None, {}, {"tiles": []}, {"tiles": [{"title": ""}]}):
+            install.manifest = manifest
+            self.assertEqual(proxy.display_name(install), "snow_report")
 
     def test_app_ids_sharing_cookie_names_refused(self):
         reset_broker()
