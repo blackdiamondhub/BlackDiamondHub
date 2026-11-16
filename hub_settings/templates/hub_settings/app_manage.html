@@ -30,6 +30,12 @@
 </section>
 </form>
 {% endif %}
+{% if changelog %}
+<section class="hst-card" id="whats-new">
+    <h3>What's new in v{{ app.version }}</h3>
+    <div class="hst-row"><div class="lbl"><small style="white-space:normal;line-height:1.5">{{ changelog|linebreaksbr }}</small></div></div>
+</section>
+{% endif %}
 <section class="hst-card">
     <h3>Details</h3>
     <form method="post" action="{% url 'hub_settings_app_auto_update' app.id %}" class="hst-row">{% csrf_token %}

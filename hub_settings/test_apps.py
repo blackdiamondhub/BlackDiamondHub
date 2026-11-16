@@ -1,9 +1,11 @@
 """Settings -> Apps: the installed list, the store, installing and managing."""
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from broker import catalog, jobs, services
 from broker.models import AppInstall
@@ -117,6 +119,23 @@ class AppsPageTests(SupervisorMixin, CatalogTestCase, TestCase):
         catalog.refresh(force=True)
         self.client.post(reverse("hub_settings_apps_update_all"))
         self.assertEqual(AppInstall.objects.get().version, "1.1.0")
+
+    def test_updated_badge_and_whats_new(self):
+        self.install(perm=["alerts", "speakers"])
+        self.assertIsNone(AppInstall.objects.get().version_changed)
+        self.assertNotContains(self.client.get(reverse("hub_settings_apps")), ">Updated<")
+        self.served = catalog_data(version("1.1.0", permissions=["alerts", "speakers"], network="lan",
+                                           changelog="Faster tiles\n\n- fixed the popup"))
+        catalog.refresh(force=True)
+        self.client.post(reverse("hub_settings_app_update", args=["hello"]))
+        page = self.client.get(reverse("hub_settings_apps"))
+        self.assertContains(page, ">Updated<")
+        self.assertContains(page, "#whats-new")
+        manage = self.client.get(reverse("hub_settings_app_manage", args=["hello"]))
+        self.assertContains(manage, "What's new in v1.1.0")
+        self.assertContains(manage, "Faster tiles<br><br>- fixed the popup")
+        AppInstall.objects.update(version_changed=timezone.now() - timedelta(days=8))
+        self.assertNotContains(self.client.get(reverse("hub_settings_apps")), ">Updated<")
 
     def test_uninstall(self):
         self.install(perm=["alerts"])

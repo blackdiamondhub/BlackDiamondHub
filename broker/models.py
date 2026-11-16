@@ -40,6 +40,7 @@ class AppInstall(models.Model):
     auto_update = models.BooleanField(default=True, help_text="Install new catalog versions overnight.")
     manifest = models.JSONField(null=True, blank=True)
     manifest_fetched_at = models.DateTimeField(null=True, blank=True)
+    version_changed = models.DateTimeField(null=True, blank=True, help_text="When an update last changed the version.")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
