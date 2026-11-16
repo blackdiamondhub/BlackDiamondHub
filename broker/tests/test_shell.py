@@ -4,7 +4,7 @@ import requests
 from django.core.cache import cache
 from django.test import TestCase
 
-from .base import make_install, reset_broker
+from .base import make_install, manifest, reset_broker
 
 
 class ShellPageTests(TestCase):
@@ -33,6 +33,23 @@ class ShellPageTests(TestCase):
         self.install.enabled = False
         self.install.save()
         self.assertEqual(self.client.get("/apps/cams/").status_code, 404)
+
+    def test_app_without_manifest_yet_gets_a_self_refreshing_page(self):
+        self.install.manifest = None
+        self.install.save()
+        with mock.patch("broker.remote.requests.request", side_effect=requests.ConnectionError("refused")):
+            for url in ("/apps/cams/", "/apps/cams/_bare/cameras/popup/1"):
+                resp = self.client.get(url)
+                self.assertEqual(resp.status_code, 503, url)
+                self.assertEqual(resp["Retry-After"], "5")
+                self.assertContains(resp, '<meta http-equiv="refresh" content="5">', status_code=503)
+            self.assertEqual(self.client.get("/apps/cams/_raw/static/x.png").status_code, 404)
+
+    def test_stale_manifest_keeps_the_page_up(self):
+        self.install.version = "9.9.9"
+        self.install.save()
+        with mock.patch("broker.remote.requests.request", side_effect=requests.ConnectionError("refused")):
+            self.assertEqual(self.client.get("/apps/cams/").status_code, 200)
 
     def test_internal_paths(self):
         self.assertEqual(self.client.get("/apps/cams/_bdh/manifest").status_code, 404)
@@ -127,7 +144,8 @@ class RawTests(TestCase):
         patch, _ = self.upstream(self.reply(b"old"), self.reply(b"new"))
         with patch:
             self.client.get("/apps/cams/_raw/static/cams/icon.svg")
-            type(self.install).objects.filter(pk=self.install.pk).update(version="1.3.0")
+            type(self.install).objects.filter(pk=self.install.pk).update(
+                version="1.3.0", manifest=manifest(id="cams", version="1.3.0"))
             reset_broker()
             resp = self.client.get("/apps/cams/_raw/static/cams/icon.svg")
         self.assertEqual(resp.content, b"new")

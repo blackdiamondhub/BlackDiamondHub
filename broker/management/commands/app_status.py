@@ -34,7 +34,7 @@ class Command(BaseCommand):
                 "app_id": install.app_id, "runtime": install.runtime, "version": install.version,
                 "port": install.port, "enabled": install.enabled, "upstream": install.upstream,
                 "network": install.approved_network, "allow_lan": install.allow_lan,
-                "manifest": install.manifest is not None,
+                "manifest": install.manifest_current,
                 "supervisor": None if view is None else {
                     k: view.get(k) for k in ("status", "desired", "installed_version", "network",
                                              "lifecycle", "upstream", "error", "last_activity")},

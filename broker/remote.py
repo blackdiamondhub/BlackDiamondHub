@@ -33,6 +33,8 @@ PREFIX = "remote:"
 MANIFEST_TIMEOUT = 5.0
 HOT_MANIFEST_TIMEOUT = 2.0
 MANIFEST_RETRY = 60.0
+# How often to retry while an app's manifest is missing or an old version's.
+STALE_RETRY = 10.0
 HOOK_TIMEOUT = (2.0, 5.5)
 REMOTE_HOOKS = ("status", "shortcuts", "run_shortcut", "run_action", "stay", "card")
 # How old a sleeping app's cached tiles may get before the hub wakes it, unless
@@ -503,6 +505,7 @@ def installs_changed(instance=None, signal=None, **_kwargs):
     with _lock:
         _specs = None
         _installs.clear()
+        _last_attempt.clear()
     if instance is not None and signal is post_delete:
         events_bridge.forget(instance.app_id)
     elif instance is not None and not instance.enabled:
@@ -529,17 +532,18 @@ def _load(local_ids):
             log.warning("container app %s clashes with an in-process app; ignored", install.app_id)
             continue
         installs[install.app_id] = install
-        manifest = install.manifest
-        if manifest is None and install.upstream:
+        if not install.manifest_current and install.upstream:
             now = time.monotonic()
-            if now - _last_attempt.get(install.app_id, -MANIFEST_RETRY) >= MANIFEST_RETRY:
+            if now - _last_attempt.get(install.app_id, -STALE_RETRY) >= STALE_RETRY:
                 _last_attempt[install.app_id] = now
                 try:
-                    manifest = fetch_manifest(install, timeout=HOT_MANIFEST_TIMEOUT, wake=False)
+                    fetch_manifest(install, timeout=HOT_MANIFEST_TIMEOUT, wake=False)
                 except RemoteError as exc:
                     log.warning("%s", exc)
-        if manifest is None:
+        manifest = install.manifest
+        if not install.manifest_current:
             missing = True
+        if manifest is None:
             continue
         try:
             specs.append(spec_from_manifest(install, manifest))
@@ -554,7 +558,8 @@ def remote_specs(local_ids=()):
     with _lock:
         cached = _specs
     # Re-read every minute too: `broker_refresh` runs in another process.
-    if cached is not None and time.monotonic() - cached[3] < MANIFEST_RETRY:
+    # Sooner while an app waits for its manifest, so it shows up within seconds.
+    if cached is not None and time.monotonic() - cached[3] < (STALE_RETRY if cached[2] else MANIFEST_RETRY):
         return cached[0]
     try:
         specs, installs, missing = _load(set(local_ids))
