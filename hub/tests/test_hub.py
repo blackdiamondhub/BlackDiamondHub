@@ -103,9 +103,9 @@ class TileModeTests(TestCase):
         self.assertEqual(sizes(2), ["l", "m"])
         self.assertEqual(sizes(3), ["l", "m", "m"])
 
-    def test_weather_is_built_in_and_a_lone_lodge_card_has_no_section(self):
+    def test_no_built_in_weather_and_a_lone_lodge_card_has_no_section(self):
         sections = self.sections(OWNER)
-        self.assertEqual([t["kind"] for t in sections["mountain"]], ["weather"])
+        self.assertNotIn("mountain", sections)
         self.assertNotIn("lodge", sections)
 
     def test_saved_layout_orders_and_sizes_tiles(self):
@@ -133,24 +133,23 @@ class TileModeTests(TestCase):
         self.save_layout({"groups": [
             {"key": "g-fav", "title": "Favourites", "tiles": [{"id": "wifi:hub_settings_location", "size": "s"}]},
             {"key": "more", "title": "Everything else", "tiles": []},
-            {"key": "mountain", "title": "Outside", "tiles": [{"id": "hub:weather", "size": "m"}]},
+            {"key": "mountain", "title": "Outside", "tiles": [{"id": "vacation_mode:hub_settings_quick", "size": "m"}]},
         ]})
         self.assertEqual(self.groups(), [
             ("g-fav", "Favourites", ["wifi:hub_settings_location"]),
-            ("more", "Everything else", ["vacation_mode:hub_settings_quick"]),
-            ("mountain", "Outside", ["hub:weather", "hub:lodge"]),
+            ("mountain", "Outside", ["vacation_mode:hub_settings_quick", "hub:lodge"]),
         ])
 
     def test_tile_moves_between_groups(self):
         self.save_layout({"groups": [
             {"key": "mountain", "title": "Out", "tiles": []},
             {"key": "lodge", "title": "In", "tiles": [{"id": "wifi:hub_settings_location", "size": "m"}]},
-            {"key": "more", "title": "More", "tiles": [{"id": "hub:weather", "size": "s"}]},
+            {"key": "more", "title": "More", "tiles": [{"id": "vacation_mode:hub_settings_quick", "size": "s"}]},
         ]})
         groups = self.groups()
         self.assertEqual(groups[0][0], "lodge")
         self.assertEqual(groups[0][2], ["wifi:hub_settings_location", "hub:lodge"])
-        self.assertIn("hub:weather", groups[1][2])
+        self.assertEqual(groups[1][2], ["vacation_mode:hub_settings_quick"])
 
     def test_new_tile_lands_in_last_group_when_its_section_was_removed(self):
         self.save_layout({"groups": [
@@ -235,10 +234,6 @@ REGISTRY_PLUGINS = (
 class HomepageRegistryTests(TestCase):
     def setUp(self):
         cache.clear()
-        patcher = patch("BlackDiamondHub.views.requests.get")
-        mock_get = patcher.start()
-        self.addCleanup(patcher.stop)
-        mock_get.return_value = MagicMock(status_code=200, content=b"")
 
     def test_homepage_renders_tiles_from_installed_plugins(self):
         response = self.client.get("/")
@@ -460,9 +455,7 @@ class HomeStatusTests(TestCase):
             finally:
                 HOOK_STATE["gate"].set()
 
-    @patch("BlackDiamondHub.views.requests.get")
-    def test_homepage_arrives_with_status_and_shortcuts(self, get):
-        get.return_value = MagicMock(status_code=200, content=b"")
+    def test_homepage_arrives_with_status_and_shortcuts(self):
         response = self.client.get("/")
         data = response.context["hub_home"]
         self.assertEqual(data["status"]["lights"]["text"], "3 lights on")
@@ -624,6 +617,14 @@ class StatusRowsValueTests(SimpleTestCase):
         with self.assertRaises(TypeError):
             _status_value(Status("x", rows=[{"id": "a"}]))
 
+    def test_readings_carry_label_value_and_unit(self):
+        from bdh_sdk.plugins import Reading
+        value = _status_value(Status("x", readings=(Reading("Up top", -4, "C"), Reading("Base", 2, "C"))))
+        self.assertEqual(value["readings"], [{"label": "Up top", "value": -4, "unit": "C"},
+                                             {"label": "Base", "value": 2, "unit": "C"}])
+        with self.assertRaises(TypeError):
+            _status_value(Status("x", readings=({"label": "a", "value": 1},)))
+
     def test_countdowns_carry_template_and_end(self):
         with patch("bdh_sdk.hooks.time.time", return_value=1000.0):
             value = _status_value(Status("Eggs {left}", ends_at=1300.0, rows=[
@@ -752,9 +753,6 @@ class StayModeTests(TestCase):
         cache.clear()
         self.addCleanup(cache.clear)
         HOOK_STATE.clear()
-        patcher = patch("BlackDiamondHub.views.requests.get")
-        patcher.start().return_value = MagicMock(status_code=200, content=b"")
-        self.addCleanup(patcher.stop)
         now = datetime.now(LODGE_TZ)
         self.checkout = (now + timedelta(days=2)).replace(hour=11, minute=0, second=0, microsecond=0)
         HOOK_STATE["stay"] = Stay("The Smiths", now - timedelta(days=1), self.checkout)
@@ -833,9 +831,6 @@ class LodgeCardTests(TestCase):
         cache.clear()
         self.addCleanup(cache.clear)
         HOOK_STATE.clear()
-        patcher = patch("BlackDiamondHub.views.requests.get")
-        patcher.start().return_value = MagicMock(status_code=200, content=b"")
-        self.addCleanup(patcher.stop)
         HOOK_STATE["card"] = Card(
             "Vacation mode", "Next: The Smiths",
             readings=(Reading("Inside", 14.5, "C"),),

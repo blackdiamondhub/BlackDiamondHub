@@ -92,7 +92,7 @@ Each site folder has:
 
 - `site.toml`: `[brand]` name, subtitle and monogram SVGs (the "BDH" monogram
   from `bdh-sdk` when none is given), `[features]`
-  such as `mountain_weather` and `feedback` (`false` hides the built-in feedback
+  such as `feedback` (`false` hides the built-in feedback
   pill and inbox; see "Feedback" below), `[sections]` homepage section titles (`mountain`,
   `lodge` and `more`; "Outside", "Inside" and "More" unless set; staff can
   rename, add, remove and reorder groups and drag apps between them on

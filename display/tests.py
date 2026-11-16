@@ -306,8 +306,7 @@ class ViewTests(TestCase):
         # DB connection, can't see this test's uncommitted settings and cache them
         # empty; a zero TTL makes the page read through this test's connection.
         empty = {"status": {}, "shortcuts": [], "refreshing": False}
-        with mock.patch("BlackDiamondHub.views.mountain_weather", return_value=[]), \
-                mock.patch("BlackDiamondHub.views.home_data", return_value=empty), \
+        with mock.patch("BlackDiamondHub.views.home_data", return_value=empty), \
                 mock.patch("BlackDiamondHub.views.lodge_card", return_value=None), \
                 mock.patch.object(store, "TTL", 0):
             return self.client.get(reverse("landing_page"))
@@ -334,14 +333,6 @@ class ViewTests(TestCase):
         AppSetting.objects.create(app_id="hub", key="units", value="imperial")
         with mock.patch.object(store, "TTL", 0):
             self.assertContains(self.home(), 'data-unit="F"')
-
-    def test_home_weather_text_in_hub_units(self):
-        from BlackDiamondHub.views import _with_units
-        from bdh_sdk.units import Units
-        rows = [{"temperature": "-5", "elevation": 2080}, {"temperature": "N/A", "elevation": "?"}]
-        self.assertEqual([(r["temp_text"], r["elev_text"]) for r in _with_units(rows, Units("imperial"))],
-                         [("23°F", "6,824 ft"), ("N/A°C", "? m")])
-        self.assertEqual(_with_units(rows, Units("metric"))[0]["temp_text"], "-5°C")
 
     def test_home_defaults_unchanged(self):
         page = self.home()

@@ -41,51 +41,6 @@ def _full_homepage_plugins():
 
 FULL_HOMEPAGE = override_settings(HUB_PLUGINS=_full_homepage_plugins())
 
-class LandingPageLiveTests(TestCase):
-    def setUp(self):
-        self.client = Client()
-
-    def test_landing_page_live_data(self):
-        response = self.client.get(reverse('landing_page'))
-        self.assertEqual(response.status_code, 200)
-        self.assertIn('sunpeaks_weather', response.context)
-        weather_data = response.context['sunpeaks_weather']
-
-        # Verify that there are 4 entries.
-        self.assertEqual(len(weather_data), 4, "Expected exactly 4 weather entries.")
-
-        # Expected values for location and elevation (elevation as integer)
-        expected_entries = [
-            {'location': 'Top of the World', 'elevation': 2080},
-            {'location': 'Mid-mountain', 'elevation': 1855},
-            {'location': 'Top of Morrisey', 'elevation': 1675},
-            {'location': 'Valley', 'elevation': 1255}
-        ]
-        
-        for expected in expected_entries:
-            found = any(
-                entry['location'] == expected['location'] and entry['elevation'] == expected['elevation']
-                for entry in weather_data
-            )
-            self.assertTrue(found, f"Did not find expected entry: {expected}")
-
-        # Verify that each weather entry has a temperature value.
-        # Temperature can be "N/A" (indicating live data issues) or a valid number.
-        for entry in weather_data:
-            temp = entry.get('temperature')
-            self.assertIsNotNone(temp, f"No temperature value found for entry: {entry}")
-
-            if temp != "N/A":
-                try:
-                    temp_val = float(temp)
-                    # Check that the temperature falls within a reasonable range.
-                    self.assertTrue(
-                        -50 <= temp_val <= 150,
-                        f"Temperature {temp_val} out of expected range for entry: {entry}"
-                    )
-                except ValueError:
-                    self.fail(f"Temperature value is not a valid number: {temp}")
-
 @tag('selenium')
 @FULL_HOMEPAGE
 class LandingPageNoScrollTest(SeleniumTestCase):
@@ -221,7 +176,7 @@ class LandingPageTileFitTest(SeleniumTestCase):
 
 
 @tag('selenium')
-class WeatherUnitToggleTest(SeleniumTestCase):
+class UnitToggleTest(SeleniumTestCase):
     TOGGLE = (By.CLASS_NAME, 'toggle-button')
 
     def setUp(self):
@@ -230,7 +185,12 @@ class WeatherUnitToggleTest(SeleniumTestCase):
         self.browser.delete_all_cookies()
         self.browser.get(self.live_server_url)
         WebDriverWait(self.browser, 20).until(
-            EC.presence_of_element_located((By.CLASS_NAME, 'temperature'))
+            EC.presence_of_element_located(self.TOGGLE)
+        )
+        # Readings come from app tiles; these stand in for one.
+        self.browser.execute_script(
+            'document.body.insertAdjacentHTML("afterbegin", \'<div><span class="temperature" data-metric="0">0°C</span>'
+            '<span class="elevation" data-metric="0">0 m</span></div>\');'
         )
         wait_for_paint(self.browser)
 

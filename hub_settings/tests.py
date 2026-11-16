@@ -221,7 +221,7 @@ class HomeLayoutPageTests(TestCase):
     def test_lists_tiles_and_nav_entry(self):
         self.client.force_login(self.staff)
         response = self.client.get(self.url)
-        self.assertContains(response, 'data-id="hub:weather"')
+        self.assertContains(response, 'data-id="hub:lodge"')
         self.assertContains(response, 'href="/settings/home/"')
         self.assertContains(response, "Home layout")
         self.assertNotContains(response, "/admin/auth/user/")
@@ -231,13 +231,13 @@ class HomeLayoutPageTests(TestCase):
         self.client.force_login(self.staff)
         layout = {"groups": [
             {"key": "g-fav", "title": "  Favourites ", "tiles": [
-                {"id": "hub:weather", "size": "s"}, {"id": "nope:x", "size": "m"}, {"id": "hub:lodge", "size": "xl"}]},
-            {"key": "more", "title": "More", "tiles": [{"id": "hub:weather", "size": "l"}]},
+                {"id": "hub:lodge", "size": "s"}, {"id": "nope:x", "size": "m"}, {"id": "hub:lodge", "size": "xl"}]},
+            {"key": "more", "title": "More", "tiles": [{"id": "hub:lodge", "size": "l"}]},
         ]}
         response = self.client.post(self.url, {"layout": json.dumps(layout)})
         self.assertRedirects(response, self.url + "?saved=1")
         self.assertEqual(self.saved(), {"groups": [
-            {"key": "g-fav", "title": "Favourites", "tiles": [{"id": "hub:weather", "size": "s"}]},
+            {"key": "g-fav", "title": "Favourites", "tiles": [{"id": "hub:lodge", "size": "s"}]},
             {"key": "more", "title": "More", "tiles": []},
         ]})
         self.assertEqual(AppSetting.objects.get(key="home_layout").updated_by, self.staff)
@@ -252,7 +252,7 @@ class HomeLayoutPageTests(TestCase):
         def group(key="more", title="More", tiles=()):
             return {"key": key, "title": title, "tiles": list(tiles)}
 
-        for layout in ("{nope", "[]", {"mountain": [{"id": "hub:weather", "size": "s"}]}, {"groups": []},
+        for layout in ("{nope", "[]", {"mountain": [{"id": "hub:lodge", "size": "s"}]}, {"groups": []},
                        {"groups": [group(key="Bad Key")]}, {"groups": [group(), group()]},
                        {"groups": [group(title="  ")]}, {"groups": [group(title="x" * 41)]},
                        {"groups": [group(tiles=["x"])]}, {"groups": [group(key=f"g{i}") for i in range(13)]}):
@@ -269,7 +269,7 @@ class HomeLayoutPageTests(TestCase):
     def test_reset_deletes_layout(self):
         self.client.force_login(self.staff)
         self.client.post(self.url, {"layout": json.dumps(
-            {"groups": [{"key": "more", "title": "More", "tiles": [{"id": "hub:weather", "size": "s"}]}]})})
+            {"groups": [{"key": "more", "title": "More", "tiles": [{"id": "hub:lodge", "size": "s"}]}]})})
         self.assertContains(self.client.get(self.url), 'name="reset"')
         self.assertRedirects(self.client.post(self.url, {"reset": "1"}), self.url + "?saved=1")
         self.assertFalse(AppSetting.objects.exists())
