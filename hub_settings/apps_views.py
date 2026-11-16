@@ -7,12 +7,14 @@ refresh themselves while one runs.
 """
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib import messages
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from broker import catalog, jobs, services, supervisor
@@ -25,6 +27,7 @@ log = logging.getLogger(__name__)
 
 LOG_LINES = 200
 MB = 1024 * 1024
+UPDATED_FOR = timedelta(days=7)
 
 LIFECYCLES = {"always": "always on", "on_demand": "starts when opened"}
 
@@ -161,8 +164,25 @@ def _row(record, data):
         "lifecycle": LIFECYCLES.get(record.lifecycle, ""), "lan": record.approved_network == "lan",
         "dot": dot, "status": text, "busy": bool(job and job["state"] == jobs.RUNNING),
         "update": update["version"] if update else "",
+        "updated": _recently_updated(record),
         "manage_url": reverse("hub_settings_app_manage", args=[record.app_id]),
     }
+
+
+def _recently_updated(record):
+    changed = record.version_changed
+    return bool(changed and timezone.now() - changed < UPDATED_FOR)
+
+
+def _changelog(record, data):
+    """Release notes for the installed version, from the catalog."""
+    if data is None:
+        return ""
+    app = catalog.app(record.app_id, data) or {}
+    for entry in app.get("versions") or ():
+        if isinstance(entry, dict) and entry.get("version") == record.version:
+            return str(entry.get("changelog") or "").strip()
+    return ""
 
 
 def _container_records():
@@ -314,6 +334,7 @@ def manage(request, app_id):
                           for p in record.requested_permissions or ()],
                    summary=_short([p for p in record.requested_permissions or () if p in granted]),
                    network=NETWORK_INFO.get(record.approved_network),
+                   changelog=_changelog(record, data),
                    review=_review(record, request.GET.get("review"), data))
 
 

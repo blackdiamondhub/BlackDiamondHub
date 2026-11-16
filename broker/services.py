@@ -12,6 +12,7 @@ import time
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 from . import catalog, remote, supervisor
 from .models import AppInstall
@@ -255,6 +256,8 @@ def upgrade(record, entry, *, network=None, allow_lan=None, approve=False, permi
     if allow_lan is not None:
         record.allow_lan = bool(allow_lan)
     changed = record.version != entry["version"]
+    if changed and record.version:
+        record.version_changed = timezone.now()
     record.version = entry["version"]
     record.requested_permissions = want["permissions"]
     record.granted_permissions = [p for p in record.granted_permissions or () if p in want["permissions"]]
