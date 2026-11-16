@@ -71,3 +71,24 @@ class Heartbeat(models.Model):
     last_seen = models.DateTimeField()
     path = models.CharField(max_length=200, blank=True)
     user_agent = models.CharField(max_length=200, blank=True)
+
+
+class DisplayLoad(models.Model):
+    """One hub page load on a screen, and how the page before it ended.
+
+    ``prev_clean`` False means the previous page never fired ``pagehide``: the
+    browser crashed, was killed, or the screen lost power.
+    """
+
+    ip = models.GenericIPAddressField(db_index=True)
+    at = models.DateTimeField(db_index=True)
+    path = models.CharField(max_length=200, blank=True)
+    nav_type = models.CharField(max_length=20, blank=True)
+    referrer = models.CharField(max_length=200, blank=True)
+    user_agent = models.CharField(max_length=200, blank=True)
+    heap_mb = models.IntegerField(null=True, blank=True)
+    prev_path = models.CharField(max_length=200, blank=True)
+    prev_clean = models.BooleanField(null=True)
+    prev_lived_s = models.IntegerField(null=True, blank=True)
+    prev_silent_s = models.IntegerField(null=True, blank=True)
+    prev_heap_mb = models.IntegerField(null=True, blank=True)

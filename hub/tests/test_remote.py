@@ -133,3 +133,30 @@ class RemoteFullscreenTest(SeleniumTestCase):
 
         browser.execute_script("document.exitFullscreen()")
         self.assertEqual(browser.execute_script("return [document.fullscreenElement, window.changes]"), [None, 2])
+
+    def test_frame_relays_to_the_app_frame_and_back(self):
+        browser = self.browser
+        browser.get(f"{self.live_server_url}/accounts/login/")
+        wait_for_paint(browser)
+        WebDriverWait(browser, 5).until(lambda b: b.execute_script("return !!window.BDHRemote"))
+        # A stand-in for the app's embed.js: answers remote commands, fails 'boom'.
+        browser.execute_script("""
+            const f = document.createElement('iframe');
+            f.id = 'bdh-app-frame';
+            f.dataset.appOrigin = location.origin;
+            f.srcdoc = `<script>addEventListener('message', e => {
+                const d = e.data;
+                if (!d || d.type !== 'remote') return;
+                const r = d.cmd === 'boom' ? {ok: false, error: 'it broke'}
+                                           : {ok: true, value: {cmd: d.cmd, args: d.args}};
+                parent.postMessage(Object.assign({bdh: 1, type: 'remote-result', id: d.id}, r), e.origin);
+            });<\\/script>`;
+            document.body.appendChild(f);
+        """)
+        WebDriverWait(browser, 5).until(lambda b: b.execute_script(
+            "return document.getElementById('bdh-app-frame').contentDocument.readyState === 'complete'"))
+        run = ("const done = arguments[0];"
+               "BDHRemote.commands.frame(%s).then(v => done(v), e => done('ERR ' + e.message));")
+        self.assertEqual(browser.execute_async_script(run % "{cmd: 'state', args: {depth: 2}}"),
+                         {"cmd": "state", "args": {"depth": 2}})
+        self.assertEqual(browser.execute_async_script(run % "{cmd: 'boom'}"), "ERR it broke")

@@ -13,6 +13,9 @@
  *   logs    {n, clear}            recent console output and page errors
  *   navigate {url} | reload | back
  *   eval    {code}                async function body; its return value comes back
+ *   frame   {cmd, args}           run state/query/tap/swipe/key/measure/logs inside the
+ *                                 container app's frame (bdh-sdk >= 0.33 embed.js);
+ *                                 coordinates are the frame's own
  *
  * Synthetic taps carry no user activation, so the browser refuses
  * requestFullscreen. While this script is loaded a refused request falls back
@@ -367,7 +370,45 @@
         reload: () => later(() => location.reload()),
         back: () => later(() => history.back()),
         eval: args => new AsyncFunction(args.code)(),
+        frame,
     };
+
+    // ---- container app frames --------------------------------------------
+    // The app's embed.js answers {type:'remote'} with {type:'remote-result'}
+    // (bdh-sdk embed-remote.js). Only the frame's own origin is trusted.
+    const framePending = new Map();
+    let frameSeq = 0;
+    window.addEventListener('message', e => {
+        const d = e.data;
+        if (!d || d.bdh !== 1 || d.type !== 'remote-result') return;
+        const p = framePending.get(d.id);
+        if (!p || e.origin !== p.origin || e.source !== p.win) return;
+        framePending.delete(d.id);
+        clearTimeout(p.timer);
+        if (d.ok) p.resolve(d.value);
+        else {
+            const err = new Error(d.error || 'frame command failed');
+            err.stack = `frame: ${d.error}`;
+            p.reject(err);
+        }
+    });
+
+    function frame(args) {
+        const el = document.getElementById('bdh-app-frame');
+        const origin = el && el.dataset.appOrigin;
+        if (!el || !origin || !el.contentWindow) throw new Error('no app frame on this page');
+        const id = `f${Date.now()}-${++frameSeq}`;
+        const inner = { ...(args.args || {}) };
+        const wait = ((+inner.seconds || 0) + 10) * 1000;
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                framePending.delete(id);
+                reject(new Error(`app frame did not answer ${args.cmd} (embed.js older than bdh-sdk 0.33?)`));
+            }, wait);
+            framePending.set(id, { resolve, reject, timer, origin, win: el.contentWindow });
+            el.contentWindow.postMessage({ bdh: 1, type: 'remote', id, cmd: String(args.cmd || 'state'), args: inner }, origin);
+        });
+    }
 
     async function run(msg) {
         let reply;

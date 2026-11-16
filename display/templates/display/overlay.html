@@ -12,6 +12,35 @@
     };
     beat();
     setInterval(beat, 60 * 1000);
+
+    // Crash detection: the page's record lives in localStorage (it survives a browser
+    // crash). pagehide marks it clean; a record still unclean at the next load means the
+    // previous page died without unloading.
+    const KEY = 'bdh-page-life';
+    const heap = () => performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : '';
+    const store = rec => { try { localStorage.setItem(KEY, JSON.stringify(rec)); } catch (e) {} };
+    let prev = null;
+    try { prev = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+    const now = Date.now();
+    const nav = (performance.getEntriesByType('navigation')[0] || {}).type || '';
+    const load = new FormData();
+    load.append('path', location.pathname);
+    load.append('nav_type', nav);
+    load.append('referrer', document.referrer.slice(0, 200));
+    load.append('heap_mb', heap());
+    if (prev) {
+        load.append('prev_path', prev.path || '');
+        load.append('prev_clean', prev.clean ? '1' : '0');
+        load.append('prev_lived_s', Math.round(((prev.last || now) - prev.start) / 1000));
+        load.append('prev_silent_s', Math.round((now - (prev.last || now)) / 1000));
+        load.append('prev_heap_mb', prev.heap === '' ? '' : prev.heap);
+    }
+    navigator.sendBeacon('{% url "display_page_load" %}', load);
+    const life = {path: location.pathname, start: now, last: now, heap: heap(), clean: false};
+    store(life);
+    setInterval(() => { life.last = Date.now(); life.heap = heap(); store(life); }, 5000);
+    addEventListener('pagehide', () => { life.last = Date.now(); life.clean = true; store(life); });
+    addEventListener('pageshow', e => { if (e.persisted) { life.clean = false; store(life); } });
 })();
 </script>
 {% endif %}
