@@ -43,7 +43,8 @@ runtime = "container"  # bdh-app-announcements 2.0.0 under bdh-supervisor
 [apps.hub]
 units = "imperial"
 
-[apps.sonos_control]
+[apps.speakers]
+runtime = "container"  # bdh-app-speakers 3.0.0 under bdh-supervisor
 models = "*"  # every Sonos
 presets = [
     { id = "kitchen_deck", label = "Kitchen + Deck", icon = "fa-utensils", rooms = ["Kitchen", "Deck"] },
@@ -51,7 +52,7 @@ presets = [
 ]
 
 # No floors: the room picker is a plain grid. Keys are Sonos room names.
-[apps.sonos_control.rooms]
+[apps.speakers.rooms]
 "Family Room" = { icon = "fa-tv" }
 "Kitchen" = { icon = "fa-utensils" }
 "Deck" = { icon = "fa-tree" }
