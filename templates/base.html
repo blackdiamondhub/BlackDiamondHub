@@ -467,7 +467,8 @@
 
             <!-- Right-side icons -->
             <div class="d-flex align-items-center gap-1">
-                <!-- Feedback -->
+                {% if hub_feedback %}
+                <!-- Feedback (hub/feedback.py: the built-in app or the feedback container app) -->
                 <button type="button"
                         class="feedback-button"
                         id="feedback-button"
@@ -476,6 +477,7 @@
                         title="Give Feedback">
                     <i class="fas fa-comment-dots"></i><span>Feedback</span>
                 </button>
+                {% endif %}
 
                 {% if user.is_authenticated %}
                     {% firstof user.first_name user.username as hub_user_name %}
@@ -484,23 +486,27 @@
                                 aria-haspopup="menu" aria-expanded="false" aria-controls="user-menu"
                                 title="{{ hub_user_name }}">
                             <span class="hub-ini">{{ hub_user_name|first|upper }}</span>
-                            {% if user.is_staff and unread_feedback_count > 0 %}
-                                <span class="badge" title="Unread feedback">{{ unread_feedback_count }}</span>
+                            {% if user.is_staff and hub_feedback.unread > 0 %}
+                                <span class="badge" title="Unread feedback">{{ hub_feedback.unread }}</span>
                             {% endif %}
                             <span class="hub-name">{{ hub_user_name }}</span>
                             <i class="fas fa-chevron-down"></i>
                         </button>
                         <div class="hub-menu" id="user-menu" role="menu" hidden>
+                            {% if hub_feedback %}
                             <!-- Phones only: the Feedback pill is hidden there to make room -->
                             <button type="button" class="hub-menu-fb" role="menuitem"
                                     data-bs-toggle="modal" data-bs-target="#feedback-modal">
                                 <i class="fas fa-comment-dots"></i>Send feedback
                             </button>
+                            {% endif %}
                             {% if user.is_staff %}
-                                <a href="{% url 'view_feedback' %}" role="menuitem" id="inbox-link">
+                                {% if hub_feedback %}
+                                <a href="{{ hub_feedback.inbox_url }}" role="menuitem" id="inbox-link">
                                     <i class="fas fa-inbox"></i>Feedback inbox
-                                    <span class="fb-n">{% if unread_feedback_count > 0 %}{{ unread_feedback_count }}{% endif %}</span>
+                                    <span class="fb-n">{% if hub_feedback.unread > 0 %}{{ hub_feedback.unread }}{% endif %}</span>
                                 </a>
+                                {% endif %}
                                 <a href="{% url 'hub_settings' %}" role="menuitem"><i class="fas fa-sliders-h"></i>Settings</a>
                                 <a href="{% url 'hub_settings_apps' %}" role="menuitem"><i class="fas fa-store"></i>Apps</a>
                                 <hr>
@@ -531,6 +537,7 @@
         {% block content %}<!-- Page-specific content goes here -->{% endblock %}
     </div>
 
+    {% if hub_feedback %}
     <!-- Feedback Modal -->
     <div class="modal fade feedback-modal"
          id="feedback-modal"
@@ -553,7 +560,7 @@
                             aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <form id="feedback-form" method="POST" action="{% url 'submit_feedback' %}">
+                    <form id="feedback-form" method="POST" action="{{ hub_feedback.submit_url }}">
                         {% csrf_token %}
                         <label for="message" class="visually-hidden">Message</label>
                         <textarea class="form-control"
@@ -574,6 +581,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
     </div>
 
     <script>
@@ -582,6 +590,7 @@
     document.addEventListener('DOMContentLoaded', function () {
 
         var feedbackModalElement = document.getElementById('feedback-modal');
+        if (!feedbackModalElement) return;
         feedbackModal = new bootstrap.Modal(feedbackModalElement);
 
         // Set the page URL in the hidden input field when the modal opens
@@ -614,7 +623,8 @@
             e.stopPropagation();
             setOpen(menu.hidden);
         });
-        menu.querySelector('.hub-menu-fb').addEventListener('click', function () { setOpen(false); });
+        const fbItem = menu.querySelector('.hub-menu-fb');
+        if (fbItem) fbItem.addEventListener('click', function () { setOpen(false); });
         document.addEventListener('click', function (e) {
             if (!menu.hidden && !menu.contains(e.target)) setOpen(false);
         });
@@ -623,6 +633,7 @@
         });
     })();
 
+    {% if hub_feedback %}
     document.getElementById('feedback-form').addEventListener('submit', function(event) {
         event.preventDefault();
 
@@ -649,8 +660,9 @@
         })
         .catch(error => console.error('Error:', error));
     });
+    {% endif %}
 
-    {% if user.is_authenticated and user.is_staff %}
+    {% if hub_feedback and user.is_authenticated and user.is_staff %}
     function setUnreadFeedbackCount(n) {
         const ava = document.getElementById('user-menu-button');
         if (!ava) return;
@@ -673,7 +685,7 @@
 
     document.addEventListener('DOMContentLoaded', function () {
         function updateUnreadFeedbackCount() {
-            fetch('{% url "get_unread_feedback_count" %}')
+            fetch('{{ hub_feedback.count_url|escapejs }}')
                 .then(response => response.json())
                 .then(data => setUnreadFeedbackCount(data.unread_feedback_count))
                 .catch(error => console.error('Error fetching unread feedback count:', error));

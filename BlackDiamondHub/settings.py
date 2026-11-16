@@ -154,7 +154,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'django.template.context_processors.media',
-                'feedback.context_processors.unread_feedback_count',
+                'hub.feedback.context',
                 'hub.spotify_auth.spotify_token',
                 'hub.context_processors.nav_title',
                 'hub.context_processors.stay_key',

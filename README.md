@@ -92,7 +92,8 @@ Each site folder has:
 
 - `site.toml`: `[brand]` name, subtitle and monogram SVGs (the "BDH" monogram
   from `bdh-sdk` when none is given), `[features]`
-  such as `mountain_weather`, `[sections]` homepage section titles (`mountain`,
+  such as `mountain_weather` and `feedback` (`false` hides the built-in feedback
+  pill and inbox; see "Feedback" below), `[sections]` homepage section titles (`mountain`,
   `lodge` and `more`; "Outside", "Inside" and "More" unless set; staff can
   rename, add, remove and reorder groups and drag apps between them on
   Settings → Home layout), and `[apps.<app_id>]` tables of per-site app
@@ -148,6 +149,31 @@ python manage.py app_install <id> --approve          # update to a version that 
 python manage.py app_status                          # the hub's and the supervisor's view
 python manage.py app_uninstall <id> [--purge]        # --purge deletes the app's data
 ```
+
+### Feedback
+
+The Feedback pill and modal in the top bar, and the owner menu's inbox link
+and unread badge, come from `hub/feedback.py`. They use the
+[feedback container app](https://github.com/blackdiamondlodge/bdh-app-feedback)
+when it is installed: the hub posts each message to the app (adding the page
+and the stay in progress), the inbox is the app's own page, and the badge
+shows the unread count the app keeps in its app state. Otherwise they use the
+built-in `feedback` app, unless the site sets `feedback = false` under
+`[features]`; with neither, they are hidden.
+
+To move a site from the built-in app to the container app, export the
+messages while the built-in app still runs, then set `runtime = "container"`
+under `[apps.feedback]` in the site's `site.toml`, deploy, install the app
+(`app_install feedback`) and import them:
+
+```sh
+# on the hub, before the switch
+sudo docker compose exec djangoapp .venv/bin/python -m bdh_sdk.appdata export feedback -o /app/media/feedback.json
+# copy the file into the app's data volume, then in the app's container
+python -m bdh_sdk.runtime.manage import_app_data /data/feedback.json
+```
+
+The app sends the hub its new unread count as the rows are imported.
 
 ### Secrets
 
