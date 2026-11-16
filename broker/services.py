@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 NETWORKS = ("none", "outbound", "lan")  # least to most privileged
 INSTALL_TIMEOUT = 900.0
 POLL = 2.0
+MANIFEST_TRIES = 30
 TZ_RE = re.compile(r"^[A-Za-z0-9_+\-/]{1,64}$")
 BRAND_KEYS = ("name", "subtitle")
 
@@ -148,17 +149,25 @@ def _apply_view(install, view):
     install.save()
 
 
-def _load_manifest(install):
-    """Start the app and fetch its manifest (its tiles, settings and permissions)."""
+def _load_manifest(install, tries=MANIFEST_TRIES):
+    """Start the app and fetch its manifest (its tiles, settings and permissions).
+
+    A just-recreated app can take a few seconds to answer, so keep trying.
+    """
     try:
-        supervisor.start(install.app_id, wait=True)
-        remote.fetch_manifest(install)
-    except (supervisor.SupervisorError, remote.RemoteError) as exc:
-        log.warning("%s: manifest not fetched yet: %s", install.app_id, exc)
-        return False
+        for attempt in range(tries):
+            try:
+                supervisor.start(install.app_id, wait=True)
+                remote.fetch_manifest(install)
+                return True
+            except (supervisor.SupervisorError, remote.RemoteError) as exc:
+                if attempt == tries - 1:
+                    log.warning("%s: manifest not fetched yet: %s", install.app_id, exc)
+                    return False
+            sleep(POLL)
     finally:
         remote.installs_changed()
-    return True
+    return False
 
 
 def _entry(app_id, version):
@@ -261,9 +270,8 @@ def upgrade(record, entry, *, network=None, allow_lan=None, approve=False, permi
     record.version = entry["version"]
     record.requested_permissions = want["permissions"]
     record.granted_permissions = [p for p in record.granted_permissions or () if p in want["permissions"]]
-    if changed:
-        record.manifest = None
-        record.manifest_fetched_at = None
+    # The old manifest stays until the new version's is fetched: clearing it
+    # took the app's pages down (404) for the whole update.
     record.save()
     _put(record)
     if wait:

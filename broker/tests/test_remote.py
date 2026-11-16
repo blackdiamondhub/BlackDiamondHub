@@ -229,6 +229,48 @@ class ManifestFetchTests(TestCase):
                 remote.fetch_manifest(install)
 
 
+@override_settings(HUB_PLUGINS=())
+class StaleManifestTests(TestCase):
+    """After an upgrade the old manifest keeps serving until the new one arrives."""
+
+    def setUp(self):
+        reset_broker()
+        cache.clear()
+        self.addCleanup(reset_broker)
+        self.install = make_install(version="2.0.0", manifest=manifest(version="1.0.0"))
+
+    def test_stale_manifest_still_serves_and_is_refetched(self):
+        app = FakeApp(self.install, {"manifest": manifest(version="2.0.0", name="Cams 2")})
+        with mock.patch("broker.remote.requests.request", side_effect=app):
+            spec = remote.spec_for("cams")
+        self.assertIsNotNone(spec)
+        self.assertEqual([c[1] for c in app.calls], ["/_bdh/manifest"])
+        self.install.refresh_from_db()
+        self.assertTrue(self.install.manifest_current)
+
+    def test_failed_refetch_keeps_old_spec_and_retries_sooner(self):
+        with mock.patch("broker.remote.requests.request", side_effect=requests.ConnectionError("refused")) as req:
+            self.assertIsNotNone(remote.spec_for("cams"))
+            self.assertIsNotNone(remote.spec_for("cams"))
+            self.assertEqual(req.call_count, 1)  # cached, and gated per app
+            later = time.monotonic() + remote.STALE_RETRY + 1
+            with mock.patch("broker.remote.time.monotonic", return_value=later):
+                self.assertIsNotNone(remote.spec_for("cams"))
+            self.assertEqual(req.call_count, 2)
+        self.install.refresh_from_db()
+        self.assertEqual(self.install.manifest["version"], "1.0.0")
+
+    def test_current_manifest_is_not_refetched(self):
+        self.install.manifest = manifest(version="2.0.0")
+        self.install.save()
+        with mock.patch("broker.remote.requests.request") as req:
+            later = time.monotonic() + remote.STALE_RETRY + 1
+            self.assertIsNotNone(remote.spec_for("cams"))
+            with mock.patch("broker.remote.time.monotonic", return_value=later):
+                self.assertIsNotNone(remote.spec_for("cams"))
+        req.assert_not_called()
+
+
 class OriginTests(TestCase):
     def test_origins(self):
         self.assertEqual(remote.hub_origin("hub.local:8000"), "http://hub.local:8000")

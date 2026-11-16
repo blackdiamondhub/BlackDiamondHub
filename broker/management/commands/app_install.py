@@ -33,7 +33,7 @@ class Command(BaseCommand):
             raise CommandError(f"{exc}\nRun again with --approve to grant it.") from exc
         except (services.ServiceError, catalog.CatalogError, supervisor.SupervisorError) as exc:
             raise CommandError(str(exc)) from exc
-        state = "requested" if no_wait else ("ready" if record.manifest else "installed (manifest pending)")
+        state = "requested" if no_wait else ("ready" if record.manifest_current else "installed (manifest pending)")
         self.stdout.write(f"{record.app_id} {record.version}: {state} on port {record.port} "
                           f"(slot {record.slot}, network {record.approved_network or 'none'}"
                           f"{', LAN allowed' if record.allow_lan else ''})")

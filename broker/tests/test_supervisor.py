@@ -12,7 +12,7 @@ from asgiref.sync import async_to_sync
 from django.core.management import CommandError, call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 
-from broker import catalog, lifecycle, proxy, services, supervisor
+from broker import catalog, lifecycle, proxy, remote, services, supervisor
 from broker.models import AppInstall
 from broker.tokens import token_for
 
@@ -294,11 +294,36 @@ class ServiceTests(SupervisorMixin, CatalogTestCase, TestCase):
 
     def test_update_that_asks_for_less_needs_no_approval(self):
         self.install(version(permissions=["alerts", "x"]))
+        old = {"id": "hello", "version": "1.0.0"}
+        AppInstall.objects.update(manifest=old)
         self.served = catalog_data(version("2.0.0", permissions=["alerts"]))
         catalog.refresh(force=True)
         record = services.install("hello")
-        self.assertEqual((record.version, record.manifest), ("2.0.0", None))
+        record.refresh_from_db()
+        # The old manifest keeps the app's page up until the new one is fetched.
+        self.assertEqual((record.version, record.manifest), ("2.0.0", old))
+        self.assertFalse(record.manifest_current)
         self.assertEqual(self.sup.apps["hello"]["version"], "2.0.0")
+
+    def test_manifest_fetch_retries_while_the_app_starts(self):
+        record = self.install()
+        self.manifests.clear()
+        calls = []
+
+        def flaky(install):
+            calls.append(install)
+            if len(calls) < 3:
+                raise remote.RemoteError("connection refused")
+
+        with patch("broker.remote.fetch_manifest", side_effect=flaky):
+            self.assertTrue(services._load_manifest(record))
+        self.assertEqual(len(calls), 3)
+
+    def test_manifest_fetch_gives_up(self):
+        record = self.install()
+        with patch("broker.remote.fetch_manifest", side_effect=remote.RemoteError("down")) as fetch:
+            self.assertFalse(services._load_manifest(record, tries=4))
+        self.assertEqual(fetch.call_count, 4)
 
     def test_rotate_token(self):
         record = self.install()

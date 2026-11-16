@@ -12,7 +12,7 @@ from django.utils.encoding import escape_uri_path, iri_to_uri
 from django.views.decorators.csrf import csrf_exempt
 
 from . import lifecycle, remote, rpc as ops, visitor
-from .models import AuditEntry
+from .models import AppInstall, AuditEntry
 from .ratelimit import limiter
 from .tokens import authenticate, bearer
 
@@ -22,6 +22,7 @@ RAW_TYPES = ("image/", "audio/", "video/")
 RAW_TIMEOUT = (3.0, 15.0)
 RAW_HEADERS = ("Content-Length", "Cache-Control", "ETag", "Last-Modified")
 RAW_CACHE_MAX = 256 * 1024
+STARTING_RETRY = 5
 RAW_CACHE_SECONDS = 7 * 24 * 3600
 # The hub pages an app may send the visitor to by name (see embed-host.js NAV_NAMES).
 NAV_NAMES = frozenset({"landing_page", "broker:shell", "broker:shell_path", "hub_settings_app"})
@@ -100,11 +101,25 @@ def _summary(op, payload):
 
 # --- the hub's pages for container apps --------------------------------------------
 
+class AppStarting(Exception):
+    pass
+
+
 def _spec(app_id):
     spec = remote.spec_for(app_id)
     if spec is None:
+        if AppInstall.objects.filter(app_id=app_id, enabled=True).exists():
+            raise AppStarting(app_id)
         raise Http404("No such app")
     return spec
+
+
+def _starting(request, app_id):
+    """An installed app whose manifest isn't in yet (it's starting or updating):
+    a page that reloads itself, so a wall display isn't stranded on a 404."""
+    resp = render(request, "broker/starting.html", {"app_id": app_id, "retry": STARTING_RETRY}, status=503)
+    resp["Retry-After"] = str(STARTING_RETRY)
+    return resp
 
 
 def _app_src(request, spec, path):
@@ -125,7 +140,10 @@ def _title(spec, request):
 
 def shell(request, app_id, path=""):
     """``/apps/<app>/<path>``: the hub's chrome around the app's page."""
-    spec = _spec(app_id)
+    try:
+        spec = _spec(app_id)
+    except AppStarting:
+        return _starting(request, app_id)
     src = _app_src(request, spec, path)
     return render(request, "broker/shell.html", {
         "spec": spec, "src": src, "app_origin": remote.app_origin(spec.port, request.get_host()),
@@ -135,7 +153,10 @@ def shell(request, app_id, path=""):
 
 def bare(request, app_id, path=""):
     """``/apps/<app>/_bare/<path>``: the app's page alone (alert popups)."""
-    spec = _spec(app_id)
+    try:
+        spec = _spec(app_id)
+    except AppStarting:
+        return _starting(request, app_id)
     return render(request, "broker/bare.html", {
         "spec": spec, "src": _app_src(request, spec, path),
         "app_origin": remote.app_origin(spec.port, request.get_host()),
@@ -144,7 +165,10 @@ def bare(request, app_id, path=""):
 
 def raw(request, app_id, path):
     """``/apps/<app>/_raw/<path>``: an image or sound from the app, on the hub's origin."""
-    spec = _spec(app_id)
+    try:
+        spec = _spec(app_id)
+    except AppStarting:
+        raise Http404("App is starting") from None
     path = "/" + path.lstrip("/")
     if path.startswith("/_bdh"):
         raise Http404("No such file")
