@@ -37,6 +37,9 @@ runtime = "container"  # bdh-app-timers 2.0.0 under bdh-supervisor
 [apps.flights]
 runtime = "container"  # bdh-app-flights image under bdh-supervisor
 
+[apps.announcements]
+runtime = "container"  # bdh-app-announcements 2.0.0 under bdh-supervisor
+
 [apps.hub]
 units = "imperial"
 
