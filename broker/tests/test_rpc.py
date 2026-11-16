@@ -296,6 +296,14 @@ class EventOpTests(RpcTestCase):
             self.refused("events.subscribe", {"patterns": ["a/#/b"]}, code="invalid", status=400)
         setp.assert_called_once_with("cams", ["cams/#", "ha/state/sensor/+"])
 
+    def test_subscribe_is_stored(self):
+        from broker.models import AppSubscription
+
+        with mock.patch("broker.events_bridge.set_patterns"):
+            self.ok("events.subscribe", {"patterns": ["cams/#"]})
+            self.refused("events.subscribe", {"patterns": ["#"]})
+        self.assertEqual(AppSubscription.objects.get(app_id="cams").payload, ["cams/#"])
+
 
 class RateLimitTests(RpcTestCase):
     def test_burst_then_429(self):

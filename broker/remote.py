@@ -503,7 +503,10 @@ def installs_changed(instance=None, signal=None, **_kwargs):
     with _lock:
         _specs = None
         _installs.clear()
-    if instance is not None and (signal is post_delete or not instance.enabled):
+    if instance is not None and signal is post_delete:
+        events_bridge.forget(instance.app_id)
+    elif instance is not None and not instance.enabled:
+        # Keep the stored set: re-enabling the app restores it.
         events_bridge.drop(instance.app_id)
 
 

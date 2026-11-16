@@ -94,6 +94,27 @@ class AppInstall(models.Model):
         super().save(*args, **kwargs)
 
 
+class AppSubscription(models.Model):
+    """What an app last asked the hub to deliver to it, so a hub restart doesn't
+    lose it. ``kind`` is ``events`` (``payload`` = the pattern list) for now;
+    ``instance`` lets later kinds keep one set per Home Assistant instance."""
+
+    EVENTS = "events"
+
+    app_id = models.CharField(max_length=64, db_index=True)
+    kind = models.CharField(max_length=16)
+    instance = models.CharField(max_length=64, blank=True)
+    payload = models.JSONField(default=list)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["app_id", "kind", "instance"],
+                                               name="broker_appsubscription_unique")]
+
+    def __str__(self):
+        return f"{self.app_id} {self.kind}{f' {self.instance}' if self.instance else ''}"
+
+
 class AuditEntry(models.Model):
     """What an app asked the broker for (denials and changes, not every read)."""
 
