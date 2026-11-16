@@ -60,6 +60,8 @@ for ((i = 0; i < ${APP_PORTS:-24}; i++)); do
 done
 # Nightly app updates (the command itself only acts during the 03:00 hour).
 if [ -n "${BDH_SUPERVISOR_SOCKET:-}" ]; then
+    # Once the broker is listening, install site.toml apps that are missing.
+    ( sleep 60; python manage.py app_siteinstall || true ) &
     ( while sleep 1800; do python manage.py app_autoupdate --nightly || true; done ) &
 fi
 # Daily: delete expired sessions (CSRF tokens live in sessions, so every

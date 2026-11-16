@@ -335,6 +335,27 @@ def update_all(*, only_auto=False, timeout=INSTALL_TIMEOUT):
     return results
 
 
+def install_site_apps(*, timeout=INSTALL_TIMEOUT):
+    """Install every ``runtime = "container"`` app in ``site.toml`` that isn't installed.
+
+    Each gets what its newest version asks for; ``allow_lan = true`` in its
+    site table also allows host networking. Returns ``{app_id: "installed <v>"
+    | "failed: ..."}`` for the apps it tried.
+    """
+    site_apps = getattr(settings, "HUB_SITE_APPS", {}) or {}
+    installed = set(AppInstall.objects.values_list("app_id", flat=True))
+    results = {}
+    for app_id in sorted(set(getattr(settings, "HUB_CONTAINER_APPS", ())) - installed):
+        conf = site_apps.get(app_id) or {}
+        try:
+            record = install(app_id, allow_lan=conf.get("allow_lan") is True, timeout=timeout)
+            results[app_id] = f"installed {record.version}"
+        except (ServiceError, catalog.CatalogError, supervisor.SupervisorError) as exc:
+            log.warning("%s: site install failed: %s", app_id, exc)
+            results[app_id] = f"failed: {exc}"
+    return results
+
+
 def uninstall(app_id, purge=False):
     """Remove ``app_id``: its container (and with ``purge`` its data) and its record."""
     record = AppInstall.objects.filter(app_id=app_id).first()
