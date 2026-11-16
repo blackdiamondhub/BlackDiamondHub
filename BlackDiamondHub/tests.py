@@ -1,13 +1,45 @@
+from dataclasses import replace
+
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from django.conf import settings
 from django.contrib.auth.models import User
-from django.test import TestCase, Client, tag
+from django.test import TestCase, Client, override_settings, tag
 from django.urls import reverse
 from feedback.models import Feedback
+from hub.plugins import Tile
 from tests.selenium_helpers import (
     SeleniumTestCase, click_until, login_via_browser, type_into, wait_for_paint,
 )
+
+
+def _full_homepage_plugins():
+    """A homepage as full as a real site's, without in-process apps.
+
+    Sites now run their apps in containers, so these tiles stand in for them,
+    pointing at built-in pages (the URLconf is fixed at import).
+    """
+    titles = {
+        "mountain": ["Webcams", "Lift Status", "Snow Report", "Restaurants", "Shuttle"],
+        "lodge": ["Speakers", "Wi-Fi", "Fireplace", "Cameras", "Radiant Heat", "Timers"],
+    }
+    url_names = iter([
+        "hub_settings", "hub_settings_location", "hub_settings_home", "hub_settings_quick",
+        "hub_settings_ha", "hub_settings_apps", "hub_settings_store",
+        "hub_settings_location_search", "hub_settings_ha_test", "hub_settings_apps_live",
+        "hub_settings_apps_update_all",
+    ])
+    tiles = tuple(
+        Tile(title=title, url_name=next(url_names), icon="android-chrome-192x192.png",
+             section=section, order=i)
+        for section, names in titles.items() for i, title in enumerate(names)
+    )
+    return tuple(replace(spec, tiles=tiles) if spec.id == "settings" else spec
+                 for spec in settings.HUB_PLUGINS)
+
+
+FULL_HOMEPAGE = override_settings(HUB_PLUGINS=_full_homepage_plugins())
 
 class LandingPageLiveTests(TestCase):
     def setUp(self):
@@ -55,6 +87,7 @@ class LandingPageLiveTests(TestCase):
                     self.fail(f"Temperature value is not a valid number: {temp}")
 
 @tag('selenium')
+@FULL_HOMEPAGE
 class LandingPageNoScrollTest(SeleniumTestCase):
     """Ensure the landing page fits within the viewport on a 1920×1080 display."""
 
@@ -106,6 +139,7 @@ class LandingPageNoScrollTest(SeleniumTestCase):
 
 
 @tag('selenium')
+@FULL_HOMEPAGE
 class LandingPageSectionNavTest(SeleniumTestCase):
     """The section selector only shows when the sections don't all fit on screen."""
 
@@ -142,6 +176,7 @@ class LandingPageSectionNavTest(SeleniumTestCase):
 
 
 @tag('selenium')
+@FULL_HOMEPAGE
 class LandingPageTileFitTest(SeleniumTestCase):
     """Tile icons and titles stay inside their tiles on kiosk and laptop sizes."""
 
