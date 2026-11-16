@@ -71,11 +71,23 @@ def _require(grants, grant):
         raise forbidden(f"needs the {grant!r} permission")
 
 
-def _ha_call(fn, *args):
+def _instance(payload):
+    """The payload's Home Assistant ``instance`` id, or ``None`` for the default."""
+    from hub_settings import ha as instances
+
+    value = payload.get("instance")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not instances.exists(value):
+        raise invalid(f"unknown Home Assistant instance {value!r}")
+    return value
+
+
+def _ha_call(fn, *args, instance=None):
     from bdh_sdk import ha
 
     try:
-        return fn(*args)
+        return fn(*args, instance=instance)
     except ha.HAError as exc:
         raise OpError("ha_error", str(exc)) from None
 
@@ -288,7 +300,7 @@ def ha_get_entity_state(install, grants, payload):
     eid = _str(payload, "entity_id")
     if not g.can_read(grants, eid):
         raise forbidden(f"may not read {eid}")
-    return _ha_call(ha.get_entity_state, eid)
+    return _ha_call(ha.get_entity_state, eid, instance=_instance(payload))
 
 
 def _entity_ids(payload):
@@ -309,7 +321,7 @@ def ha_get_entity_states(install, grants, payload):
     from bdh_sdk import ha
 
     ids = _readable(grants, _entity_ids(payload))
-    return _ha_call(ha.get_entity_states, ids) or {}
+    return _ha_call(ha.get_entity_states, ids, instance=_instance(payload)) or {}
 
 
 def ha_get_history(install, grants, payload):
@@ -320,7 +332,7 @@ def ha_get_history(install, grants, payload):
     if start is None:
         raise invalid("start is required")
     end = _when(payload.get("end"), "end")
-    return _jsonable_history(_ha_call(ha.get_history, ids, start, end))
+    return _jsonable_history(_ha_call(ha.get_history, ids, start, end, instance=_instance(payload)))
 
 
 def ha_call_service(install, grants, payload):
@@ -335,7 +347,7 @@ def ha_call_service(install, grants, payload):
     entity_id = payload.get("entity_id")
     if entity_id is not None and not isinstance(entity_id, (str, list)):
         raise invalid("entity_id must be a string or a list")
-    ok, err = _ha_call(ha.call_service, domain, service, entity_id, extra)
+    ok, err = _ha_call(ha.call_service, domain, service, entity_id, extra, instance=_instance(payload))
     return [bool(ok), err]
 
 
@@ -350,7 +362,8 @@ def ha_upload_media(install, grants, payload):
     folder, filename = _str(payload, "folder"), _str(payload, "filename")
     if ".." in folder.split("/") or "/" in filename or filename in (".", ".."):
         raise invalid("bad folder or filename")
-    return _ha_call(ha.upload_media, folder, filename, data, _str(payload, "content_type"))
+    return _ha_call(ha.upload_media, folder, filename, data, _str(payload, "content_type"),
+                    instance=_instance(payload))
 
 
 def ha_get_tts(install, grants, payload):
@@ -360,7 +373,8 @@ def ha_get_tts(install, grants, payload):
     options = payload.get("options")
     if options is not None and not isinstance(options, dict):
         raise invalid("options must be an object")
-    audio, ctype = _ha_call(ha.get_tts, _str(payload, "engine_id"), _str(payload, "message"), options)
+    audio, ctype = _ha_call(ha.get_tts, _str(payload, "engine_id"), _str(payload, "message"), options,
+                            instance=_instance(payload))
     return {"audio": _b64(audio), "content_type": ctype}
 
 
@@ -369,8 +383,16 @@ def ha_get_all_states(install, grants, payload):
 
     if not g.can_read_any(grants):
         raise forbidden("needs an ha.read permission")
-    states = _ha_call(ha.get_all_states) or []
+    states = _ha_call(ha.get_all_states, instance=_instance(payload)) or []
     return [s for s in states if isinstance(s, dict) and g.can_read(grants, s.get("entity_id"))]
+
+
+def ha_instances(install, grants, payload):
+    from hub_settings import ha as instances
+
+    if not g.can_read_any(grants):
+        raise forbidden("needs an ha.read permission")
+    return instances.instances()
 
 
 def ha_get_static(install, grants, payload):
@@ -380,7 +402,7 @@ def ha_get_static(install, grants, payload):
     path = _str(payload, "path")
     if not path.startswith("/") or path.startswith("//") or "\\" in path or ":" in path.split("?")[0]:
         raise invalid("path must be a path on Home Assistant")
-    return _b64(_ha_call(ha.get_static, path))
+    return _b64(_ha_call(ha.get_static, path, instance=_instance(payload)))
 
 
 def ha_ws_commands(install, grants, payload):
@@ -390,7 +412,7 @@ def ha_ws_commands(install, grants, payload):
     messages = payload.get("messages")
     if not isinstance(messages, list) or not all(isinstance(m, dict) for m in messages):
         raise invalid("messages must be a list of objects")
-    return _ha_call(ha.ws_commands, *messages)
+    return _ha_call(ha.ws_commands, *messages, instance=_instance(payload))
 
 
 # --- speakers -----------------------------------------------------------------
@@ -475,6 +497,7 @@ OPS = {
     "ha.get_all_states": ha_get_all_states,
     "ha.get_static": ha_get_static,
     "ha.ws_commands": ha_ws_commands,
+    "ha.instances": ha_instances,
     "speakers.list": speakers_list,
     "speakers.announce": speakers_announce,
     "speakers.tts": speakers_tts,

@@ -24,3 +24,14 @@ class HubSettingsConfig(AppConfig):
         post_delete.connect(store.clear, sender=AppSetting, dispatch_uid="hub_settings_clear_delete")
         post_save.connect(store.clear, sender=AppSecret, dispatch_uid="hub_settings_clear_secret_save")
         post_delete.connect(store.clear, sender=AppSecret, dispatch_uid="hub_settings_clear_secret_delete")
+
+        from bdh_sdk import ha as sdk_ha
+
+        from . import ha
+        from .models import HAInstance
+
+        sdk_ha.set_provider(ha.HubProvider())
+        post_save.connect(ha.clear, sender=HAInstance, dispatch_uid="hub_settings_ha_save")
+        post_delete.connect(ha.clear, sender=HAInstance, dispatch_uid="hub_settings_ha_delete")
+        post_save.connect(ha.clear, sender=AppSecret, dispatch_uid="hub_settings_ha_secret_save")
+        post_delete.connect(ha.clear, sender=AppSecret, dispatch_uid="hub_settings_ha_secret_delete")

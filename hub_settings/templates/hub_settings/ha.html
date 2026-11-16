@@ -1,0 +1,122 @@
+{% extends 'hub_settings/_layout.html' %}
+
+{% block section %}
+<style>
+    .hst-ha-test { display: flex; align-items: center; gap: 12px; padding: 12px 22px 16px; flex-wrap: wrap; }
+    .hst-ha-test output { color: var(--mut); font-size: 14px; }
+    .hst-ha-test output.ok { color: var(--ok); }
+    .hst-ha-test output.bad { color: var(--red); }
+    .hst-ha-test .hst-btn { height: 38px; padding: 0 16px; font-size: 14px; }
+    .hst-ha-test .hst-reset { margin-left: auto; }
+    .hst-ha-test .hst-reset.arm { color: var(--red); }
+    .hst-card h3 .tag { margin-left: 8px; color: var(--acc2); letter-spacing: .08em; }
+    .hst-card h3 code { color: var(--mut); font-size: 12px; letter-spacing: 0; text-transform: none; margin-left: 8px; }
+</style>
+<form method="post" novalidate{% if has_errors %} data-dirty{% endif %} id="hst-ha" data-test-url="{% url 'hub_settings_ha_test' %}">
+    {% csrf_token %}
+    <div class="hst-head">
+        <div>
+            <h2>Home Assistant</h2>
+            <p>The Home Assistant servers apps can use. Tokens are never shown again once saved.</p>
+        </div>
+        <div class="act"><button type="submit" class="hst-btn" data-save>Save</button></div>
+    </div>
+    {% if just_saved %}<div class="hst-note ok" role="status"><i class="fas fa-check" aria-hidden="true"></i> Saved.</div>{% endif %}
+    {% if message %}<div class="hst-note bad" role="alert">{{ message }}</div>
+    {% elif has_errors %}<div class="hst-note bad" role="alert">Some values need fixing.</div>{% endif %}
+    {% if not vault_ok %}<div class="hst-note bad" role="alert">The secret store has no key on this hub, so tokens can't be saved; see the README.</div>{% endif %}
+    {% if from_env %}<div class="hst-note ok">The hub is using the server's environment for Home Assistant. Save it here to manage it from this page.</div>{% endif %}
+
+    {% for c in cards %}
+    <section class="hst-card" data-instance="{{ c.id }}">
+        <h3>{{ c.name|default:c.id }}<code>{{ c.id }}</code>{% if c.default %}<span class="tag">Default</span>{% endif %}</h3>
+        {% include 'hub_settings/_ha_fields.html' with p=c.id f=c %}
+        <div class="hst-row">
+            <label class="lbl" for="ha-{{ c.id }}-default">
+                <b>Default</b>
+                <small>Apps that don't name a server use this one.</small>
+            </label>
+            <div class="ctl">
+                <span class="hst-tog">
+                    <input type="radio" role="switch" id="ha-{{ c.id }}-default" name="default" value="{{ c.id }}"{% if c.default %} checked{% endif %}>
+                    <span></span>
+                </span>
+            </div>
+        </div>
+        <div class="hst-ha-test">
+            <button type="button" class="hst-btn ghost" data-test>Test connection</button>
+            <output aria-live="polite"></output>
+            <button type="submit" name="remove" value="{{ c.id }}" class="hst-reset" formnovalidate data-remove>
+                <i class="fas fa-trash" aria-hidden="true"></i> Delete</button>
+        </div>
+    </section>
+    {% endfor %}
+
+    <section class="hst-card" data-instance="new">
+        <h3>{% if cards %}Add a server{% else %}Home Assistant{% endif %}</h3>
+        <div class="hst-row">
+            <label class="lbl" for="ha-new-id">
+                <b>Id</b>
+                {% if new.error.id %}<small class="err">{{ new.error.id }}</small>{% else %}<small>Short name apps use for it, like <code>ha</code> or <code>cabin</code>. Can't be changed later.</small>{% endif %}
+            </label>
+            <div class="ctl">
+                <input type="text" class="hst-in txt{% if new.error.id %} bad{% endif %}" id="ha-new-id" name="new__id"
+                       value="{{ new.id }}" maxlength="40" autocapitalize="off" autocomplete="off" spellcheck="false">
+            </div>
+        </div>
+        {% include 'hub_settings/_ha_fields.html' with p='new' f=new %}
+        {% if cards %}
+        <div class="hst-row">
+            <label class="lbl" for="ha-new-default"><b>Default</b><small>Make this the default server.</small></label>
+            <div class="ctl">
+                <span class="hst-tog">
+                    <input type="radio" role="switch" id="ha-new-default" name="default" value="new">
+                    <span></span>
+                </span>
+            </div>
+        </div>
+        {% endif %}
+        <div class="hst-ha-test">
+            <button type="button" class="hst-btn ghost" data-test>Test connection</button>
+            <output aria-live="polite"></output>
+        </div>
+    </section>
+</form>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var form = document.getElementById('hst-ha');
+        var csrf = form.querySelector('input[name="csrfmiddlewaretoken"]').value;
+        form.addEventListener('click', function (e) {
+            var del = e.target.closest('[data-remove]');
+            if (del && !del.classList.contains('arm')) {
+                // Two taps: a native confirm() would block the kiosk's remote control.
+                e.preventDefault();
+                del.classList.add('arm');
+                del.lastChild.textContent = ' Tap again to delete';
+                setTimeout(function () { del.classList.remove('arm'); del.lastChild.textContent = ' Delete'; }, 4000);
+                return;
+            }
+            var btn = e.target.closest('[data-test]');
+            if (!btn) return;
+            var card = btn.closest('[data-instance]');
+            var id = card.dataset.instance;
+            var p = id === 'new' ? 'new' : id;
+            var out = card.querySelector('.hst-ha-test output');
+            var body = new URLSearchParams();
+            body.set('id', id === 'new' ? (form.elements['new__id'].value || '') : id);
+            body.set('url', form.elements[p + '__url'].value);
+            body.set('token', form.elements[p + '__token'].value);
+            out.className = ''; out.textContent = 'Testing…';
+            btn.disabled = true;
+            fetch(form.dataset.testUrl, {
+                method: 'POST', body: body, credentials: 'same-origin',
+                headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
+            }).then(function (r) { return r.json(); }).then(function (d) {
+                out.className = d.ok ? 'ok' : 'bad'; out.textContent = d.message;
+            }).catch(function () {
+                out.className = 'bad'; out.textContent = "Couldn't run the test.";
+            }).finally(function () { btn.disabled = false; });
+        });
+    });
+</script>
+{% endblock %}

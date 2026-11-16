@@ -1,0 +1,47 @@
+{# One instance's editable fields. p = field prefix (instance id or "new"), f = card/new dict. #}
+<div class="hst-row">
+    <label class="lbl" for="ha-{{ p }}-name">
+        <b>Name</b>
+        {% if f.error.name %}<small class="err">{{ f.error.name }}</small>{% endif %}
+    </label>
+    <div class="ctl">
+        <input type="text" class="hst-in txt{% if f.error.name %} bad{% endif %}" id="ha-{{ p }}-name" name="{{ p }}__name"
+               value="{{ f.name }}" maxlength="80" placeholder="Home Assistant">
+    </div>
+</div>
+<div class="hst-row">
+    <label class="lbl" for="ha-{{ p }}-site">
+        <b>Site</b>
+        <small>Optional, like the property it's at. Apps can group entities by it.</small>
+    </label>
+    <div class="ctl">
+        <input type="text" class="hst-in txt" id="ha-{{ p }}-site" name="{{ p }}__site" value="{{ f.site }}" maxlength="80">
+    </div>
+</div>
+<div class="hst-row">
+    <label class="lbl" for="ha-{{ p }}-url">
+        <b>Address</b>
+        {% if f.error.url %}<small class="err">{{ f.error.url }}</small>{% else %}<small>Like http://homeassistant.local:8123</small>{% endif %}
+    </label>
+    <div class="ctl">
+        <input type="url" inputmode="url" class="hst-in txt{% if f.error.url %} bad{% endif %}" id="ha-{{ p }}-url" name="{{ p }}__url"
+               value="{{ f.url }}" maxlength="200" autocapitalize="off" autocomplete="off" spellcheck="false">
+    </div>
+</div>
+<div class="hst-row secret">
+    <label class="lbl" for="ha-{{ p }}-token">
+        <b>Access token</b>
+        {% if f.error.token %}<small class="err">{{ f.error.token }}</small>{% else %}<small>A long-lived access token from your Home Assistant profile.</small>{% endif %}
+    </label>
+    <div class="ctl">
+        {% if p != 'new' %}
+        <span class="hst-secret">{% if f.token_set %}<i class="fas fa-lock" aria-hidden="true"></i> &bull;&bull;&bull;&bull; set{% else %}not set{% endif %}</span>
+        {% if f.token_set %}
+        <button type="submit" name="clear_token" value="{{ p }}" class="hst-reset" formnovalidate title="Forget the saved token">Clear</button>
+        {% endif %}
+        {% endif %}
+        <input type="password" class="hst-in txt{% if f.error.token %} bad{% endif %}" id="ha-{{ p }}-token" name="{{ p }}__token"
+               value="" autocomplete="new-password" spellcheck="false"
+               placeholder="{% if f.token_set %}Replace (blank keeps it){% elif p == 'new' and from_env %}Blank keeps the server's token{% else %}Enter to set{% endif %}">
+    </div>
+</div>
