@@ -42,7 +42,9 @@ class Command(BaseCommand):
                 self.stdout.write("supervisor not configured; nothing to do")
             return
         try:
-            catalog.refresh()
+            # Always revalidate (a cheap ETag 304 when unchanged): a cached copy
+            # that is still "fresh" can miss a release published minutes ago.
+            catalog.refresh(force=True)
         except Exception as exc:  # a stale catalog is still worth checking
             self.stderr.write(f"catalog refresh failed: {exc}")
         results = services.update_all(only_auto=nightly or not all, timeout=timeout)
