@@ -8,6 +8,7 @@ og_image = "brand/og-image.png"  # link-preview card (tools/render_og_image.py)
 
 [features]
 mountain_weather = false
+feedback = false  # no feedback pill or inbox here
 
 [sections]  # homepage section titles
 lodge = "In the home"

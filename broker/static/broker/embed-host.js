@@ -108,6 +108,11 @@
                 if (modal && window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(modal).show();
             }
         },
+        // The feedback app's inbox changed: re-read the unread badge from the hub
+        // (the count itself comes from the app's state, not from the message).
+        'feedback-changed': function () {
+            if (frame.dataset.appId === 'feedback' && window.hubRefreshUnreadFeedback) window.hubRefreshUnreadFeedback();
+        },
     };
 
     window.addEventListener('message', function (e) {

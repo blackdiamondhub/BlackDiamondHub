@@ -152,6 +152,31 @@ def signed_request(install, method, path, payload=None, timeout=HOOK_TIMEOUT, id
     return requests.request(method, url, data=body or None, headers=headers, timeout=timeout)
 
 
+def post_form(app_id, path, data, identity=None, timeout=HOOK_TIMEOUT):
+    """POST form ``data`` to one of ``app_id``'s pages as the hub; returns the Response.
+
+    Signed like a proxied visitor request (pages don't sign the body), so the
+    app sees ``identity`` as its ``request.user``. Raises RemoteError.
+    """
+    from django.core.exceptions import ObjectDoesNotExist
+
+    try:
+        install = _install(app_id)
+    except ObjectDoesNotExist as exc:
+        raise RemoteError(f"{app_id} isn't installed") from exc
+    url = _upstream(install) + path
+    for attempt in (0, 1):
+        headers = signed_headers(_token(install), "POST", path, identity=identity)
+        try:
+            return requests.request("POST", url, data=data, headers=headers, timeout=timeout)
+        except requests.ConnectionError as exc:
+            # An on-demand container app may be stopped: start it and try once more.
+            if attempt or not _wake(install):
+                raise RemoteError(f"{app_id} {path}: {exc}") from exc
+        except requests.RequestException as exc:
+            raise RemoteError(f"{app_id} {path}: {exc}") from exc
+
+
 def _wake(install):
     from . import supervisor
 

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import remote, views
+from . import feedback, remote, views
 
 urlpatterns = [
     path("status/", views.home_status, name="hub_status"),
@@ -11,5 +11,7 @@ urlpatterns = [
     path("alerts/sample/", views.alert_sample, name="hub_alert_sample"),
     path("tts/", views.tts, name="hub_tts"),
     path("remote/", remote.api, name="hub_remote"),
+    path("feedback/submit/", feedback.submit, name="hub_feedback_submit"),
+    path("feedback/unread/", feedback.unread, name="hub_feedback_unread"),
     path("events/hook/<slug:source>/<path:topic>", views.event_hook, name="hub_event_hook"),
 ]
