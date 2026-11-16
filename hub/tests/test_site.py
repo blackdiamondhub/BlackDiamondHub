@@ -9,6 +9,7 @@ from django.test import RequestFactory, SimpleTestCase, TestCase, override_setti
 
 from display.schedule import lodge_minute, window
 from hub.context_processors import _brand, brand
+from hub.hosts import allowed_hosts
 from hub.modes import builtin_tiles
 from hub.loader import load_plugins
 from hub.site import SITES_DIR, app_settings, container_apps, load_site, section_titles
@@ -222,3 +223,29 @@ class LocationTests(SimpleTestCase):
     def test_no_location_means_utc(self):
         with self.at(None):
             self.assertEqual(lodge_minute(self.winter), 20 * 60)
+
+
+class AllowedHostsTests(TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.resolv = Path(tmp.name) / "resolv.conf"
+        self.resolv.write_text("nameserver 127.0.0.53\nsearch bdl mi.\n", encoding="utf-8")
+
+    def test_search_domains_are_allowed(self):
+        hosts = allowed_hosts(["192.168.10.216", ""], self.resolv)
+        self.assertIn("192.168.10.216", hosts)
+        self.assertIn(".bdl", hosts)
+        self.assertIn(".mi", hosts)
+        self.assertNotIn("", hosts)
+
+    def test_missing_resolv_conf_still_allows_private_names(self):
+        hosts = allowed_hosts([], self.resolv.parent / "nope")
+        self.assertIn(".local", hosts)
+        self.assertNotIn(".bdl", hosts)
+
+    def test_local_dns_name_is_served_but_a_public_one_is_not(self):
+        with override_settings(ALLOWED_HOSTS=allowed_hosts([], self.resolv)):
+            self.assertEqual(self.client.get("/accounts/login/", HTTP_HOST="bdh.bdl").status_code, 200)
+            self.assertEqual(self.client.get("/accounts/login/", HTTP_HOST="bdh.mi:8000").status_code, 200)
+            self.assertEqual(self.client.get("/accounts/login/", HTTP_HOST="rebind.example.com").status_code, 400)

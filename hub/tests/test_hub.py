@@ -279,8 +279,8 @@ class HomepageRegistryTests(TestCase):
 
 class HealthCheckTests(TestCase):
     def test_healthz_ok_for_any_host(self):
-        # The container probe uses 127.0.0.1, which is not in ALLOWED_HOSTS.
-        response = self.client.get("/healthz", HTTP_HOST="127.0.0.1")
+        # Health probes skip the ALLOWED_HOSTS check, whatever Host they send.
+        response = self.client.get("/healthz", HTTP_HOST="evil.example")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
 

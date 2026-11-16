@@ -45,7 +45,7 @@ BlackDiamondHub is a Django-based web application designed to manage inventory, 
     ```env
     DJANGO_SECRET_KEY=any-long-random-string
     DJANGO_DEBUG=true
-    ALLOWED_HOSTS="List of hosts to allow to server this site"
+    ALLOWED_HOSTS="Extra hosts to serve, e.g. the hub's IP or public name (local DNS names like bdh.bdl and *.local are always allowed)"
     DB_HOST=your_db_host
     DB_NAME=your_db_name
     DB_USER=your_db_user
