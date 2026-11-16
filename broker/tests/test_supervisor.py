@@ -396,6 +396,28 @@ class ServiceTests(SupervisorMixin, CatalogTestCase, TestCase):
         call_command("app_autoupdate", stdout=out)
         self.assertIn("hello: updated 1.1.0", out.getvalue())
 
+    def test_site_install_adds_missing_container_apps(self):
+        self.served = catalog_data(version(network="lan"))
+        catalog.refresh(force=True)
+        with self.settings(HUB_CONTAINER_APPS=["hello", "gone"],
+                           HUB_SITE_APPS={"hello": {"runtime": "container", "allow_lan": True}}):
+            out = io.StringIO()
+            call_command("app_siteinstall", stdout=out)
+            self.assertIn("hello: installed 1.0.0", out.getvalue())
+            self.assertIn("gone: failed:", out.getvalue())
+            record = AppInstall.objects.get()
+            self.assertEqual((record.app_id, record.approved_network, record.allow_lan), ("hello", "lan", True))
+            puts = sum(r.method == "PUT" for r in self.sup.requests)
+            self.assertEqual(list(services.install_site_apps()), ["gone"])
+            self.assertEqual(sum(r.method == "PUT" for r in self.sup.requests), puts)
+
+    def test_site_install_without_supervisor(self):
+        out = io.StringIO()
+        with self.settings(BDH_SUPERVISOR_SOCKET="", HUB_CONTAINER_APPS=["hello"]):
+            call_command("app_siteinstall", stdout=out)
+        self.assertIn("supervisor not configured", out.getvalue())
+        self.assertFalse(AppInstall.objects.exists())
+
     def test_status_without_supervisor(self):
         out = io.StringIO()
         with self.settings(BDH_SUPERVISOR_SOCKET=""):
