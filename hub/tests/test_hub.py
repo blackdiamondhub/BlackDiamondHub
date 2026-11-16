@@ -21,7 +21,7 @@ from hub_settings.models import AppSetting
 
 
 def _tile(**kw):
-    defaults = dict(title="T", url_name="wifi_qr", icon="wifi/hub/icon.svg", section="more")
+    defaults = dict(title="T", url_name="hub_settings_location", icon="wifi/hub/icon.svg", section="more")
     defaults.update(kw)
     return Tile(**defaults)
 
@@ -66,7 +66,7 @@ class TileModeTests(TestCase):
     plugins = (
         PluginSpec(id="wifi", app="wifi", tiles=(_tile(title="WiFi"),)),
         PluginSpec(id="vacation_mode", app="vacation_mode", tiles=(
-            _tile(title="Vacation", url_name="vacation_mode", modes=OWNER_ONLY),
+            _tile(title="Vacation", url_name="hub_settings_quick", modes=OWNER_ONLY),
         )),
         PluginSpec(id="ghost", app="ghost", tiles=(_tile(title="Ghost", url_name="no_such_url"),)),
     )
@@ -110,15 +110,15 @@ class TileModeTests(TestCase):
 
     def test_saved_layout_orders_and_sizes_tiles(self):
         self.save_layout({"more": [
-            {"id": "wifi:wifi_qr", "size": "s"},
-            {"id": "vacation_mode:vacation_mode", "size": "huge"},
+            {"id": "wifi:hub_settings_location", "size": "s"},
+            {"id": "vacation_mode:hub_settings_quick", "size": "huge"},
             {"id": "gone:app", "size": "l"},
         ]})
         items = self.sections(OWNER)["more"]
         self.assertEqual([(t["title"], t["size"]) for t in items], [("WiFi", "s"), ("Vacation", "m")])
 
     def test_tiles_missing_from_saved_layout_follow_it(self):
-        self.save_layout({"more": [{"id": "wifi:wifi_qr", "size": "m"}]})
+        self.save_layout({"more": [{"id": "wifi:hub_settings_location", "size": "m"}]})
         self.assertEqual(self.titles(OWNER), ["WiFi", "Vacation"])
 
     def test_malformed_saved_layout_is_ignored(self):
@@ -131,36 +131,36 @@ class TileModeTests(TestCase):
 
     def test_groups_can_be_renamed_reordered_and_added(self):
         self.save_layout({"groups": [
-            {"key": "g-fav", "title": "Favourites", "tiles": [{"id": "wifi:wifi_qr", "size": "s"}]},
+            {"key": "g-fav", "title": "Favourites", "tiles": [{"id": "wifi:hub_settings_location", "size": "s"}]},
             {"key": "more", "title": "Everything else", "tiles": []},
             {"key": "mountain", "title": "Outside", "tiles": [{"id": "hub:weather", "size": "m"}]},
         ]})
         self.assertEqual(self.groups(), [
-            ("g-fav", "Favourites", ["wifi:wifi_qr"]),
-            ("more", "Everything else", ["vacation_mode:vacation_mode"]),
+            ("g-fav", "Favourites", ["wifi:hub_settings_location"]),
+            ("more", "Everything else", ["vacation_mode:hub_settings_quick"]),
             ("mountain", "Outside", ["hub:weather", "hub:lodge"]),
         ])
 
     def test_tile_moves_between_groups(self):
         self.save_layout({"groups": [
             {"key": "mountain", "title": "Out", "tiles": []},
-            {"key": "lodge", "title": "In", "tiles": [{"id": "wifi:wifi_qr", "size": "m"}]},
+            {"key": "lodge", "title": "In", "tiles": [{"id": "wifi:hub_settings_location", "size": "m"}]},
             {"key": "more", "title": "More", "tiles": [{"id": "hub:weather", "size": "s"}]},
         ]})
         groups = self.groups()
         self.assertEqual(groups[0][0], "lodge")
-        self.assertEqual(groups[0][2], ["wifi:wifi_qr", "hub:lodge"])
+        self.assertEqual(groups[0][2], ["wifi:hub_settings_location", "hub:lodge"])
         self.assertIn("hub:weather", groups[1][2])
 
     def test_new_tile_lands_in_last_group_when_its_section_was_removed(self):
         self.save_layout({"groups": [
             {"key": "mountain", "title": "Out", "tiles": []},
-            {"key": "g-x", "title": "Mine", "tiles": [{"id": "wifi:wifi_qr", "size": "s"}]},
+            {"key": "g-x", "title": "Mine", "tiles": [{"id": "wifi:hub_settings_location", "size": "s"}]},
         ]})
         last = self.groups()[-1]
         self.assertEqual(last[0], "g-x")
-        self.assertEqual(last[2][0], "wifi:wifi_qr")
-        self.assertEqual(set(last[2]), {"wifi:wifi_qr", "vacation_mode:vacation_mode", "hub:lodge"})
+        self.assertEqual(last[2][0], "wifi:hub_settings_location")
+        self.assertEqual(set(last[2]), {"wifi:hub_settings_location", "vacation_mode:hub_settings_quick", "hub:lodge"})
 
     def test_empty_groups_only_listed_when_asked(self):
         self.save_layout({"groups": [
@@ -219,6 +219,19 @@ class StayKeyTests(SimpleTestCase):
         self.assertNotEqual(a, self.key(self.stay(day=11)))
 
 
+# Built-in pages stand in for app pages so these tests don't depend on which
+# apps a site installs in-process (Sun Peaks runs them all in containers).
+REGISTRY_PLUGINS = (
+    PluginSpec(id="settings", app="hub_settings", urls="hub_settings.urls", tiles=(
+        _tile(title="Location", url_name="hub_settings_location", icon="loc/hub/icon.svg",
+              section="lodge"),
+        _tile(title="Quick", url_name="hub_settings_quick", icon="quick/hub/icon.svg",
+              section="lodge"),
+    )),
+)
+
+
+@override_settings(HUB_PLUGINS=REGISTRY_PLUGINS)
 class HomepageRegistryTests(TestCase):
     def setUp(self):
         cache.clear()
@@ -231,18 +244,18 @@ class HomepageRegistryTests(TestCase):
         response = self.client.get("/")
         self.assertEqual(response.context["hub_mode"], DASHBOARD)
         for href, icon in [
-            ("/snow_report/", "snow_report/hub/icon.svg"),
-            ("/radiant/", "radiant/hub/icon.svg"),
-            ("/lift_status/", "lift_status/hub/icon.svg"),
+            ("/settings/location/", "loc/hub/icon.svg"),
+            ("/settings/quick/", "quick/hub/icon.svg"),
         ]:
             self.assertContains(response, f'href="{href}"')
             self.assertContains(response, icon)
 
     def test_home_button_shows_only_away_from_the_homepage(self):
         self.assertNotContains(self.client.get("/"), 'id="home-button"')
-        response = self.client.get("/wifi/")
+        self.client.force_login(User.objects.create_user("owner", is_staff=True))
+        response = self.client.get("/settings/location/")
         self.assertContains(response, 'id="home-button"')
-        self.assertContains(response, '<div class="navhub-title">WiFi</div>', html=False)
+        self.assertContains(response, '<div class="navhub-title">Settings</div>', html=False)
 
     def test_navbar_flags_drive_the_phone_layout(self):
         # base.html's phone CSS keys off these: is-home keeps the monogram and inline extras,
@@ -251,8 +264,8 @@ class HomepageRegistryTests(TestCase):
         self.assertRegex(home, r'<nav class="navbar[^"]* is-home')
         self.assertNotRegex(home, r'<nav class="navbar[^"]* is-owner')
         self.assertNotIn('class="hub-menu-fb"', home)
-        self.client.force_login(User.objects.create_user("owner"))
-        app = self.client.get("/wifi/").content.decode()
+        self.client.force_login(User.objects.create_user("owner", is_staff=True))
+        app = self.client.get("/settings/location/").content.decode()
         self.assertRegex(app, r'<nav class="navbar[^"]* is-owner')
         self.assertNotRegex(app, r'<nav class="navbar[^"]* is-home')
         self.assertIn('class="hub-menu-fb"', app)
@@ -827,7 +840,7 @@ class LodgeCardTests(TestCase):
             "Vacation mode", "Next: The Smiths",
             readings=(Reading("Inside", 14.5, "C"),),
             alerts=("Fireplace off: didn't complete",),
-            url_name="wifi_qr", level=WARN,
+            url_name="hub_settings_location", level=WARN,
         )
 
     def test_card_with_alerts_and_link_for_dashboard_and_owner(self):
@@ -835,7 +848,7 @@ class LodgeCardTests(TestCase):
         self.assertEqual(card["title"], "Vacation mode")
         self.assertEqual(card["readings"], [{"label": "Inside", "value": 14.5, "unit": "C"}])
         self.assertEqual(card["alerts"], ["Fireplace off: didn't complete"])
-        self.assertEqual((card["url"], card["level"]), ("/wifi/", WARN))
+        self.assertEqual((card["url"], card["level"]), ("/settings/location/", WARN))
 
         response = self.client.get("/")
         self.assertEqual(response.context["hub_card"]["title"], "Vacation mode")
