@@ -388,6 +388,14 @@ class ServiceTests(SupervisorMixin, CatalogTestCase, TestCase):
         self.assertIn("hello: updated 1.1.0", out.getvalue())
         self.assertEqual(AppInstall.objects.get().version, "1.1.0")
 
+    def test_autoupdate_sees_a_release_newer_than_the_fresh_cache(self):
+        self.install(version())
+        catalog.refresh(force=True)
+        self.served = catalog_data(version("1.1.0"), version("1.0.0"))
+        out = io.StringIO()
+        call_command("app_autoupdate", stdout=out)
+        self.assertIn("hello: updated 1.1.0", out.getvalue())
+
     def test_status_without_supervisor(self):
         out = io.StringIO()
         with self.settings(BDH_SUPERVISOR_SOCKET=""):
