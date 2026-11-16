@@ -491,7 +491,7 @@ class ContainerProxyTests(ProxyTestCase):
         with patch.object(lifecycle, "HOLD", 0.05):
             status, headers, body = self.get()
         self.assertEqual(status, 503)
-        self.assertIn(b"cams", body)
+        self.assertIn(b"Cameras is starting", body)
         self.assertEqual(headers["retry-after"], ["3"])
         self.assertEqual(self.upstream.requests, [])
 
