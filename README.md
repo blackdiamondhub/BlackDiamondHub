@@ -239,8 +239,8 @@ the fallback when nothing is saved.
 
 ## Deploying a hub server
 
-A hub server is an Ubuntu VM running the compose stack (hub, go2rtc,
-Watchtower) against a PostgreSQL server elsewhere on the LAN.
+A hub server is an Ubuntu VM running the compose stack (hub,
+bdh-supervisor, Watchtower) against a PostgreSQL server elsewhere on the LAN.
 
 1. Database, on the Postgres host (creates the database plus a `hub_admin`
    owner login used only for migrations and a `hub_app` login the site runs
@@ -260,17 +260,17 @@ Watchtower) against a PostgreSQL server elsewhere on the LAN.
     cd BlackDiamondHub && sudo deploy/bootstrap.sh
     ```
 
-    The first run installs Docker, grows the root disk, writes
-    `go2rtc/go2rtc.yaml` with this host's IP and copies `.env.example` to
-    `.env`. Fill in `.env` (`HUB_IMAGE_TAG`, `DB_USER=hub_app`,
+    The first run installs Docker, grows the root disk, copies `.env.example`
+    to `.env` and sets `BDH_GO2RTC_CANDIDATES` to this host's IP (the WebRTC
+    address of the cameras app's go2rtc companion). Fill in `.env` (`HUB_IMAGE_TAG`, `DB_USER=hub_app`,
     `DB_MIGRATE_USER=hub_admin`, ...) and run the script again to start the
     stack. Re-run it after changing `.env` or `docker-compose.yml`; Watchtower
     only picks up new images.
 
     Watchtower runs in label mode (`WATCHTOWER_LABEL_ENABLE=true`) and updates
     only the containers labelled `com.centurylinklabs.watchtower.enable=true`
-    in `docker-compose.yml`: the hub, go2rtc and bdh-supervisor. App
-    containers are never updated by Watchtower. Each app is its own image,
+    in `docker-compose.yml`: the hub and bdh-supervisor. App containers and
+    their companions (e.g. go2rtc) are never updated by Watchtower. Each app is its own image,
     pinned by digest in the catalog; the supervisor pulls, verifies and
     upgrades them (it notices new digests on its own catalog poll, or
     immediately with `POST /catalog/refresh`). To switch an existing hub from

@@ -43,13 +43,12 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
 2. **GitHub Actions** (`docker-publish.yml`) triggers on push to `main`:
    - Builds the Docker image from the Dockerfile
    - Pushes to GHCR: `ghcr.io/blackdiamondlodge/blackdiamondhub/blackdiamondhub:latest`
-3. **Watchtower** on production polls GHCR every 300s, pulls new images, and recreates the `BlackDiamondHub` and `go2rtc` containers automatically
-   - Watchtower runs in label mode (`WATCHTOWER_LABEL_ENABLE=true`) and only updates containers labelled `com.centurylinklabs.watchtower.enable=true`: `BlackDiamondHub`, `go2rtc` and `bdh-supervisor`. App containers (`bdh-app-*`, one digest-pinned image per app) are upgraded only by the supervisor (go2rtc tracks `ghcr.io/blackdiamondlodge/go2rtc-nack:latest`, a daily rebuild of the newest upstream release with a NACK fix)
+3. **Watchtower** on production polls GHCR every 300s, pulls new images, and recreates the `BlackDiamondHub` and `bdh-supervisor` containers automatically
+   - Watchtower runs in label mode (`WATCHTOWER_LABEL_ENABLE=true`) and only updates containers labelled `com.centurylinklabs.watchtower.enable=true`: `BlackDiamondHub` and `bdh-supervisor`. App containers (`bdh-app-*`, one digest-pinned image per app) and their companions (e.g. the cameras app's go2rtc) are managed only by the supervisor
 
 ### What auto-deploys vs. what doesn't
 - **Auto-deploys** (via Watchtower): Any code change inside the Docker image — Django code, templates, static files, Python dependencies
-- **Does NOT auto-deploy**: Changes to `docker-compose.yml`, `.env`, or `go2rtc/go2rtc.yaml` on the server — these require SSH + `git pull` + `sudo deploy/bootstrap.sh` (idempotent; see README "Deploying a hub server", and `deploy/create_db.sh` for the database logins)
-- `go2rtc/go2rtc.yaml` is **not tracked** (go2rtc writes stream URLs with RTSPS access tokens into it). Copy `go2rtc/go2rtc.example.yaml` to create it; never commit stream URLs.
+- **Does NOT auto-deploy**: Changes to `docker-compose.yml` or `.env` on the server — these require SSH + `git pull` + `sudo deploy/bootstrap.sh` (idempotent; see README "Deploying a hub server", and `deploy/create_db.sh` for the database logins)
 
 ### Docker Services (docker-compose.yml)
 - **djangoapp** (`BlackDiamondHub`) — Django app on port 8000, image from GHCR
@@ -57,12 +56,8 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
   - Requires `DJANGO_SECRET_KEY` in `.env`; `DJANGO_DEBUG` defaults to off (set `DJANGO_DEBUG=true` in a local `.env` for development).
   - `/healthz` (DB check, exempt from ALLOWED_HOSTS) backs the image's Docker `HEALTHCHECK`.
   - Rollback: images are also tagged `:sha-<commit>`; pin `image:` in compose to a previous sha and `docker compose up -d`. Watchtower does not roll back on its own, and an image rollback does not undo migrations (restore from `./backups` if needed).
-- **go2rtc** (`ghcr.io/blackdiamondlodge/go2rtc-nack`, upstream + NACK fix) — RTSPS-to-WebRTC proxy on port 1984 (API/WebUI) and 8555 (WebRTC)
-- **watchtower** (`containrrr/watchtower`) — Auto-updates the Django container from GHCR and go2rtc from GHCR
-
-### go2rtc Browser URL Strategy
-- Django uses host networking, so it calls go2rtc at `GO2RTC_URL=http://localhost:1984` and registers each camera's RTSPS stream via `PUT /api/streams` (re-registering if the URL changed)
-- The **browser** needs to reach go2rtc directly — the template uses `window.location.hostname` + port 1984 so it works from any subnet without hardcoding an IP
+- **bdh-supervisor** — Runs the container apps and their companions. The cameras app's go2rtc (`ghcr.io/blackdiamondlodge/go2rtc-nack`, upstream + NACK fix) is a companion: API on 11900+slot, WebRTC on 8555, advertising `BDH_GO2RTC_CANDIDATES` (this host's LAN IP:8555, from `.env`)
+- **watchtower** (`containrrr/watchtower`) — Auto-updates the Django and bdh-supervisor containers from GHCR
 
 ## UniFi Protect Integration API
 
