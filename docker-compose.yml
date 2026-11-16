@@ -72,13 +72,6 @@ services:
       # Restaurants app: Google Places API (New) key; blank = no fetching
       GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
 
-      # go2rtc API URL for server-side calls. Django uses host networking,
-      # so this must be http://localhost:1984 (the "go2rtc" hostname only
-      # resolves inside the compose bridge network).
-      GO2RTC_URL: ${GO2RTC_URL}
-      # go2rtc public URL (browser-accessible, for video streams)
-      GO2RTC_PUBLIC_URL: ${GO2RTC_PUBLIC_URL}
-
       # UniFi Protect API (for camera discovery)
       UNIFI_PROTECT_HOST_1: ${UNIFI_PROTECT_HOST_1}
       UNIFI_PROTECT_API_KEY_1: ${UNIFI_PROTECT_API_KEY_1}
@@ -127,28 +120,12 @@ services:
     
     restart: unless-stopped
 
-  go2rtc:
-    # Upstream go2rtc + a fix so WebRTC NACKs get answered
-    # (https://github.com/blackdiamondlodge/go2rtc-nack, rebuilt daily from
-    # the newest upstream release).
-    image: ghcr.io/blackdiamondlodge/go2rtc-nack:latest
-    container_name: go2rtc
-    labels:
-      # Watchtower updates only labelled containers (WATCHTOWER_LABEL_ENABLE).
-      com.centurylinklabs.watchtower.enable: "true"
-    volumes:
-      - ./go2rtc/go2rtc.yaml:/config/go2rtc.yaml
-    ports:
-      - "1984:1984"   # API / WebUI
-      - "8555:8555/tcp" # WebRTC (TCP)
-      - "8555:8555/udp" # WebRTC (UDP)
-    restart: unless-stopped
-
   bdh-supervisor:
     # Runs container apps (https://github.com/blackdiamondlodge/bdh-supervisor).
     # The only container with the Docker socket besides watchtower; it creates
     # the bdh-gateway container, bdh-* networks and the bdh-app-* containers and
-    # volumes itself (don't add those here or to watchtower).
+    # volumes itself (don't add those here or to watchtower). The cameras app's
+    # go2rtc runs as one of its companions, not as a service here.
     image: ghcr.io/blackdiamondlodge/bdh-supervisor:latest
     container_name: bdh-supervisor
     labels:
@@ -159,6 +136,9 @@ services:
     network_mode: host
     environment:
       BDH_SUPERVISOR_TOKEN: ${BDH_SUPERVISOR_TOKEN}
+      # WebRTC address(es) the cameras go2rtc companion advertises to browsers
+      # (this host's LAN IP:8555; bootstrap.sh fills it in).
+      BDH_GO2RTC_CANDIDATES: ${BDH_GO2RTC_CANDIDATES:-}
       BDH_CATALOG_URL: ${BDH_CATALOG_URL:-https://raw.githubusercontent.com/blackdiamondlodge/bdh-app-catalog/main/catalog.json}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -172,9 +152,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     # Label mode: only containers labelled com.centurylinklabs.watchtower.enable=true
-    # (the hub, go2rtc and bdh-supervisor above) are updated. go2rtc follows the
-    # go2rtc-nack :latest tag (newest upstream release + NACK fix). App containers
-    # (bdh-app-*), their companions and bdh-gateway are never touched: apps are
+    # (the hub and bdh-supervisor above) are updated. App containers
+    # (bdh-app-*), their companions (e.g. go2rtc) and bdh-gateway are never touched: apps are
     # pinned by digest in the catalog and upgraded only by the supervisor.
     # If your Docker registry is private, provide credentials:
     environment:

@@ -8,13 +8,14 @@
 #   - installs Docker Engine + compose plugin from Docker's apt repo
 #   - grows the root LVM volume to use the whole disk (Ubuntu installer
 #     leaves half of it unallocated)
-#   - creates go2rtc/go2rtc.yaml from the example, advertising this host's
-#     LAN address for WebRTC
 #   - creates .env from .env.example on first run, then stops so you can fill
 #     it in (set HUB_IMAGE_TAG to the site, e.g. mercerisland)
-#   - pulls the images and starts the stack
+#   - sets BDH_GO2RTC_CANDIDATES in .env to this host's LAN address if it is
+#     blank (the WebRTC candidate the cameras go2rtc companion advertises)
+#   - pulls the images and starts the stack (--remove-orphans also removes
+#     the old standalone go2rtc container)
 #
-# Existing go2rtc.yaml and .env are never overwritten.
+# Existing .env values are never overwritten.
 set -euo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "run with sudo" >&2; exit 1; }
@@ -49,18 +50,23 @@ if lvs "$root_dev" >/dev/null 2>&1; then
   fi
 fi
 
-if [ ! -f go2rtc/go2rtc.yaml ]; then
-  ip="$(ip -4 route get 1.1.1.1 | awk '{for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1)}')"
-  echo "== creating go2rtc/go2rtc.yaml (WebRTC candidate $ip:8555)"
-  sed "s/^\(    - \)[0-9.]*:8555$/\1$ip:8555/" go2rtc/go2rtc.example.yaml > go2rtc/go2rtc.yaml
-  chown "$OWNER:" go2rtc/go2rtc.yaml
-fi
-
 mkdir -p backups media
 chown "$OWNER:" backups media
 
+created_env=0
 if [ ! -f .env ]; then
   install -m 600 -o "$OWNER" .env.example .env
+  created_env=1
+fi
+
+if ! grep -q '^BDH_GO2RTC_CANDIDATES=.\+' .env; then
+  ip="$(ip -4 route get 1.1.1.1 | awk '{for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1)}')"
+  echo "== setting BDH_GO2RTC_CANDIDATES=$ip:8555 in .env"
+  sed -i '/^BDH_GO2RTC_CANDIDATES=/d' .env
+  echo "BDH_GO2RTC_CANDIDATES=$ip:8555" >> .env
+fi
+
+if [ "$created_env" -eq 1 ]; then
   echo "== created .env from .env.example: fill it in, then re-run this script"
   exit 0
 fi
