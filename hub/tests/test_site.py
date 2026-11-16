@@ -3,14 +3,13 @@ import base64
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
 from display.schedule import lodge_minute, window
 from hub.context_processors import _brand, brand
 from hub.hosts import allowed_hosts
-from hub.modes import builtin_tiles
 from hub.loader import load_plugins
 from hub.site import SITES_DIR, app_settings, container_apps, load_site, section_titles
 from hub_settings import store as hub_store
@@ -148,41 +147,27 @@ class OgImageTests(TestCase):  # pages with a CSRF token save a session (CSRF_US
         self.assertEqual(self.client.get("/og-image.png").status_code, 404)
 
 
-class MountainWeatherTests(TestCase):
+class HomeSiteTests(TestCase):
     def setUp(self):
         _brand.cache_clear()
         self.addCleanup(_brand.cache_clear)
-        patcher = patch("BlackDiamondHub.views.requests.get")
-        self.get = patcher.start()
-        self.addCleanup(patcher.stop)
-        self.get.return_value = MagicMock(status_code=200, content=b"")
-
-    def scraped(self):
-        return any("weather-webcams/weather" in str(c.args[:1]) for c in self.get.call_args_list)
 
     @override_settings(HUB_PLUGINS=REGISTRY_PLUGINS)
-    def test_sun_peaks_has_the_weather_tile(self):
-        self.assertIn("weather", [t["kind"] for t in builtin_tiles()])
-        response = self.client.get("/")
-        self.assertTrue(self.scraped())
-        self.assertContains(response, "In the lodge")
+    def test_sun_peaks_names_the_lodge(self):
+        self.assertContains(self.client.get("/"), "In the lodge")
 
-    @override_settings(HUB_FEATURES={"mountain_weather": False}, HUB_SECTIONS={"lodge": "In the home"},
+    @override_settings(HUB_SECTIONS={"lodge": "In the home"},
                        HUB_BRAND={"name": "Slivinski Hub", "subtitle": "Mercer Island"},
                        HUB_PLUGINS=REGISTRY_PLUGINS)
-    def test_site_without_it_has_no_tile_and_no_scrape(self):
-        self.assertNotIn("weather", [t["kind"] for t in builtin_tiles()])
+    def test_site_branding_and_section_names(self):
         response = self.client.get("/")
-        self.assertFalse(self.scraped())
-        self.assertNotContains(response, "hub-cell hub-wx-tile")
         self.assertContains(response, "<title>Slivinski Hub</title>", html=False)
         self.assertContains(response, "MERCER ISLAND")
         self.assertContains(response, "In the home")
         self.assertNotContains(response, "In the lodge")
 
-    def test_renamed_groups_show_on_home_with_the_weather_heading_its_group(self):
-        reading = {"location": "Top", "elevation": 2080, "temperature": "-4"}
-        self.enterContext(patch("BlackDiamondHub.views.mountain_weather", return_value=[reading]))
+    @override_settings(HUB_PLUGINS=REGISTRY_PLUGINS)
+    def test_renamed_groups_show_on_home(self):
         # Hooks run in threads with their own DB connection, which can't see this
         # test's unsaved layout and would cache the store empty.
         self.enterContext(patch("hub.status.current_stay", return_value=None))
@@ -193,12 +178,10 @@ class MountainWeatherTests(TestCase):
         AppSetting.objects.create(app_id="hub", key="home_layout", value={"groups": [
             # Apps the layout doesn't place go to the last group, so the empty one leads.
             {"key": "spare", "title": "Empty now", "tiles": []},
-            {"key": "g-out", "title": "Up the hill", "tiles": [{"id": "hub:weather", "size": "l"}]},
+            {"key": "g-out", "title": "Up the hill", "tiles": [{"id": "settings:hub_settings_location", "size": "l"}]},
         ]})
         response = self.client.get("/")
-        self.assertEqual(response.context["hub_weather_key"], "g-out")
         self.assertContains(response, 'id="hub-pane-g-out" data-label="Up the hill"')
-        self.assertContains(response, "up top")
         self.assertNotContains(response, "Empty now")
 
 

@@ -7,9 +7,6 @@ monogram = "brand/bdl-monogram.svg"              # dark diamond, for QR codes
 monogram_light = "brand/bdl-monogram-light.svg"  # light diamond, for the navbar
 og_image = "brand/og-image.png"                # link-preview card (tools/render_og_image.py)
 
-[features]
-mountain_weather = true  # the Sun Peaks Resort temperatures tile
-
 [sections]  # homepage section titles
 mountain = "On the mountain"
 lodge = "In the lodge"

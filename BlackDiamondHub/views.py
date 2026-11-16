@@ -1,11 +1,5 @@
 from bdh_sdk.units import units
-from django.conf import settings
 from django.shortcuts import render
-import requests
-from requests.exceptions import RequestException
-from django.http import HttpResponse
-from bs4 import BeautifulSoup
-import re
 from social_django.utils import load_strategy
 from social_core.backends.spotify import SpotifyOAuth2
 
@@ -15,84 +9,16 @@ from hub.plugins import GUEST
 from hub.status import lodge_card
 from hub.views import PAGE_TIMEOUT, home_data
 
-def mountain_weather():
-    """Sun Peaks Resort temperatures: [{location, elevation, temperature}]."""
-    url = 'https://www.sunpeaksresort.com/bike-hike/weather-webcams/weather'  # Replace with the URL you want to fetch
-    current_weather = None
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        
-        # Parse the HTML content
-        soup = BeautifulSoup(response.content, 'html.parser')
-
-        # Extract the current weather
-        current_weather = soup.find('div', {'class': 'weather current-conditions'})  # Adjust as needed        
-    except RequestException as e:
-        print(f"Failed to fetch content from {url}")
-        
-    soup = BeautifulSoup(str(current_weather), 'html.parser')
-    
-    weather_data = []
-
-    # Find all list items under current-temps (not air-quality or other sections)
-    list_temps = soup.select('div.current-temps ul.list-temps li')
-
-    # Iterate over each item and extract the relevant data
-    for item in list_temps:
-        location = item.find('h3').text
-        
-        # Extract the elevation, remove non-numeric characters, and convert to an integer
-        elevation_str = item.find('p').text.split(': ')[1]
-        elevation = int(re.sub(r'[^\d]', '', elevation_str))
-        
-        # Extract the temperature and convert it to an integer
-        temperature = item.find('div', class_='weather-value').text.strip()
-
-        # Create a dictionary for each weather entry
-        weather_entry = {
-            'location': location,
-            'elevation': elevation,
-            'temperature': temperature
-        }
-        
-        # Append the entry to the weather_data list
-        weather_data.append(weather_entry)    
-    return weather_data
-
-
-def _with_units(weather_data, u):
-    """Adds display text in the hub's units to each mountain reading."""
-    for w in weather_data:
-        try:
-            w['temp_text'] = u.temp_text(float(w['temperature']))
-        except (TypeError, ValueError):
-            w['temp_text'] = f"{w['temperature']}°C"
-        try:
-            w['elev_text'] = u.length_text(float(w['elevation']))
-        except (TypeError, ValueError):
-            w['elev_text'] = f"{w['elevation']} m"
-    return weather_data
-
 
 def landing_page(request):
-    # Only sites with the mountain weather tile scrape the resort's page.
-    weather_data = mountain_weather() if settings.HUB_FEATURES.get('mountain_weather') else []
-    hub_units = units()
-    _with_units(weather_data, hub_units)
     mode = resolve_mode(request)
     card = lodge_card(mode)
-    # The weather tile leads with the highest reading; the rest are mini stats.
-    top = max(weather_data, key=lambda w: w['elevation'], default=None)
     sections = tiles_for_mode(mode)
 
     def holding(kind):
         return next((key for key, _, tiles in sections if any(t['kind'] == kind for t in tiles)), None)
 
     context = {
-        'sunpeaks_weather': weather_data,
-        'hub_weather_top': top,
-        'hub_weather_rest': [w for w in weather_data if w is not top],
         'hub_mode': mode,
         'hub_sections': sections,
         'hub_card': card,
@@ -102,12 +28,11 @@ def landing_page(request):
         'hub_welcome': welcome(current_stay(request)) if mode == GUEST and not card else None,
         # It heads the pane with the lodge card, else the first pane.
         'hub_welcome_key': holding('lodge') or next((key for key, _, _ in sections), None),
-        # The pane with the weather tile shows the temperature up top.
-        'hub_weather_key': holding('weather'),
         'hub_theme': home_theme(),
-        'hub_imperial': hub_units.imperial,
+        'hub_imperial': units().imperial,
     }
     return render(request, 'index.html', context)
+
 
 def refresh_spotify_token(user):
     social_auth = user.social_auth.get(provider='spotify')

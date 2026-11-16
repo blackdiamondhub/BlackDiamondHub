@@ -121,10 +121,17 @@ def _status_value(result):
             "actions": _actions_value(row.actions),
         })
     actions = _actions_value(result.actions)
+    readings = []
+    for r in getattr(result, "readings", ()):
+        if not isinstance(r, Reading):
+            raise TypeError(f"status reading is {type(r).__name__}")
+        readings.append({"label": r.label, "value": r.value, "unit": r.unit})
     if rows:
         value["rows"] = rows
     if actions:
         value["actions"] = actions
+    if readings:
+        value["readings"] = readings
     if result.refresh:
         value["refresh"] = max(MIN_REFRESH, int(result.refresh))
     return value

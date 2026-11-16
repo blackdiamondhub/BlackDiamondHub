@@ -174,10 +174,12 @@
     .hub-rows-solo .hub-acts { gap: 18px; margin-top: auto; }
     .hub-rows-solo .hub-act { width: 60px; height: 60px; font-size: 24px; }
 
-    /* Mountain conditions: the highest reading big, the others as minis. */
+    /* Readings without rows (e.g. resort temperatures): the first big, the others as minis. */
+    .hub-tile.has-readings .hub-tile-in { display: none; }
     .hub-wx-in { display: flex; flex-direction: column; height: 100%; padding: 22px 24px; }
+    .hub-wx-in.is-stale { opacity: .55; }
     .hub-wx-head { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 600; }
-    .hub-wx-head i { color: var(--acc); font-size: 26px; }
+    .hub-tile .hub-wx-head img { width: 30px; height: 30px; margin: 0; }
     .hub-wx-big { font-size: 84px; font-weight: 300; line-height: 1; margin-top: auto; color: var(--fg); }
     .hub-wx-sub { font-size: 19px; color: var(--mut); margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .hub-wx-sub .elevation { font-size: inherit; color: inherit; margin: 0; }
@@ -189,7 +191,7 @@
     .hub-tile-m .hub-wx-mini, .hub-tile-s .hub-wx-mini, .hub-tile-s .hub-wx-sub { display: none; }
     .hub-tile-m .hub-wx-big { font-size: 48px; }
     .hub-tile-s .hub-wx-head { font-size: 14px; }
-    .hub-tile-s .hub-wx-head i { display: none; }
+    .hub-tile-s .hub-wx-head img { display: none; }
     .hub-tile-s .hub-wx-big { font-size: 40px; }
 
     /* The lodge card fills its cell. */
@@ -366,7 +368,7 @@
         .hub-wx-in { padding: 16px 18px; }
         .hub-wx-big, .hub-tile-m .hub-wx-big, .hub-tile-s .hub-wx-big { font-size: 56px; margin-top: 12px; }
         .hub-tile-m .hub-wx-sub { display: block; }
-        .hub-lodge.hub-tile-s, .hub-lodge.hub-tile-m, .hub-cell.hub-wx-tile { grid-column: span 2; }
+        .hub-lodge.hub-tile-s, .hub-lodge.hub-tile-m, .hub-tile.has-readings { grid-column: span 2; }
         .hub-card, .hub-tile-m .hub-card, .hub-tile-s .hub-card { flex-direction: column; align-items: stretch; padding: 16px 18px; }
         .hub-tile-m .hub-card-readings { margin: 0; }
         .hub-bar { position: static; height: auto; margin-top: 16px; flex-wrap: wrap; }
@@ -462,32 +464,11 @@
     {% for key, title, tiles in hub_sections %}
     <section class="hub-pane hub-section-{{ key }}" id="hub-pane-{{ key }}" data-label="{{ title }}">
         <h2>{{ title }}
-            {% if hub_welcome and key == hub_welcome_key %}<span class="hub-pane-sub hub-welcome">Welcome{% if hub_welcome.guest %}, {{ hub_welcome.guest }}{% endif %}{% if hub_welcome.checkout %} · Checkout {{ hub_welcome.checkout }}{% endif %}</span>
-            {% elif key == hub_weather_key and hub_weather_top %}<span class="hub-pane-sub"><span class="temperature" data-metric="{{ hub_weather_top.temperature }}">{{ hub_weather_top.temp_text }}</span> up top</span>{% endif %}
+            {% if hub_welcome and key == hub_welcome_key %}<span class="hub-pane-sub hub-welcome">Welcome{% if hub_welcome.guest %}, {{ hub_welcome.guest }}{% endif %}{% if hub_welcome.checkout %} · Checkout {{ hub_welcome.checkout }}{% endif %}</span>{% endif %}
         </h2>
         <div class="hub-tiles">
             {% for tile in tiles %}
-            {% if tile.kind == 'weather' %}
-            <div class="hub-cell hub-wx-tile hub-tile-{{ tile.size }}" aria-label="{{ tile.title }}">
-                <div class="hub-wx-in">
-                    <div class="hub-wx-head"><i class="fa-solid fa-mountain"></i>{{ tile.title }}</div>
-                    {% if hub_weather_top %}
-                    <div class="hub-wx-big temperature" data-metric="{{ hub_weather_top.temperature }}">{{ hub_weather_top.temp_text }}</div>
-                    <div class="hub-wx-sub">{{ hub_weather_top.location }} · <span class="elevation" data-metric="{{ hub_weather_top.elevation }}">{{ hub_weather_top.elev_text }}</span></div>
-                    {% else %}
-                    <div class="hub-wx-big temperature" data-metric="">–</div>
-                    <div class="hub-wx-sub">Weather unavailable</div>
-                    {% endif %}
-                    {% if hub_weather_rest %}
-                    <div class="hub-wx-mini">
-                        {% for weather in hub_weather_rest %}
-                        <div><span class="temperature" data-metric="{{ weather.temperature }}">{{ weather.temp_text }}</span><span>{{ weather.location }}</span></div>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
-            {% elif tile.kind == 'lodge' %}
+            {% if tile.kind == 'lodge' %}
             <div class="hub-cell hub-lodge hub-tile-{{ tile.size }}" id="hub-card-slot" hidden></div>
             {% else %}
             <a class="hub-cell hub-tile hub-tile-{{ tile.size }}" href="{{ tile.url }}" data-plugin="{{ tile.plugin }}">
@@ -562,7 +543,6 @@
             refresh: function () { document.querySelectorAll('.hub-mq-host').forEach(run); },
         };
     })();
-    hubMarquee.add(document.querySelectorAll('.hub-wx-sub, .hub-wx-mini span:last-child'));
 
     (function () {
         var STATUS_URL = "{% url 'hub_status' %}";
@@ -745,6 +725,60 @@
             hubMarquee.add(box.querySelectorAll('.hub-row-title, .hub-row-detail'));
         }
 
+        function readingText(span, r, imperial) {
+            var c = parseFloat(r.value);
+            if (r.unit === 'C' && !isNaN(c)) {
+                span.classList.add('temperature');
+                span.setAttribute('data-metric', c);
+                span.setAttribute('data-unit', imperial ? 'F' : 'C');
+                span.textContent = imperial ? Math.round(c * 9 / 5 + 32) + '°F' : Math.round(c) + '°C';
+            } else {
+                span.textContent = r.value + (r.unit ? ' ' + r.unit : '');
+            }
+            return span;
+        }
+
+        // Readings (e.g. resort temperatures) without rows: the first big,
+        // the rest as minis. The tile stays a link to the app.
+        function renderReadings(tile, s) {
+            var old = tile.querySelector('.hub-wx-in');
+            var readings = (s && !tile.classList.contains('has-rows') && s.readings) || [];
+            if (!readings.length) {
+                if (old) old.remove();
+                tile.classList.remove('has-readings');
+                tile.removeAttribute('data-readings-key');
+                return;
+            }
+            var key = JSON.stringify([readings, s.stale]);
+            if (tile.getAttribute('data-readings-key') === key) return;
+            tile.setAttribute('data-readings-key', key);
+
+            var imperial = document.querySelector('.toggle-button').dataset.unit === 'F';
+            var box = el('div', 'hub-wx-in' + (s.stale ? ' is-stale' : ''));
+            var h = el('div', 'hub-wx-head');
+            var img = el('img');
+            img.src = tile.querySelector('.hub-tile-in img').src;
+            img.alt = '';
+            h.appendChild(img);
+            h.appendChild(document.createTextNode(tile.querySelector('.hub-tile-title').textContent));
+            box.appendChild(h);
+            box.appendChild(readingText(el('div', 'hub-wx-big'), readings[0], imperial));
+            box.appendChild(el('div', 'hub-wx-sub', readings[0].label));
+            if (readings.length > 1) {
+                var mini = el('div', 'hub-wx-mini');
+                readings.slice(1).forEach(function (r) {
+                    var d = el('div');
+                    d.appendChild(readingText(el('span'), r, imperial));
+                    d.appendChild(el('span', '', r.label));
+                    mini.appendChild(d);
+                });
+                box.appendChild(mini);
+            }
+            if (old) old.replaceWith(box); else tile.appendChild(box);
+            tile.classList.add('has-readings');
+            hubMarquee.add(box.querySelectorAll('.hub-wx-sub, .hub-wx-mini span:last-child'));
+        }
+
         narrow.addEventListener('change', function () { applyStatus(lastStatus); });
 
         function applyStatus(status) {
@@ -753,6 +787,7 @@
                 var sub = tile.querySelector('.hub-tile-sub');
                 var s = status[tile.getAttribute('data-plugin')];
                 renderRows(tile, s);
+                renderReadings(tile, s);
                 sub.className = 'hub-tile-sub';
                 if (s) {
                     statusText(sub, s);

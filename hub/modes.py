@@ -58,21 +58,16 @@ SIZES = ("s", "m", "l")
 # The home layout (tile order and size per section), saved from Settings.
 LAYOUT_APP, LAYOUT_KEY = "hub", "home_layout"
 
-# Tiles the hub draws itself rather than an app: the weather and the lodge card.
+# Tiles the hub draws itself rather than an app: the lodge card.
 BUILTIN_TILES = (
-    {"id": "hub:weather", "kind": "weather", "section": "mountain", "title": "Mountain conditions",
-     "icon": "", "order": 0},
     {"id": "hub:lodge", "kind": "lodge", "section": "lodge", "title": "Lodge status",
      "icon": "", "order": 0},
 )
 
 
 def builtin_tiles():
-    """The built-in tiles this site has: the weather tile only where it has mountain weather."""
-    from django.conf import settings
-
-    weather = settings.HUB_FEATURES.get("mountain_weather")
-    return [t for t in BUILTIN_TILES if weather or t["kind"] != "weather"]
+    """The built-in tiles this site has."""
+    return list(BUILTIN_TILES)
 
 
 def home_layout():

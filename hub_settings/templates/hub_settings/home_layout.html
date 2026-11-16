@@ -87,14 +87,12 @@
             <li class="hl-row" data-id="{{ tile.id }}" data-size="{{ tile.size }}">
                 <span class="hl-grip" aria-hidden="true"><i class="fas fa-grip-vertical"></i></span>
                 <span class="hl-ico">
-                    {% if tile.kind == 'weather' %}<i class="fas fa-mountain" aria-hidden="true"></i>
-                    {% elif tile.kind == 'lodge' %}<i class="fas fa-house" aria-hidden="true"></i>
+                    {% if tile.kind == 'lodge' %}<i class="fas fa-house" aria-hidden="true"></i>
                     {% elif tile.icon %}<img src="{{ tile.icon|tile_icon }}" alt="">{% endif %}
                 </span>
                 <span class="lbl">
                     <b>{{ tile.title }}</b>
-                    {% if tile.kind == 'lodge' %}<small>Shown when an app reports the lodge's status</small>
-                    {% elif tile.kind == 'weather' %}<small>Resort temperatures</small>
+                    {% if tile.kind == 'lodge' %}<small>Shown when an app reports the lodge's status</small>
                     {% elif tile.subtitle %}<small>{{ tile.subtitle }}</small>{% endif %}
                 </span>
                 <span class="hl-size" role="group" aria-label="Size of {{ tile.title }}">
