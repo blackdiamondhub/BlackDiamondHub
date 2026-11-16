@@ -160,6 +160,7 @@ def bare(request, app_id, path=""):
     return render(request, "broker/bare.html", {
         "spec": spec, "src": _app_src(request, spec, path),
         "app_origin": remote.app_origin(spec.port, request.get_host()),
+        "title": _title(spec, request),
     })
 
 

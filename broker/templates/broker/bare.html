@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{{ spec.id }}</title>
+<title>{{ title }}</title>
 <style>html, body { margin: 0; height: 100%; background: transparent; } #bdh-app-frame { display: block; width: 100%; height: 100%; border: 0; }</style>
 {% include "broker/_theme.html" with bare=True %}
 </head>
 <body>
-<iframe id="bdh-app-frame" title="{{ spec.id }}" src="{{ src }}"
+<iframe id="bdh-app-frame" title="{{ title }}" src="{{ src }}"
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
         allow="autoplay; fullscreen" data-app-origin="{{ app_origin }}"
         data-app-id="{{ spec.id }}" data-nav-url="{% url 'broker:navigate' %}" data-bare="1"></iframe>

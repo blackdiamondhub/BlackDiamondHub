@@ -58,6 +58,8 @@ class ShellPageTests(TestCase):
     def test_bare_page(self):
         resp = self.client.get("/apps/cams/_bare/cameras/popup/1")
         self.assertContains(resp, f"http://testserver:{self.install.port}/cameras/popup/1")
+        self.assertContains(resp, "<title>Cameras</title>")
+        self.assertContains(resp, 'title="Cameras"')
         self.assertContains(resp, "#bdh-app-frame:fullscreen")
         self.assertNotContains(resp, "bdh-app-bg:")
         self.assertNotContains(resp, "html, body, .content-wrapper, #bdh-app-frame { background: #000 !important; }")

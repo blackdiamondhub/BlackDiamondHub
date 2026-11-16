@@ -223,12 +223,20 @@ async def app_proxy(scope, receive, send):
     return await _http(scope, receive, send, install)
 
 
+def display_name(install):
+    """What guests call the app: its first tile's title, not its id."""
+    for tile in (install.manifest or {}).get("tiles") or ():
+        if isinstance(tile, dict) and tile.get("title"):
+            return str(tile["title"])
+    return install.app_id
+
+
 async def _starting(scope, receive, send, install):
     if scope["type"] == "websocket":
         await receive()  # websocket.connect
         await send({"type": "websocket.close", "code": 1013})
         return
-    page = STARTING_PAGE.format(name=html.escape(install.app_id)).encode()
+    page = STARTING_PAGE.format(name=html.escape(display_name(install))).encode()
     await _plain(send, 503, page, b"text/html; charset=utf-8", [(b"retry-after", b"3")])
 
 
