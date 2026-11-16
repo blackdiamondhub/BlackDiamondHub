@@ -261,6 +261,46 @@ class HomeAssistantTests(RpcTestCase):
         with mock.patch("bdh_sdk.ha.ws_commands", return_value=[{"ok": 1}]):
             self.assertEqual(self.ok("ha.ws_commands", {"messages": [{"type": "get_config"}]}), [{"ok": 1}])
 
+    def test_registry_needs_a_read_grant(self):
+        self.app.granted_permissions = self.app.requested_permissions = [g.HA_WS]
+        self.app.save()
+        with mock.patch("bdh_sdk.ha.get_registry") as reg:
+            self.refused("ha.registry")
+        reg.assert_not_called()
+
+    REGISTRY = {
+        "entities": [
+            {"entity_id": "sensor.fp_temp", "device_id": "d1", "platform": "napoleon"},
+            {"entity_id": "lock.front", "device_id": "d2", "platform": "napoleon"},
+            {"entity_id": "sensor.hue", "device_id": "d3", "platform": "hue"},
+            {"entity_id": "sensor.loose", "device_id": None, "platform": "napoleon"},
+        ],
+        "devices": [{"id": "d1", "name": "FP"}, {"id": "d2", "name": "Lock"},
+                    {"id": "d3", "name": "Bridge"}, {"id": "d4", "name": "Unused"}],
+        "unit_system": {"temperature": "°F"},
+    }
+
+    def test_registry_filtered_by_read_globs(self):
+        with mock.patch("bdh_sdk.ha.get_registry", return_value=self.REGISTRY) as reg:
+            got = self.ok("ha.registry")
+        reg.assert_called_once_with(platform=None, instance=None)
+        self.assertEqual([e["entity_id"] for e in got["entities"]],
+                         ["sensor.fp_temp", "sensor.hue", "sensor.loose"])
+        self.assertEqual([d["id"] for d in got["devices"]], ["d1", "d3"])
+        self.assertEqual(got["unit_system"], {"temperature": "°F"})
+
+    def test_registry_platform_filter(self):
+        with mock.patch("bdh_sdk.ha.get_registry", return_value=self.REGISTRY) as reg:
+            got = self.ok("ha.registry", {"platform": "napoleon"})
+            self.refused("ha.registry", {"platform": 3}, code="invalid", status=400)
+        reg.assert_called_once_with(platform="napoleon", instance=None)
+        self.assertEqual([e["entity_id"] for e in got["entities"]], ["sensor.fp_temp", "sensor.loose"])
+        self.assertEqual(got["devices"], [{"id": "d1", "name": "FP"}])
+
+    def test_registry_ha_error(self):
+        with mock.patch("bdh_sdk.ha.get_registry", side_effect=ha.HAError("down")):
+            self.refused("ha.registry", code="ha_error", status=500)
+
     def test_grant_must_also_be_requested(self):
         self.app.granted_permissions = ["ha.read:*"]
         self.app.save()
