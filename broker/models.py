@@ -57,6 +57,15 @@ class AppInstall(models.Model):
         return frozenset(p for p in self.granted_permissions or () if p in requested)
 
     @property
+    def manifest_current(self):
+        """Whether ``manifest`` is this version's. An update keeps the old one (so
+        the app's pages stay up) until the new version's arrives."""
+        if self.manifest is None:
+            return False
+        got = self.manifest.get("version")
+        return not self.version or not got or got == self.version
+
+    @property
     def is_container(self):
         return self.runtime == self.CONTAINER
 
