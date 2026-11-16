@@ -69,6 +69,121 @@ def reset():
         drop(app_id)
 
 
+# --- Persistence ---------------------------------------------------------------
+# The SDK only sends ``events.subscribe`` when an app's patterns change, so the
+# hub keeps the last set in the database and puts it back after a restart.
+# Every write (subscribe, restore, reconcile) for an app runs under that app's
+# lock and reads the row inside it, so an older copy can't overwrite a newer one.
+
+RECONCILE_EVERY = 60.0
+_app_locks = collections.defaultdict(threading.Lock)
+
+
+def _app_lock(app_id):
+    with _lock:
+        return _app_locks[app_id]
+
+
+def subscribe(app_id, wanted):
+    """An app's ``events.subscribe``: store ``wanted`` (already checked), then apply it."""
+    from .models import AppSubscription
+
+    wanted = sorted(set(wanted))
+    with _app_lock(app_id):
+        if wanted:
+            AppSubscription.objects.update_or_create(
+                app_id=app_id, kind=AppSubscription.EVENTS, instance="", defaults={"payload": wanted})
+        else:
+            AppSubscription.objects.filter(app_id=app_id, kind=AppSubscription.EVENTS).delete()
+        set_patterns(app_id, wanted)
+
+
+def allowed(install, wanted):
+    """The patterns in ``wanted`` that ``install`` may still subscribe to."""
+    from . import grants as g
+
+    if install is None or not install.enabled or not isinstance(wanted, list):
+        return []
+    grants = install.grants
+    out = []
+    for pattern in wanted:
+        if not isinstance(pattern, str):
+            continue
+        try:
+            bus._segments(pattern, wildcards=True)
+        except ValueError:
+            continue
+        if g.can_subscribe(grants, install.app_id, pattern):
+            out.append(pattern)
+    return sorted(set(out))
+
+
+def forget(app_id):
+    """The app is gone: drop its subscriptions and the stored copy."""
+    from .models import AppSubscription
+
+    with _app_lock(app_id):
+        AppSubscription.objects.filter(app_id=app_id).delete()
+        drop(app_id)
+
+
+def sync(app_id):
+    """Make ``app_id``'s live subscriptions match what's stored, minus anything
+    its install may no longer subscribe to (it was disabled, or an upgrade
+    dropped a permission in another process)."""
+    from .models import AppInstall, AppSubscription
+
+    with _app_lock(app_id):
+        install = AppInstall.objects.filter(app_id=app_id).first()
+        if install is None:
+            AppSubscription.objects.filter(app_id=app_id).delete()
+            drop(app_id)
+            return
+        row = AppSubscription.objects.filter(app_id=app_id, kind=AppSubscription.EVENTS).first()
+        wanted = allowed(install, row.payload if row else [])
+        if wanted != patterns(app_id):
+            log.info("events for %s: %s", app_id, ", ".join(wanted) or "none")
+            set_patterns(app_id, wanted)
+
+
+def reconcile():
+    """:func:`sync` every app that has stored or live subscriptions."""
+    from .models import AppSubscription
+
+    with _lock:
+        live = set(_subs)
+    stored = set(AppSubscription.objects.values_list("app_id", flat=True))
+    for app_id in sorted(live | stored):
+        try:
+            sync(app_id)
+        except Exception:
+            log.exception("could not restore event subscriptions for %s", app_id)
+
+
+def start(every=RECONCILE_EVERY):
+    """Restore stored subscriptions now, then keep them in step with the installs."""
+    thread = threading.Thread(target=_loop, args=(every,), name="bdh-broker-subs", daemon=True)
+    thread.start()
+    return thread
+
+
+def _loop(every):
+    from django.db import close_old_connections
+
+    wait = 2.0
+    while True:
+        time.sleep(wait)
+        try:
+            reconcile()
+            wait = every
+        except Exception as exc:
+            # Usually the database isn't up yet; try again soon.
+            log.warning("could not restore event subscriptions: %s", exc)
+            wait = min(every, 10.0)
+        finally:
+            close_old_connections()
+
+
 def publish(app_id, topic, data):
     """Publish an app's event on the hub's bus, minus the echo to the app itself."""
     with _lock:

@@ -288,7 +288,7 @@ def events_subscribe(install, grants, payload):
     refused = [p for p in patterns if not g.can_subscribe(grants, install.app_id, p)]
     if refused:
         raise forbidden(f"may not subscribe to {', '.join(refused)}")
-    events_bridge.set_patterns(install.app_id, patterns)
+    events_bridge.subscribe(install.app_id, patterns)
     return None
 
 

@@ -46,6 +46,11 @@ def should_start(argv=None):
     """Run sources only in the server process (Daphne, or runserver's reloaded child)."""
     if os.environ.get("HUB_EVENTS", "").lower() in ("0", "false", "off", "no"):
         return False
+    return is_server(argv)
+
+
+def is_server(argv=None):
+    """True in the process that serves requests (Daphne, or runserver's reloaded child)."""
     argv = sys.argv if argv is None else argv
     prog = os.path.basename(argv[0]) if argv else ""
     if "daphne" in prog:
