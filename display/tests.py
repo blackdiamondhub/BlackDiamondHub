@@ -27,7 +27,7 @@ from hub_settings import store
 from tests.selenium_helpers import SeleniumTestCase, login_via_browser
 from . import catalog, connect, views
 from hub_settings.models import AppSetting
-from .models import Heartbeat, SaverPhoto, UploadLink
+from .models import DisplayLoad, Heartbeat, SaverPhoto, UploadLink
 from .options import DEFAULT_STARTS, SEASONS, STOCK_STYLES
 from .schedule import is_night, parse_hhmm
 from .season import parse_mmdd, resolve
@@ -462,6 +462,37 @@ class HeartbeatTests(TestCase):
     def test_every_page_sends_heartbeats(self):
         html = self.client.get("/").content.decode()
         self.assertIn(reverse("display_heartbeat"), html)
+
+
+class PageLoadTests(TestCase):
+    def send(self, ip="192.168.1.99", **data):
+        return Client(enforce_csrf_checks=True).post(reverse("display_page_load"), data, REMOTE_ADDR=ip)
+
+    def loads(self, **params):
+        return self.client.get(reverse("display_page_loads"), params).json()["loads"]
+
+    def test_flags_unclean_previous_page_as_crash(self):
+        self.assertEqual(self.send(path="/apps/cameras/", nav_type="navigate", heap_mb="40").status_code, 204)
+        self.send(path="/", nav_type="navigate", prev_path="/apps/cameras/", prev_clean="0",
+                  prev_lived_s="300", prev_silent_s="3", prev_heap_mb="512")
+        self.send(ip="192.168.1.50", path="/", prev_path="/", prev_clean="1")
+        newest, first = self.loads(ip="192.168.1.99")
+        self.assertEqual((newest["path"], newest["prev_path"], newest["crash"]), ("/", "/apps/cameras/", True))
+        self.assertEqual((newest["prev_lived_s"], newest["prev_silent_s"], newest["prev_heap_mb"]), (300, 3, 512))
+        self.assertEqual((first["prev_clean"], first["crash"], first["heap_mb"]), (None, False, 40))
+        self.assertEqual([d["crash"] for d in self.loads()], [False, True, False])
+
+    def test_tolerates_junk_and_prunes_old(self):
+        DisplayLoad.objects.create(ip="192.168.1.99", at=timezone.now() - timedelta(days=8))
+        self.send(heap_mb="", prev_lived_s="x", prev_clean="maybe", path="/" * 300)
+        [row] = self.loads()
+        self.assertEqual((row["heap_mb"], row["prev_lived_s"], row["prev_clean"], len(row["path"])),
+                         (None, None, None, 200))
+        self.assertEqual(len(self.loads(limit="0")), 1)
+
+    def test_every_page_reports_its_load(self):
+        html = self.client.get("/").content.decode()
+        self.assertIn(reverse("display_page_load"), html)
 
 
 class CatalogTests(TestCase):

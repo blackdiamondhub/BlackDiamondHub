@@ -21,7 +21,7 @@ from hub_settings.views import _render, _save, saved_redirect, staff_page
 
 from . import catalog, options
 from .library import photo_json, season_photos
-from .models import Heartbeat, SaverPhoto, UploadLink
+from .models import DisplayLoad, Heartbeat, SaverPhoto, UploadLink
 from .photos import BadPhoto, add_photo
 from .options import APP, SEASON_IDS, SEASONS, SLOTS, SOURCES, STOCK_STYLES, value
 from .schedule import is_night, lodge_minute, parse_hhmm, window
@@ -139,6 +139,53 @@ def heartbeat(request):
     )
     Heartbeat.objects.filter(last_seen__lt=now - HEARTBEAT_KEEP).delete()
     return HttpResponse(status=204)
+
+
+def _int(value):
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+@csrf_exempt
+@require_POST
+def page_load(request):
+    """A hub page just loaded on a screen; records how the page before it ended."""
+    post = request.POST
+    now = timezone.now()
+    clean = post.get("prev_clean")
+    DisplayLoad.objects.create(
+        ip=request.META.get("REMOTE_ADDR") or "0.0.0.0", at=now,
+        path=post.get("path", "")[:200], nav_type=post.get("nav_type", "")[:20],
+        referrer=post.get("referrer", "")[:200],
+        user_agent=request.META.get("HTTP_USER_AGENT", "")[:200],
+        heap_mb=_int(post.get("heap_mb")), prev_path=post.get("prev_path", "")[:200],
+        prev_clean={"1": True, "0": False}.get(clean),
+        prev_lived_s=_int(post.get("prev_lived_s")), prev_silent_s=_int(post.get("prev_silent_s")),
+        prev_heap_mb=_int(post.get("prev_heap_mb")),
+    )
+    DisplayLoad.objects.filter(at__lt=now - HEARTBEAT_KEEP).delete()
+    return HttpResponse(status=204)
+
+
+@require_GET
+def page_loads_api(request):
+    """Recent page loads, newest first (``?ip=``, ``?limit=``); ``crash`` marks an unclean end."""
+    loads = DisplayLoad.objects.order_by("-at", "-id")
+    if request.GET.get("ip"):
+        loads = loads.filter(ip=request.GET["ip"])
+    limit = min(max(_int(request.GET.get("limit")) or 100, 1), 1000)
+    response = JsonResponse({"loads": [
+        {"ip": d.ip, "at": d.at.isoformat(), "path": d.path, "nav_type": d.nav_type,
+         "referrer": d.referrer, "user_agent": d.user_agent, "heap_mb": d.heap_mb,
+         "prev_path": d.prev_path, "prev_clean": d.prev_clean, "prev_lived_s": d.prev_lived_s,
+         "prev_silent_s": d.prev_silent_s, "prev_heap_mb": d.prev_heap_mb,
+         "crash": d.prev_clean is False}
+        for d in loads[:limit]
+    ]})
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @csrf_exempt
