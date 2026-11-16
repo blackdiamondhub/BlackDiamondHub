@@ -75,3 +75,31 @@ class AppSecret(models.Model):
 
     def __repr__(self):
         return f"<AppSecret {self.app_id}.{self.name}>"
+
+
+class HAInstance(models.Model):
+    """A Home Assistant instance apps can reach through ``bdh_sdk.ha``.
+
+    The id is what apps pass as ``instance=`` and the prefix of the instance's
+    event topics (``<id>/state/<entity_id>``), so it can't change once saved.
+    The access token lives in the vault (``hub_settings.ha.token_name``).
+    With no rows the hub uses the single ``ha`` instance from the environment.
+    """
+
+    id = models.CharField(primary_key=True, max_length=40)
+    name = models.CharField(max_length=80)
+    site = models.CharField(max_length=80, blank=True)
+    url = models.URLField(max_length=200)
+    is_default = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0)
+    updated = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["order", "name"]
+        verbose_name = "Home Assistant instance"
+
+    def __str__(self):
+        return f"{self.name} ({self.id})"

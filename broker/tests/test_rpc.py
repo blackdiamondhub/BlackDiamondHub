@@ -172,11 +172,35 @@ class HomeAssistantTests(RpcTestCase):
         with mock.patch("bdh_sdk.ha.get_entity_state", return_value={"state": "3"}) as get:
             self.assertEqual(self.ok("ha.get_entity_state", {"entity_id": "sensor.temp"}), {"state": "3"})
             self.refused("ha.get_entity_state", {"entity_id": "lock.front_door"})
-        get.assert_called_once_with("sensor.temp")
+        get.assert_called_once_with("sensor.temp", instance=None)
         with mock.patch("bdh_sdk.ha.get_entity_states", return_value={}) as many:
             self.refused("ha.get_entity_states", {"entity_ids": ["sensor.a", "lock.b"]})
             self.ok("ha.get_entity_states", {"entity_ids": ["sensor.a"]})
-        many.assert_called_once_with(["sensor.a"])
+        many.assert_called_once_with(["sensor.a"], instance=None)
+
+    def test_instance_passthrough(self):
+        from hub_settings import ha as instances
+        from hub_settings.models import HAInstance
+
+        self.addCleanup(instances.clear)
+        HAInstance.objects.create(id="home", name="Home", url="http://a:8123", is_default=True)
+        HAInstance.objects.create(id="cabin", name="Cabin", site="Sun Peaks", url="http://b:8123", order=1)
+        self.assertEqual(self.ok("ha.instances"), [
+            {"id": "home", "name": "Home", "site": "", "default": True},
+            {"id": "cabin", "name": "Cabin", "site": "Sun Peaks", "default": False},
+        ])
+        with mock.patch("bdh_sdk.ha.get_entity_state", return_value={"state": "1"}) as get:
+            self.ok("ha.get_entity_state", {"entity_id": "sensor.a", "instance": "cabin"})
+            self.refused("ha.get_entity_state", {"entity_id": "sensor.a", "instance": "nope"},
+                         code="invalid", status=400)
+            self.refused("ha.get_entity_state", {"entity_id": "sensor.a", "instance": 3},
+                         code="invalid", status=400)
+        get.assert_called_once_with("sensor.a", instance="cabin")
+
+    def test_instances_needs_a_read_grant(self):
+        self.app.granted_permissions = ["alerts"]
+        self.app.save()
+        self.refused("ha.instances")
 
     def test_all_states_filtered(self):
         states = [{"entity_id": "sensor.a"}, {"entity_id": "lock.b"}, {"entity_id": "sensor.c"}]
@@ -204,7 +228,7 @@ class HomeAssistantTests(RpcTestCase):
                                                          "entity_id": "light.x"}), [True, None])
             self.refused("ha.call_service", {"domain": "light", "service": "turn_off"})
             self.refused("ha.call_service", {"domain": "lock", "service": "unlock"})
-        call.assert_called_once_with("light", "turn_on", "light.x", None)
+        call.assert_called_once_with("light", "turn_on", "light.x", None, instance=None)
         self.assertTrue(AuditEntry.objects.filter(op="ha.call_service", allowed=True).exists())
         self.assertTrue(AuditEntry.objects.filter(op="ha.call_service", allowed=False).exists())
 
