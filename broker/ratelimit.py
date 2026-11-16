@@ -10,6 +10,7 @@ SLOW = {
     "ha.get_tts": (0.5, 5.0),
     "ha.upload_media": (0.5, 5.0),
     "ha.ws_commands": (1.0, 5.0),
+    "ha.registry": (1.0, 5.0),
     "secrets.get": (2.0, 20.0),
     "secrets.set": (0.5, 5.0),
     "secrets.delete": (0.5, 5.0),

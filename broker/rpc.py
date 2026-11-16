@@ -387,6 +387,23 @@ def ha_get_all_states(install, grants, payload):
     return [s for s in states if isinstance(s, dict) and g.can_read(grants, s.get("entity_id"))]
 
 
+def ha_registry(install, grants, payload):
+    """The entity/device registries, limited to entities the app may read."""
+    from bdh_sdk import ha
+
+    if not g.can_read_any(grants):
+        raise forbidden("needs an ha.read permission")
+    platform = _str(payload, "platform", required=False)
+    reg = _ha_call(lambda instance: ha.get_registry(platform=platform, instance=instance),
+                   instance=_instance(payload)) or {}
+    entities = [e for e in reg.get("entities") or () if isinstance(e, dict)
+                and (platform is None or e.get("platform") == platform)
+                and g.can_read(grants, e.get("entity_id"))]
+    device_ids = {e.get("device_id") for e in entities if e.get("device_id")}
+    devices = [d for d in reg.get("devices") or () if isinstance(d, dict) and d.get("id") in device_ids]
+    return {"entities": entities, "devices": devices, "unit_system": reg.get("unit_system") or {}}
+
+
 def ha_instances(install, grants, payload):
     from hub_settings import ha as instances
 
@@ -498,6 +515,7 @@ OPS = {
     "ha.get_static": ha_get_static,
     "ha.ws_commands": ha_ws_commands,
     "ha.instances": ha_instances,
+    "ha.registry": ha_registry,
     "speakers.list": speakers_list,
     "speakers.announce": speakers_announce,
     "speakers.tts": speakers_tts,
