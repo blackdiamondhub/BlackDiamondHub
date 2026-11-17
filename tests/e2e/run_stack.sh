@@ -138,6 +138,7 @@ ensure "$supervisor_image"
 docker volume create bdh-e2e-socket >/dev/null
 docker volume create bdh-e2e-state >/dev/null
 # As in docker-compose.yml, firewall included; tests-only: http catalog, no attestation.
+# The gateway and firewall helper run the supervisor image too: use the one under test.
 docker run -d --name bdh-e2e-supervisor --network host \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v bdh-e2e-socket:/run/bdh-supervisor -v bdh-e2e-state:/state \
@@ -145,6 +146,7 @@ docker run -d --name bdh-e2e-supervisor --network host \
     -e BDH_CATALOG_URL="$catalog_url" \
     -e BDH_IMAGE_PREFIX="$prefix" \
     -e BDH_ATTESTATION=off -e BDH_ALLOW_HTTP=1 \
+    -e BDH_SUPERVISOR_IMAGE="$supervisor_image" \
     "$supervisor_image" >/dev/null
 supervisor_up() {
     [ "$(docker inspect -f '{{.State.Running}}' bdh-e2e-supervisor)" = true ] || { docker logs bdh-e2e-supervisor >&2; exit 1; }

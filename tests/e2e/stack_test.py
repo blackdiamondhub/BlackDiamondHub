@@ -189,6 +189,12 @@ def test_shell_page_shows_the_app():
     for arg in ("--headless=new", "--no-sandbox", "--disable-dev-shm-usage", "--window-size=1280,800"):
         opts.add_argument(arg)
     driver = webdriver.Chrome(options=opts)
+    driver.set_page_load_timeout(60)
+    # base.html loads Bootstrap from a CDN with a blocking <script> in <head>; a
+    # stalled CDN fetch once kept the parser from ever reaching the iframe. The
+    # test is about the hub and the app, so keep third-party hosts out of it.
+    driver.execute_cdp_cmd("Network.enable", {})
+    driver.execute_cdp_cmd("Network.setBlockedURLs", {"urls": ["*cdn.jsdelivr.net*", "*cdnjs.cloudflare.com*"]})
     try:
         driver.get(urljoin(HUB, f"/apps/{APP_ID}{PAGE}"))
         frame = WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
