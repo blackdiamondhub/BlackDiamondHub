@@ -304,3 +304,47 @@ jobs:
     - name: Container logs
       if: always()
       run: docker logs bdh || true
+
+  stack-e2e:
+    # The PR's hub image with the published supervisor and app runtime, a
+    # local registry and catalog, and a fixture container app (tests/e2e).
+    name: stack-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    - name: Checkout bdh-sdk (app image builder)
+      uses: actions/checkout@v7
+      with:
+        repository: blackdiamondlodge/bdh-sdk
+        ref: v0
+        path: .sdk
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.12'
+
+    - name: Install test tools
+      run: pip install pytest requests selenium
+
+    - name: Start the stack
+      run: BDH_SDK=.sdk bash tests/e2e/run_stack.sh
+
+    - name: Run stack tests
+      run: pytest -v -rxX -p no:cacheprovider tests/e2e/stack_test.py
+
+    - name: Collect logs
+      if: always()
+      run: bash tests/e2e/collect_logs.sh
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: stack-e2e-logs
+        path: tests/e2e/.work/artifacts
+        if-no-files-found: ignore
