@@ -76,6 +76,26 @@ class AppsPageTests(SupervisorMixin, CatalogTestCase, TestCase):
         self.assertContains(manage, "Hold to uninstall")
         self.assertContains(manage, 'value="speakers" checked')
 
+    def test_sharing_card_and_receives_line(self):
+        from broker.models import ShareGrant
+
+        self.install(perm=["alerts"])
+        AppInstall.objects.filter(app_id="hello").update(manifest={
+            "id": "hello", "name": "Hello", "shares": [{"name": "events", "type": "text/calendar", "title": "Lodge events"}]})
+        AppInstall.objects.create(app_id="cal", runtime=AppInstall.CONTAINER, upstream="http://127.0.0.1:9202",
+                                  manifest={"id": "cal", "name": "Calendar", "reads": ["text/calendar"]})
+        AppInstall.objects.create(app_id="cams", runtime=AppInstall.CONTAINER, upstream="http://127.0.0.1:9203",
+                                  manifest={"id": "cams", "name": "Cameras"})
+        manage = self.client.get(reverse("hub_settings_app_manage", args=["hello"]))
+        self.assertContains(manage, 'id="sharing"')
+        self.assertContains(manage, "Lodge events")
+        self.assertContains(manage, "not published yet")
+        self.assertContains(manage, "Show all apps")
+        self.assertEqual([a["id"] for a in manage.context["sharing"][0]["readers"]], ["cal"])
+        self.assertEqual([a["id"] for a in manage.context["sharing"][0]["others"]], ["cams"])
+        ShareGrant.objects.create(consumer="cal", provider="hello", name="events")
+        self.assertContains(self.client.get(reverse("hub_settings_app_manage", args=["cal"])),
+                            "Lodge events (from Hello)")
     def test_installed_page_doesnt_wait_on_the_supervisor(self):
         self.install(perm=["alerts"])
         self.sup.requests.clear()

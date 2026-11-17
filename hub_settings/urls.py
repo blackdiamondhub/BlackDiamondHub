@@ -20,6 +20,7 @@ urlpatterns = [
     path("apps/<str:app_id>/update/", apps_views.manage_update, name="hub_settings_app_update"),
     path("apps/<str:app_id>/auto-update/", apps_views.manage_auto_update, name="hub_settings_app_auto_update"),
     path("apps/<str:app_id>/permissions/", apps_views.manage_permissions, name="hub_settings_app_permissions"),
+    path("apps/<str:app_id>/share-grant/", apps_views.manage_share_grant, name="hub_settings_app_share_grant"),
     path("apps/<str:app_id>/uninstall/", apps_views.manage_uninstall, name="hub_settings_app_uninstall"),
     path("app/<str:app_id>/", views.app_settings, name="hub_settings_app"),
 ]

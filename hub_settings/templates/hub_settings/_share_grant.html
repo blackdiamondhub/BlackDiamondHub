@@ -1,0 +1,5 @@
+<form method="post" action="{% url 'hub_settings_app_share_grant' app.id %}" class="hst-row" style="padding-left:58px">{% csrf_token %}
+    <input type="hidden" name="share" value="{{ s.name }}"><input type="hidden" name="consumer" value="{{ a.id }}">
+    <div class="lbl"><b>{{ a.name }}</b>{% if not a.reads %}<small>Doesn't say it reads {{ s.type }}</small>{% endif %}</div>
+    <span class="hst-tog"><input type="checkbox" name="on" {% if a.on %}checked{% endif %} onchange="this.form.submit()" aria-label="Share {{ s.title }} with {{ a.name }}"><span></span></span>
+</form>

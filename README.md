@@ -237,6 +237,21 @@ given. The hub's own credentials (`DJANGO_SECRET_KEY`, `DB_PASSWORD`,
 `WIFI_PASSWORD_FOR_*`, ...) still come from `.env`; environment values remain
 the fallback when nothing is saved.
 
+### Shared data between apps
+
+A container app can publish a named share that it declares in its manifest
+(`shares`: name, type, title; `text/calendar` today) and read shares the
+admin granted it (`reads` lists the types it understands). Apps upload
+content-addressed blobs with `shares.missing` / `shares.put_blob`, publish a
+revision atomically with `shares.publish`, and readers use `shares.list` /
+`shares.open`. Blobs live in the database (`broker_shareblob`, 50 MB per
+provider); the latest two revisions are kept and unreferenced blobs older
+than an hour are collected after each publish and hourly (`shares_gc`).
+Image attachments of a kept revision are public at `/apps/_share/<sha256>`.
+Each new revision is delivered as the event `_shares/<provider>/<name>` to the
+provider and its granted readers only; apps can't publish `_` topics. Grants
+are made on the provider's Settings → Apps page (Sharing card) and are
+dropped when either app is uninstalled.
 ## Deploying a hub server
 
 A hub server is an Ubuntu VM running the compose stack (hub,

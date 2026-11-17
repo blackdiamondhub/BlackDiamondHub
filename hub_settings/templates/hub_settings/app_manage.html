@@ -61,7 +61,26 @@
     {% if settings_url %}
     <a class="hst-row hst-link" href="{{ settings_url }}"><div class="lbl"><b>Settings</b><small>This app's own options</small></div><span class="hst-btn ghost" style="display:inline-flex;align-items:center">Open</span></a>
     {% endif %}
+    {% if receives %}
+    <div class="hst-row ap-perm"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i><div class="lbl"><b>Receives</b><small>{{ receives|join:", " }}</small></div></div>
+    {% endif %}
 </section>
+{% if sharing %}
+<section class="hst-card" id="sharing">
+    <h3>Sharing</h3>
+    {% for s in sharing %}
+    <div class="hst-row ap-perm"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
+        <div class="lbl"><b>{{ s.title }}</b><small>{{ s.type }} · {% if s.revision %}updated {{ s.updated|timesince }} ago · revision {{ s.revision }} · {{ s.size }}{% if s.attachments %} with {{ s.attachments }} image{{ s.attachments|pluralize }}{% endif %}{% else %}not published yet{% endif %}</small></div>
+    </div>
+    {% for a in s.readers %}{% include 'hub_settings/_share_grant.html' %}{% empty %}<p class="ap-sub" style="margin:4px 0 8px 58px">No installed app reads {{ s.type }}.</p>{% endfor %}
+    {% if s.others %}
+    <details style="margin:0 0 8px 40px"><summary class="ap-sub" style="cursor:pointer;padding:10px 18px">Show all apps</summary>
+        {% for a in s.others %}{% include 'hub_settings/_share_grant.html' %}{% endfor %}
+    </details>
+    {% endif %}
+    {% endfor %}
+</section>
+{% endif %}
 <section class="hst-card">
     <h3>Recent log</h3>
     <pre class="ap-logs" id="ap-logs">{{ logs|default:"(no output yet)" }}</pre>

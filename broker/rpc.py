@@ -24,6 +24,7 @@ AUDITED = frozenset({
     "ha.call_service", "ha.upload_media", "ha.ws_commands", "speakers.announce",
     "alerts.push", "alerts.dismiss", "state.set", "state.delete", "events.subscribe",
     "secrets.get", "secrets.set", "secrets.delete",
+    "shares.missing", "shares.put_blob", "shares.publish", "shares.list", "shares.open",
 })
 
 # Ops whose audit entry records only the secret's name, never the payload.
@@ -265,6 +266,8 @@ def events_publish(install, grants, payload):
     from . import events_bridge
 
     topic = _str(payload, "topic")
+    if topic.startswith("_"):
+        raise forbidden(f"topics starting with _ are the hub's own: {topic!r}")
     if not g.can_publish(grants, install.app_id, topic):
         raise forbidden(f"may not publish {topic!r}")
     events_bridge.publish(install.app_id, topic, payload.get("data"))
@@ -285,11 +288,66 @@ def events_subscribe(install, grants, payload):
             bus._segments(pattern, wildcards=True)
         except ValueError as exc:
             raise invalid(str(exc)) from None
+    # The hub's own topics (``_shares/...``) reach an app directly when it
+    # should get them, so they need no grant and aren't bus subscriptions.
+    patterns = [p for p in patterns if not p.startswith("_")]
     refused = [p for p in patterns if not g.can_subscribe(grants, install.app_id, p)]
     if refused:
         raise forbidden(f"may not subscribe to {', '.join(refused)}")
     events_bridge.subscribe(install.app_id, patterns)
     return None
+
+
+# --- shares ---------------------------------------------------------------------
+
+def _shares_call(fn, *args):
+    from . import shares
+
+    try:
+        return fn(*args)
+    except shares.ShareError as exc:
+        raise OpError(exc.code, str(exc)) from None
+
+
+def shares_missing(install, grants, payload):
+    from . import shares
+
+    return {"missing": _shares_call(shares.missing, install.app_id, payload.get("sha256"))}
+
+
+def shares_put_blob(install, grants, payload):
+    from . import shares
+
+    mime = _str(payload, "mime")
+    try:
+        data = base64.b64decode(_str(payload, "data_b64").encode("ascii"), validate=True)
+    except (binascii.Error, ValueError):
+        raise invalid("data_b64 must be base64") from None
+    return {"sha256": _shares_call(shares.put_blob, install.app_id, mime, data)}
+
+
+def shares_publish(install, grants, payload):
+    from . import shares
+
+    revision = _shares_call(shares.publish, install, payload.get("name"), payload.get("main"),
+                            payload.get("attachments"), payload.get("expected_revision"))
+    return {"revision": revision}
+
+
+def shares_list(install, grants, payload):
+    from . import shares
+
+    out = shares.list_for(install)
+    for share in out:
+        share["updated"] = share["updated"].isoformat() if share["updated"] else None
+    return {"shares": out}
+
+
+def shares_open(install, grants, payload):
+    from . import shares
+
+    return _shares_call(shares.open_share, install, payload.get("provider"), payload.get("name"),
+                        payload.get("if_revision"))
 
 
 # --- Home Assistant -----------------------------------------------------------
@@ -520,8 +578,15 @@ OPS = {
     "speakers.announce": speakers_announce,
     "speakers.tts": speakers_tts,
     "hub.brand": hub_brand,
+    "shares.missing": shares_missing,
+    "shares.put_blob": shares_put_blob,
+    "shares.publish": shares_publish,
+    "shares.list": shares_list,
+    "shares.open": shares_open,
 }
+
+UPLOAD_OPS = frozenset({"ha.upload_media", "shares.put_blob"})
 
 
 def max_body(op):
-    return MAX_UPLOAD_BODY if op == "ha.upload_media" else MAX_BODY
+    return MAX_UPLOAD_BODY if op in UPLOAD_OPS else MAX_BODY
