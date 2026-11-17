@@ -210,14 +210,24 @@ class PublishTests(ShareTestCase):
 
     def test_list(self):
         self.assertEqual(self.ok("shares.list"), {"shares": [{
-            "provider": "sunpeaks", "name": "events", "title": "Sun Peaks events", "type": "text/calendar",
-            "revision": 0, "updated": None}]})
+            "provider": "sunpeaks", "provider_title": "Cameras", "name": "events", "title": "Sun Peaks events",
+            "type": "text/calendar", "revision": 0, "updated": None}]})
         self.assertEqual(self.ok("shares.list", install=self.reader), {"shares": []})
         self.grant()
         self.publish()
         listed = self.ok("shares.list", install=self.reader)["shares"]
         self.assertEqual([(s["provider"], s["name"], s["revision"]) for s in listed], [("sunpeaks", "events", 1)])
         self.assertTrue(listed[0]["updated"])
+
+    def test_list_names_tileless_provider_not_by_id(self):
+        provider = make_install("sunpeaks_events", manifest=manifest(id="sunpeaks_events", shares=EVENTS,
+                                                                     tiles=[], name=""))
+        with mock.patch("broker.catalog.get", return_value={"apps": {"sunpeaks_events": {"name": "Sun Peaks Events"}}}):
+            self.assertEqual(self.ok("shares.list", install=provider)["shares"][0]["provider_title"],
+                             "Sun Peaks Events")
+        with mock.patch("broker.catalog.get", return_value=None):
+            self.assertEqual(self.ok("shares.list", install=provider)["shares"][0]["provider_title"],
+                             "Sunpeaks Events")
 
     def test_notifies_provider_and_granted_only(self):
         self.grant()

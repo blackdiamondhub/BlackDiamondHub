@@ -17,6 +17,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Sum
 from django.utils import timezone
 
+from . import catalog
 from .models import AppInstall, ShareBlob, ShareGrant, ShareRevision
 
 log = logging.getLogger(__name__)
@@ -253,7 +254,8 @@ def list_for(install):
         if share is None:
             continue
         rev = latest(provider, name)
-        out.append({"provider": provider, "name": name, "title": share["title"], "type": share["type"],
+        out.append({"provider": provider, "provider_title": catalog.display_name(installs[provider]),
+                    "name": name, "title": share["title"], "type": share["type"],
                     "revision": rev.revision if rev else 0, "updated": rev.created if rev else None})
     return out
 
