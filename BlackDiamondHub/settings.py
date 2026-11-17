@@ -36,6 +36,9 @@ globals().update(app_settings(_SITE['apps']))
 HUB_SITE_APPS = _SITE['apps']  # {app_id: {key: value}}; served to container apps by the broker
 # Apps the site runs in containers (runtime = "container"): not loaded in-process.
 HUB_CONTAINER_APPS = container_apps(_SITE['runtimes'])
+# The store refuses installs past this sum of app memory limits ([store] in site.toml).
+BDH_APP_MEMORY_BUDGET_MB = int(os.getenv('BDH_APP_MEMORY_BUDGET_MB')
+                               or _SITE['store'].get('memory_budget_mb', 1400))
 
 
 # Quick-start development settings - unsuitable for production

@@ -11,6 +11,9 @@ og_image = "brand/og-image.png"                # link-preview card (tools/render
 mountain = "On the mountain"
 lodge = "In the lodge"
 
+[store]  # Settings → Apps refuses installs once installed apps' memory limits pass this
+memory_budget_mb = 3072
+
 # Event sources for bdh_sdk.events (see the README). "ha" topics look like
 # ha/state/<entity_id>; nothing is watched until an app subscribes.
 [events.sources.ha]

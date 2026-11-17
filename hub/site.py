@@ -28,7 +28,10 @@ def section_titles(sections=None):
 
 
 def load_site(name=None, sites_dir=SITES_DIR):
-    """``{"name", "brand", "location", "features", "apps"}`` for the site. Brand file paths come back absolute.
+    """``{"name", "brand", "location", "features", "apps", "store"}`` for the site. Brand file paths come back absolute.
+
+    ``store`` is the ``[store]`` table: ``memory_budget_mb`` caps the sum of
+    installed apps' memory limits (Settings → Apps).
 
     ``apps`` is ``{app_id: {key: value}}`` from the ``[apps.<app_id>]`` tables:
     per-site settings for installed apps (see :func:`app_settings`).
@@ -62,9 +65,13 @@ def load_site(name=None, sites_dir=SITES_DIR):
         if key not in SECTION_TITLES or not isinstance(title, str) or not title.strip():
             raise ValueError(f"site {name!r}: [sections] {key!r} must be one of "
                              f"{', '.join(SECTION_TITLES)} with a title")
+    store = dict(conf.get("store", {}))
+    budget = store.get("memory_budget_mb")
+    if budget is not None and (not isinstance(budget, int) or isinstance(budget, bool) or budget <= 0):
+        raise ValueError(f"site {name!r}: [store] memory_budget_mb must be a positive whole number")
     return {"name": name, "brand": brand,
             "features": dict(conf.get("features", {})), "sections": sections,
-            "apps": apps, "runtimes": runtimes,
+            "apps": apps, "runtimes": runtimes, "store": store,
             "events": event_sources(name, conf.get("events", {}).get("sources", {}))}
 
 
