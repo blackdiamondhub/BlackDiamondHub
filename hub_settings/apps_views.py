@@ -360,11 +360,7 @@ def _back(app_id):
 
 
 def _app_name(record):
-    spec = _spec(record.app_id)
-    if spec:
-        return _label(spec)
-    name = (record.manifest or {}).get("name") if isinstance(record.manifest, dict) else None
-    return name if isinstance(name, str) and name else record.app_id
+    return catalog.display_name(record)
 
 
 def _mb(size):

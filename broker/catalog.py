@@ -246,6 +246,28 @@ def app(app_id, data=None):
     return entry if isinstance(entry, dict) else None
 
 
+def display_name(install):
+    """What to call an installed app: its first tile's title, else its manifest or
+    store name, else its id made readable. Never fetches; uses the cached catalog."""
+    manifest = install.manifest if isinstance(install.manifest, dict) else {}
+    tiles = manifest.get("tiles")
+    if isinstance(tiles, list) and tiles and isinstance(tiles[0], dict):
+        title = tiles[0].get("title")
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+    if isinstance(manifest.get("name"), str) and manifest["name"].strip():
+        return manifest["name"].strip()
+    try:
+        entry = app(install.app_id, get(refresh_stale=False) or {}) or {}
+    except Exception:
+        log.exception("catalog lookup for %s failed", install.app_id)
+        entry = {}
+    name = entry.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return install.app_id.replace("_", " ").title()
+
+
 def versions(app_id, data=None):
     """Usable versions of ``app_id``, newest first."""
     entry = app(app_id, data)
