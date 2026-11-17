@@ -1,0 +1,45 @@
+# Re-pin tests/e2e/stack.lock.json to what each component tracks and open a
+# PR with the change (locally: python tests/e2e/lock.py bump). PRs opened
+# with GITHUB_TOKEN don't trigger workflows: close and reopen it to run CI.
+name: stack-e2e-lock
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Bump the lock
+      run: python3 tests/e2e/lock.py bump
+
+    - name: Open a PR
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if git diff --quiet tests/e2e/stack.lock.json; then
+          echo "stack.lock.json is current"
+          exit 0
+        fi
+        branch=ci/stack-lock-$(date -u +%Y%m%d-%H%M%S)
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git switch -c "$branch"
+        git commit -m "Bump stack-e2e lock" tests/e2e/stack.lock.json
+        git push origin "$branch"
+        {
+          echo "Re-pins tests/e2e/stack.lock.json to what each component tracks:"
+          echo
+          echo '```diff'
+          git diff HEAD~1 -- tests/e2e/stack.lock.json
+          echo '```'
+          echo
+          echo "Opened by the stack-e2e-lock workflow: close and reopen this PR to run CI."
+        } > "$RUNNER_TEMP/body.md"
+        gh pr create --base "$GITHUB_REF_NAME" --head "$branch" --title "Bump stack-e2e lock" --body-file "$RUNNER_TEMP/body.md"
