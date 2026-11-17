@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import secrets
@@ -11,6 +12,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_GET, require_POST
@@ -21,7 +23,7 @@ from hub_settings.views import _render, _save, saved_redirect, staff_page
 
 from . import catalog, options
 from .library import photo_json, season_photos
-from .models import DisplayLoad, Heartbeat, SaverPhoto, UploadLink
+from .models import DisplayLoad, DisplaySample, Heartbeat, SaverPhoto, UploadLink
 from .photos import BadPhoto, add_photo
 from .options import APP, SEASON_IDS, SEASONS, SLOTS, SOURCES, STOCK_STYLES, value
 from .schedule import is_night, lodge_minute, parse_hhmm, window
@@ -163,10 +165,56 @@ def page_load(request):
         heap_mb=_int(post.get("heap_mb")), prev_path=post.get("prev_path", "")[:200],
         prev_clean={"1": True, "0": False}.get(clean),
         prev_lived_s=_int(post.get("prev_lived_s")), prev_silent_s=_int(post.get("prev_silent_s")),
-        prev_heap_mb=_int(post.get("prev_heap_mb")),
+        prev_heap_mb=_int(post.get("prev_heap_mb")), prev_stats=_json_object(post.get("prev_stats")),
     )
     DisplayLoad.objects.filter(at__lt=now - HEARTBEAT_KEEP).delete()
     return HttpResponse(status=204)
+
+
+SAMPLE_KEEP = timedelta(days=3)
+SAMPLE_MAX_BYTES = 16 * 1024
+
+
+def _json_object(value):
+    """``value`` parsed as a JSON object of at most SAMPLE_MAX_BYTES, else None."""
+    if not value or len(value) > SAMPLE_MAX_BYTES:
+        return None
+    try:
+        data = json.loads(value)
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+@csrf_exempt
+@require_POST
+def sample(request):
+    """A screen's page-health telemetry (sent every 30 s by every hub page)."""
+    data = _json_object(request.POST.get("data"))
+    if data is None:
+        return HttpResponse(status=400)
+    now = timezone.now()
+    DisplaySample.objects.create(ip=request.META.get("REMOTE_ADDR") or "0.0.0.0", at=now,
+                                 path=request.POST.get("path", "")[:200], data=data)
+    DisplaySample.objects.filter(at__lt=now - SAMPLE_KEEP).delete()
+    return HttpResponse(status=204)
+
+
+@require_GET
+def samples_api(request):
+    """Recent telemetry, newest first (``?ip=``, ``?since=`` ISO time, ``?limit=`` up to 5000)."""
+    rows = DisplaySample.objects.order_by("-at", "-id")
+    if request.GET.get("ip"):
+        rows = rows.filter(ip=request.GET["ip"])
+    since = parse_datetime(request.GET.get("since") or "")
+    if since:
+        rows = rows.filter(at__gte=since)
+    limit = min(max(_int(request.GET.get("limit")) or 200, 1), 5000)
+    response = JsonResponse({"samples": [
+        {"ip": s.ip, "at": s.at.isoformat(), "path": s.path, "data": s.data} for s in rows[:limit]
+    ]})
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @require_GET
@@ -181,7 +229,7 @@ def page_loads_api(request):
          "referrer": d.referrer, "user_agent": d.user_agent, "heap_mb": d.heap_mb,
          "prev_path": d.prev_path, "prev_clean": d.prev_clean, "prev_lived_s": d.prev_lived_s,
          "prev_silent_s": d.prev_silent_s, "prev_heap_mb": d.prev_heap_mb,
-         "crash": d.prev_clean is False}
+         "prev_stats": d.prev_stats, "crash": d.prev_clean is False}
         for d in loads[:limit]
     ]})
     response["Cache-Control"] = "no-store"

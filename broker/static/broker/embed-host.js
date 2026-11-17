@@ -1,7 +1,8 @@
 /* The hub side of the iframe contract with container apps (see bdh_sdk's embed.js).
  *
  * Messages are only taken from the app's frame on the app's origin, and only
- * as {bdh: 1, type, ...}: title, resize, activity, navigate, toast, theme, open-overlay.
+ * as {bdh: 1, type, ...}: title, resize, activity, navigate, toast, theme, open-overlay,
+ * telemetry.
  */
 (function () {
     'use strict';
@@ -107,6 +108,12 @@
                 var modal = document.getElementById('feedback-modal');
                 if (modal && window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(modal).show();
             }
+        },
+        // App health numbers (e.g. video decoder stats); the display overlay sends the
+        // latest with its 30 s telemetry sample.
+        telemetry: function (d) {
+            if (!d.data || typeof d.data !== 'object') return;
+            window.bdhAppTelemetry = {app: frame.dataset.appId, at: Date.now(), data: d.data};
         },
         // The feedback app's inbox changed: re-read the unread badge from the hub
         // (the count itself comes from the app's state, not from the message).
