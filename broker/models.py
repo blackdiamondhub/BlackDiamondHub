@@ -125,6 +125,66 @@ class AppSubscription(models.Model):
         return f"{self.app_id} {self.kind}{f' {self.instance}' if self.instance else ''}"
 
 
+class ShareBlob(models.Model):
+    """A file a provider app uploaded for its shares (see broker/shares.py),
+    content-addressed by ``sha256`` per owner: two apps uploading the same
+    bytes each get their own copy, so neither can affect the other's."""
+
+    sha256 = models.CharField(max_length=64, db_index=True)
+    mime = models.CharField(max_length=100)
+    size = models.PositiveIntegerField()
+    data = models.BinaryField()
+    width = models.PositiveIntegerField(null=True, blank=True)
+    height = models.PositiveIntegerField(null=True, blank=True)
+    owner = models.CharField(max_length=64)
+    created = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["owner", "sha256"], name="broker_shareblob_unique")]
+
+    def __str__(self):
+        return f"{self.owner} {self.sha256[:12]} {self.mime}"
+
+
+class ShareRevision(models.Model):
+    """One published revision of a provider's share: a main file plus image
+    attachments (``{key: sha256}``, blobs of the same owner). Only the latest
+    two are kept."""
+
+    provider = models.CharField(max_length=64)
+    name = models.CharField(max_length=40)
+    revision = models.PositiveIntegerField()
+    main_sha = models.ForeignKey(ShareBlob, on_delete=models.PROTECT, related_name="+")
+    attachments = models.JSONField(default=dict, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["provider", "name", "revision"],
+                                               name="broker_sharerevision_unique")]
+        indexes = [models.Index(fields=["provider", "name", "-revision"], name="broker_sharerev_latest")]
+
+    def __str__(self):
+        return f"{self.provider}/{self.name} r{self.revision}"
+
+
+class ShareGrant(models.Model):
+    """The admin let ``consumer`` read ``provider``'s share ``name``."""
+
+    consumer = models.CharField(max_length=64, db_index=True)
+    provider = models.CharField(max_length=64)
+    name = models.CharField(max_length=40)
+    granted_by = models.CharField(max_length=150, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["consumer", "provider", "name"],
+                                               name="broker_sharegrant_unique")]
+        indexes = [models.Index(fields=["provider", "name"], name="broker_sharegrant_share")]
+
+    def __str__(self):
+        return f"{self.consumer} reads {self.provider}/{self.name}"
+
+
 class AuditEntry(models.Model):
     """What an app asked the broker for (denials and changes, not every read)."""
 

@@ -113,7 +113,7 @@ def allowed(install, wanted):
             bus._segments(pattern, wildcards=True)
         except ValueError:
             continue
-        if g.can_subscribe(grants, install.app_id, pattern):
+        if not pattern.startswith("_") and g.can_subscribe(grants, install.app_id, pattern):
             out.append(pattern)
     return sorted(set(out))
 
@@ -221,18 +221,32 @@ def _handler(app_id, pattern):
 
 
 def _submit(app_id, event):
+    _deliver(app_id, event.topic, event.data, event.time)
+
+
+def _deliver(app_id, topic, data, at):
     global _pending
     try:
-        payload = json.loads(json.dumps({"topic": event.topic, "data": event.data, "time": event.time}))
+        payload = json.loads(json.dumps({"topic": topic, "data": data, "time": at}))
     except (TypeError, ValueError):
-        log.warning("event %s isn't JSON; not sent to %s", event.topic, app_id)
+        log.warning("event %s isn't JSON; not sent to %s", topic, app_id)
         return
     with _lock:
         if _pending >= MAX_PENDING:
-            log.warning("event queue full; dropping %s for %s", event.topic, app_id)
+            log.warning("event queue full; dropping %s for %s", topic, app_id)
             return
         _pending += 1
     _executor().submit(_send, app_id, payload)
+
+
+def notify_share(provider, name, revision, recipients):
+    """Tell ``recipients`` (the provider and its granted consumers) about a new
+    revision. The hub's own ``_shares/...`` topics skip the bus, so no other
+    app can see them, whatever it subscribed to."""
+    topic = f"_shares/{provider}/{name}"
+    data = {"provider": provider, "name": name, "revision": revision}
+    for app_id in dict.fromkeys(recipients):
+        _deliver(app_id, topic, data, time.time())
 
 
 def _send(app_id, payload):

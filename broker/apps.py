@@ -15,6 +15,10 @@ class BrokerConfig(AppConfig):
         post_save.connect(remote.installs_changed, sender=AppInstall, dispatch_uid="broker_install_saved")
         post_delete.connect(remote.installs_changed, sender=AppInstall, dispatch_uid="broker_install_deleted")
 
+        from . import shares
+
+        post_delete.connect(shares.installs_deleted, sender=AppInstall, dispatch_uid="broker_install_shares")
+
         from hub import events
 
         if events.is_server():

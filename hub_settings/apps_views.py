@@ -5,6 +5,7 @@ apps (built in to this hub's image) are listed but can't be managed here.
 Installs and updates run as background jobs (:mod:`broker.jobs`); the pages
 refresh themselves while one runs.
 """
+import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -17,8 +18,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from broker import catalog, jobs, services, supervisor
-from broker.models import AppInstall
+from broker import catalog, jobs, services, shares, supervisor
+from broker.models import AppInstall, AuditEntry, ShareBlob, ShareGrant
 from hub.modes import plugins
 
 from .views import _icon, _label, _render, _settings_url, _version, saved_redirect, staff_page
@@ -335,6 +336,7 @@ def manage(request, app_id):
                    summary=_short([p for p in record.requested_permissions or () if p in granted]),
                    network=NETWORK_INFO.get(record.approved_network),
                    changelog=_changelog(record, data),
+                   sharing=_sharing(record), receives=_receives(record),
                    review=_review(record, request.GET.get("review"), data))
 
 
@@ -355,6 +357,77 @@ def _review(record, version, data):
 
 def _back(app_id):
     return redirect("hub_settings_app_manage", app_id)
+
+
+def _app_name(record):
+    spec = _spec(record.app_id)
+    if spec:
+        return _label(spec)
+    name = (record.manifest or {}).get("name") if isinstance(record.manifest, dict) else None
+    return name if isinstance(name, str) and name else record.app_id
+
+
+def _mb(size):
+    return f"{size / (1024 * 1024):.1f} MB" if size >= 100 * 1024 else f"{max(1, round(size / 1024))} KB"
+
+
+def _sharing(record):
+    """The Sharing card: each share ``record`` declares, with a checkbox per app."""
+    declared = shares.declared(record.manifest)
+    if not declared:
+        return []
+    others = sorted((r for r in AppInstall.objects.filter(runtime=AppInstall.CONTAINER)
+                     .exclude(app_id=record.app_id)), key=lambda r: _app_name(r).lower())
+    grants = set(ShareGrant.objects.filter(provider=record.app_id).values_list("name", "consumer"))
+    out = []
+    for share in declared:
+        rev = shares.latest(record.app_id, share["name"])
+        size = 0
+        if rev:
+            size = sum(ShareBlob.objects.filter(owner=record.app_id, sha256__in={
+                rev.main_sha.sha256, *(rev.attachments or {}).values()}).values_list("size", flat=True))
+        apps = [{"id": r.app_id, "name": _app_name(r), "on": (share["name"], r.app_id) in grants,
+                 "reads": share["type"] in shares.reads(r.manifest)} for r in others]
+        out.append({**share, "revision": rev.revision if rev else 0, "updated": rev.created if rev else None,
+                    "size": _mb(size) if rev else "", "attachments": len(rev.attachments or {}) if rev else 0,
+                    "readers": [a for a in apps if a["reads"] or a["on"]],
+                    "others": [a for a in apps if not a["reads"] and not a["on"]]})
+    return out
+
+
+def _receives(record):
+    """``record``'s granted shares, for the read-only "Receives" line."""
+    out = []
+    installs = {r.app_id: r for r in AppInstall.objects.filter(
+        app_id__in=ShareGrant.objects.filter(consumer=record.app_id).values("provider"))}
+    for provider, name in ShareGrant.objects.filter(consumer=record.app_id).order_by("provider", "name") \
+            .values_list("provider", "name"):
+        install = installs.get(provider)
+        share = shares.declaration(install, name)
+        if share:
+            out.append(f"{share['title']} (from {_app_name(install)})")
+    return out
+
+
+@staff_page
+@require_POST
+def manage_share_grant(request, app_id):
+    """Check or uncheck an app on the Sharing card: grant or revoke one share."""
+    record = _record(app_id)
+    name, consumer = request.POST.get("share", ""), request.POST.get("consumer", "")
+    if shares.declaration(record, name) is None:
+        raise Http404("no such share")
+    if consumer == app_id or not AppInstall.objects.filter(app_id=consumer, runtime=AppInstall.CONTAINER).exists():
+        raise Http404("no such app")
+    detail = json.dumps({"share": name, "consumer": consumer, "by": request.user.get_username()})
+    if request.POST.get("on") == "on":
+        ShareGrant.objects.get_or_create(consumer=consumer, provider=app_id, name=name,
+                                         defaults={"granted_by": request.user.get_username()})
+        AuditEntry.record(app_id, "shares.grant", True, detail)
+    else:
+        ShareGrant.objects.filter(consumer=consumer, provider=app_id, name=name).delete()
+        AuditEntry.record(app_id, "shares.revoke", True, detail)
+    return redirect(reverse("hub_settings_app_manage", args=[app_id]) + "#sharing")
 
 
 @staff_page

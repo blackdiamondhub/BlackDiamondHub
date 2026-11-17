@@ -95,7 +95,8 @@ def _summary(op, payload):
     if op in ops.SECRET_OPS:
         name = payload.get("name")
         return json.dumps({"name": name if isinstance(name, str) else None})[:500]
-    keys = ("domain", "service", "entity_id", "key", "topic", "patterns", "filename", "message")
+    keys = ("domain", "service", "entity_id", "key", "topic", "patterns", "filename", "message",
+            "provider", "name", "mime", "main", "expected_revision")
     return json.dumps({k: payload[k] for k in keys if k in payload}, default=str)[:500]
 
 
@@ -224,6 +225,22 @@ def _raw_response(out, headers):
         out[name] = value
     out["X-Content-Type-Options"] = "nosniff"
     out["Content-Security-Policy"] = "sandbox; default-src 'none'"
+    return out
+
+
+def share_blob(request, sha):
+    """``/apps/_share/<sha256>``: an image attached to a published share. Public,
+    like the photos it is; nothing else (main files, unpublished blobs) is served."""
+    from . import shares
+
+    if request.method not in ("GET", "HEAD"):
+        return HttpResponse(status=405, headers={"Allow": "GET, HEAD"})
+    blob = shares.public_blob(sha)
+    if blob is None:
+        raise Http404("No such file")
+    out = _raw_response(HttpResponse(bytes(blob.data), content_type=blob.mime), {})
+    out["Cache-Control"] = "public, max-age=31536000, immutable"
+    out["Cross-Origin-Resource-Policy"] = "cross-origin"
     return out
 
 
