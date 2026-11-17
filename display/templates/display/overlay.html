@@ -34,11 +34,50 @@
         load.append('prev_lived_s', Math.round(((prev.last || now) - prev.start) / 1000));
         load.append('prev_silent_s', Math.round((now - (prev.last || now)) / 1000));
         load.append('prev_heap_mb', prev.heap === '' ? '' : prev.heap);
+        if (prev.stats) load.append('prev_stats', JSON.stringify(prev.stats));
     }
     navigator.sendBeacon('{% url "display_page_load" %}', load);
     const life = {path: location.pathname, start: now, last: now, heap: heap(), clean: false};
     store(life);
-    setInterval(() => { life.last = Date.now(); life.heap = heap(); store(life); }, 5000);
+
+    // Page health every 30 s: how late a 250 ms timer fires (a busy or hung main
+    // thread), long tasks, JS heap, and the latest numbers the app frame sent
+    // (embed-host.js keeps them in window.bdhAppTelemetry). The window so far is also
+    // kept in the life record, so the next load's crash report shows what led up to it.
+    const fresh = () => ({lag_max_ms: 0, stalls: 0, long_ms: 0, long_n: 0});
+    let cur = fresh(), last = null, due = performance.now() + 250;
+    const tick = () => {
+        const t = performance.now(), lag = Math.round(Math.max(0, t - due));
+        if (lag > cur.lag_max_ms) cur.lag_max_ms = lag;
+        if (lag > 1000) cur.stalls++;
+        due = t + 250;
+        setTimeout(tick, 250);
+    };
+    setTimeout(tick, 250);
+    try {
+        new PerformanceObserver(list => list.getEntries().forEach(e => {
+            cur.long_ms += Math.round(e.duration); cur.long_n++;
+        })).observe({type: 'longtask'});
+    } catch (e) {}
+    const snapshot = () => {
+        const app = window.bdhAppTelemetry;
+        return {...cur, heap_mb: heap(), up_s: Math.round((Date.now() - now) / 1000), hidden: document.hidden,
+                app: app && Date.now() - app.at < 90 * 1000 ? app : null};
+    };
+    setInterval(() => {
+        last = snapshot();
+        cur = fresh();
+        const body = new FormData();
+        body.append('path', location.pathname);
+        body.append('data', JSON.stringify(last));
+        navigator.sendBeacon('{% url "display_sample" %}', body);
+    }, 30 * 1000);
+
+    setInterval(() => {
+        life.last = Date.now(); life.heap = heap();
+        life.stats = {now: snapshot(), prev: last && {...last, app: undefined}};
+        store(life);
+    }, 5000);
     addEventListener('pagehide', () => { life.last = Date.now(); life.clean = true; store(life); });
     addEventListener('pageshow', e => { if (e.persisted) { life.clean = false; store(life); } });
 })();

@@ -92,3 +92,15 @@ class DisplayLoad(models.Model):
     prev_lived_s = models.IntegerField(null=True, blank=True)
     prev_silent_s = models.IntegerField(null=True, blank=True)
     prev_heap_mb = models.IntegerField(null=True, blank=True)
+    # The previous page's last telemetry (see DisplaySample), so a crash shows what led up to it.
+    prev_stats = models.JSONField(null=True, blank=True)
+
+
+class DisplaySample(models.Model):
+    """Page health a screen reports every 30 s: main-thread lag, long tasks, JS heap,
+    and whatever the app in the page's frame sends (e.g. the cameras' decoder stats)."""
+
+    ip = models.GenericIPAddressField(db_index=True)
+    at = models.DateTimeField(db_index=True)
+    path = models.CharField(max_length=200, blank=True)
+    data = models.JSONField(default=dict)

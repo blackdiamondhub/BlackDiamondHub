@@ -27,7 +27,7 @@ from hub_settings import store
 from tests.selenium_helpers import SeleniumTestCase, login_via_browser
 from . import catalog, connect, views
 from hub_settings.models import AppSetting
-from .models import DisplayLoad, Heartbeat, SaverPhoto, UploadLink
+from .models import DisplayLoad, DisplaySample, Heartbeat, SaverPhoto, UploadLink
 from .options import DEFAULT_STARTS, SEASONS, STOCK_STYLES
 from .schedule import is_night, parse_hhmm
 from .season import parse_mmdd, resolve
@@ -484,6 +484,43 @@ class PageLoadTests(TestCase):
     def test_every_page_reports_its_load(self):
         html = self.client.get("/").content.decode()
         self.assertIn(reverse("display_page_load"), html)
+
+    def test_keeps_previous_pages_last_stats(self):
+        self.send(prev_clean="0", prev_stats='{"now": {"lag_max_ms": 9000, "stalls": 3}}')
+        self.send(prev_clean="0", prev_stats="[1, 2]")
+        self.send(prev_clean="0", prev_stats="{" + "x" * 20000)
+        self.assertEqual([d["prev_stats"] for d in self.loads()],
+                         [None, None, {"now": {"lag_max_ms": 9000, "stalls": 3}}])
+
+
+class SampleTests(TestCase):
+    def send(self, data, ip="192.168.1.99", path="/apps/cameras/"):
+        return Client(enforce_csrf_checks=True).post(reverse("display_sample"), {"path": path, "data": data},
+                                                     REMOTE_ADDR=ip)
+
+    def samples(self, **params):
+        return self.client.get(reverse("display_samples"), params).json()["samples"]
+
+    def test_records_and_lists_newest_first(self):
+        self.assertEqual(self.send('{"lag_max_ms": 40}').status_code, 204)
+        self.send('{"lag_max_ms": 1200, "app": {"app": "cameras", "data": {"heap_mb": 80}}}')
+        self.send('{"lag_max_ms": 5}', ip="192.168.1.50")
+        rows = self.samples(ip="192.168.1.99")
+        self.assertEqual([r["data"]["lag_max_ms"] for r in rows], [1200, 40])
+        self.assertEqual((rows[0]["path"], rows[0]["data"]["app"]["data"]["heap_mb"]), ("/apps/cameras/", 80))
+        self.assertEqual(len(self.samples(limit="1")), 1)
+
+    def test_rejects_non_objects_and_prunes_old(self):
+        for bad in ("", "nope", "[1]", "{" + "x" * 20000):
+            self.assertEqual(self.send(bad).status_code, 400)
+        old = DisplaySample.objects.create(ip="192.168.1.99", at=timezone.now() - timedelta(days=4))
+        self.send("{}")
+        self.assertFalse(DisplaySample.objects.filter(pk=old.pk).exists())
+        self.assertEqual(len(self.samples(since=(timezone.now() - timedelta(minutes=1)).isoformat())), 1)
+
+    def test_every_page_sends_samples(self):
+        html = self.client.get("/").content.decode()
+        self.assertIn(reverse("display_sample"), html)
 
 
 class CatalogTests(TestCase):
