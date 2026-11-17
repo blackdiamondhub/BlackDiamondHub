@@ -4,16 +4,18 @@ Run after run_stack.sh: ``pytest -p no:cacheprovider tests/e2e/stack_test.py``.
 Tests run in file order and share the stack: the lifecycle test comes last so
 nothing else talks to the hub while it waits out the RUNNING_TTL trust window.
 """
+import io
 import json
-import os
 import re
 import subprocess
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import urljoin
 
 import pytest
 import requests
+from PIL import Image
 
 WORK = Path(__file__).parent / ".work"
 ENV = dict(line.split("=", 1) for line in (WORK / "stack.env").read_text().split() if "=" in line)
@@ -32,10 +34,22 @@ PAGE = f"/{APP_ID}/"
 ICON = f"/apps/{APP_ID}/_raw/static/{APP_ID}/icon.svg"
 # broker/lifecycle.py RUNNING_TTL plus margin.
 TRUST_WINDOW = 60 + 5
-# Hub PR #352 fixes both known gaps below; once it is on main those tests run strict.
-ROOT = Path(__file__).resolve().parents[2]
-HAS_WAKE_FLAG = "_bdh_wake" in (ROOT / "broker" / "views.py").read_text()
-HAS_RUNNING_PROBE = "async def _probe(" in (ROOT / "broker" / "lifecycle.py").read_text()
+# What e2e_probe's bg view draws.
+CAM_SIZE = (64, 36)
+CAM_RGB = (30, 90, 160)
+# Hub requests that refresh (or bypass) the trust window for the app.
+APP_TRAFFIC = re.compile(rf"/_broker/|/apps/{APP_ID}[/?]|supervisor/apps/{APP_ID}/")
+
+
+class KnownGap(AssertionError):
+    """A gap hub PR #352 closes. Only this exception satisfies the xfail markers
+    below; any other failure in those tests is a real one."""
+
+
+def needs_352(reason):
+    # strict: once #352 is on main the test XPASSes, which fails the job, so the
+    # marker has to be removed along with it.
+    return pytest.mark.xfail(strict=True, raises=KnownGap, reason=f"needs hub PR #352: {reason}")
 
 
 def poll(what, check, timeout, interval=1.0):
@@ -61,8 +75,13 @@ def get(url, **kwargs):
 
 
 def container():
-    out = subprocess.run(["docker", "inspect", APP_CONTAINER], check=True, capture_output=True, text=True).stdout
-    state = json.loads(out)[0]
+    """The app container's identity and state, or None when it doesn't exist."""
+    proc = subprocess.run(["docker", "inspect", APP_CONTAINER], capture_output=True, text=True)
+    if proc.returncode:
+        if "No such object" in proc.stderr:
+            return None
+        proc.check_returncode()
+    state = json.loads(proc.stdout)[0]
     return {"id": state["Id"], "started": state["State"]["StartedAt"],
             "restarts": state["RestartCount"], "running": state["State"]["Running"]}
 
@@ -72,11 +91,39 @@ def manage(code):
                    check=True, capture_output=True, text=True, timeout=120)
 
 
-def assert_image(url):
-    resp = get(url)
+def hub_log(since=None):
+    cmd = ["docker", "logs", *(["--since", f"{since:.3f}"] if since else []), HUB_CONTAINER]
+    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).stdout
+
+
+def assert_image(url, resp=None):
+    """``url`` serves a well-formed image of the type it claims; returns it decoded (None for SVG)."""
+    resp = resp or get(url)
     assert resp.status_code == 200, f"{url}: {resp.status_code}"
-    assert resp.headers.get("Content-Type", "").startswith("image/"), f"{url}: {resp.headers.get('Content-Type')}"
-    assert resp.content, f"{url}: empty body"
+    kind = resp.headers.get("Content-Type", "").split(";")[0].strip()
+    assert kind.startswith("image/"), f"{url}: Content-Type {kind!r}"
+    if kind == "image/svg+xml":
+        try:
+            root = ET.fromstring(resp.content)
+        except ET.ParseError as exc:
+            pytest.fail(f"{url}: not SVG ({exc}): {resp.content[:80]!r}")
+        assert root.tag == "{http://www.w3.org/2000/svg}svg", f"{url}: root element {root.tag!r}"
+        return None
+    try:
+        Image.open(io.BytesIO(resp.content)).verify()
+        img = Image.open(io.BytesIO(resp.content))
+        img.load()
+    except Exception as exc:
+        pytest.fail(f"{url}: {kind} body isn't a decodable image ({exc}): {resp.content[:80]!r}")
+    assert Image.MIME.get(img.format) == kind, f"{url}: {kind} but the body is {img.format}"
+    assert img.width > 0 and img.height > 0, f"{url}: {img.size}"
+    return img
+
+
+def assert_probe_cam(url, resp=None):
+    img = assert_image(url, resp)
+    assert img is not None and img.size == CAM_SIZE, f"{url}: not the probe's cam image"
+    assert img.convert("RGB").getpixel((0, 0)) == CAM_RGB, f"{url}: not the probe's cam image"
 
 
 def open_app():
@@ -92,16 +139,19 @@ def open_app():
     return resp
 
 
-def settled():
-    """The app container once it has kept the same identity for 10 s."""
-    seen = poll("the app container", lambda: (c := container())["running"] and c, timeout=60)
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        time.sleep(1)
+def settled(quiet=10, timeout=90):
+    """The app container once it has kept the same identity, running, for ``quiet`` s."""
+    give_up = time.monotonic() + timeout
+    seen, since = None, time.monotonic()
+    while True:
         now = container()
-        if now != seen:
-            seen, deadline = now, time.monotonic() + 10
-    return seen
+        if now != seen or not (now and now["running"]):
+            seen, since = now, time.monotonic()
+        elif time.monotonic() - since >= quiet:
+            return seen
+        if time.monotonic() >= give_up:
+            pytest.fail(f"app container didn't settle within {timeout}s (last: {seen})")
+        time.sleep(1)
 
 
 @pytest.fixture(scope="module")
@@ -161,47 +211,61 @@ def test_saver_and_tile_images(saver):
     assert saver["cam"]["name"] == CAM_NAME
     assert saver["cam"]["url"].startswith(f"/apps/{APP_ID}/_raw/"), saver["cam"]
     urls = [saver["cam"]["url"], ICON, *saver["stock"], *(p["url"] for p in saver["photos"])]
-    for url in urls:
+    assert_probe_cam(urls[0])
+    for url in urls[1:]:
         assert_image(url)
 
 
-@pytest.fixture(scope="module")
-def stopped(saver):
+def is_asleep():
+    c = container()
+    return c is None or not c["running"]
+
+
+@pytest.fixture
+def asleep():
+    """Stop the app through the supervisor right before each test that needs it asleep."""
     manage(f"from broker import supervisor; supervisor.stop({APP_ID!r})")
-    poll("the app to stop", lambda: not container()["running"], timeout=60)
-    return saver
+    poll("the app to stop", is_asleep, timeout=60)
 
 
-@pytest.mark.xfail(not HAS_WAKE_FLAG, strict=False, reason=(
-    "main's /_raw/ wakes a sleeping app only for /static/ files, so the saver's live cam 404s "
-    "while the app sleeps; hub PR #352 adds the _bdh_wake flag the saver puts on cam URLs. "
-    "Strict once #352 is on main."))
-def test_sleeping_app_cam_image(stopped):
-    assert_image(stopped["cam"]["url"])
+@needs_352("main's /_raw/ wakes a sleeping app only for /static/ files, so the saver's live cam "
+           "404s while the app sleeps; #352 adds the _bdh_wake flag the saver puts on cam URLs")
+def test_sleeping_app_cam_image(saver, asleep):
+    assert is_asleep()
+    url = saver["cam"]["url"]
+    resp = get(url)
+    if resp.status_code == 404:
+        raise KnownGap(f"{url}: 404 while the app sleeps")
+    assert_probe_cam(url, resp)
 
 
-def test_sleeping_app_tile_icon(stopped):
+def test_sleeping_app_tile_icon(asleep):
+    assert is_asleep()
     # Served from the hub's per-version copy, or by waking the app.
     assert_image(ICON)
 
 
 # --- (b) opening an app inside its trust window doesn't recreate it -------------
 
-@pytest.mark.xfail(not HAS_RUNNING_PROBE, strict=False, reason=(
-    "On main, the first open after RUNNING_TTL calls supervisor start, which recreates the "
-    "container; hub PR #352 checks the supervisor's running state first. "
-    "Strict once #352 is on main."))
+@needs_352("on main the first open after RUNNING_TTL calls supervisor start, which recreates "
+           "the container; #352 asks the supervisor whether it is running first")
 def test_reopen_after_trust_window_keeps_container():
     open_app()
-    opened = time.monotonic()
+    # settled() outlasts the app's one boot-time broker call (events.subscribe), the
+    # last thing that refreshes the hub's trust window before the quiet spell.
     before = settled()
-    # Quiet until the hub's trust in "running" has lapsed; the app must stay up meanwhile.
-    while time.monotonic() - opened < TRUST_WINDOW:
+    quiet_from = time.time()
+    # Watch through docker only: any request to the hub about the app would wake it
+    # or refresh the trust window and hide the bug.
+    while time.time() - quiet_from < TRUST_WINDOW:
         assert container() == before, "app container changed while idle"
         time.sleep(5)
+    traffic = [line for line in hub_log(since=quiet_from).splitlines() if APP_TRAFFIC.search(line)]
+    assert not traffic, "app traffic during the quiet spell refreshed the trust window:\n" + "\n".join(traffic)
     open_app()
     after = settled()
-    assert after["id"] == before["id"], "reopening recreated the app container"
+    if after["id"] != before["id"]:
+        raise KnownGap(f"reopening recreated the app container ({before['id'][:12]} -> {after['id'][:12]})")
     assert after["started"] == before["started"], "reopening restarted the app container"
     assert after["restarts"] == before["restarts"]
 
@@ -212,8 +276,7 @@ ERROR_STATUS = re.compile(r'"[A-Z]+ [^"]*" (5\d\d) ')
 
 
 def test_no_server_errors_in_hub_log():
-    log = subprocess.run(["docker", "logs", HUB_CONTAINER], stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT, text=True).stdout
+    log = hub_log()
     # 503 is the proxy's designed "Starting…" page (Retry-After) for a waking app.
     errors = [line for line in log.splitlines()
               if (m := ERROR_STATUS.search(line)) and m.group(1) != "503"]

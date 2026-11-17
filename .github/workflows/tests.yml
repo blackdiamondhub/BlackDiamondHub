@@ -329,7 +329,7 @@ jobs:
         python-version: '3.12'
 
     - name: Install test tools
-      run: pip install pytest requests selenium
+      run: pip install pytest requests selenium pillow
 
     - name: Start the stack
       run: BDH_SDK=.sdk bash tests/e2e/run_stack.sh
