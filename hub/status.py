@@ -388,6 +388,18 @@ def home_data(mode, timeout=TIMEOUT):
             "now": time.time()}
 
 
+def wake_hidden(timeout=TIMEOUT):
+    """Poll the status of apps with no tile, which the homepage never asks.
+
+    Background apps (a feed, say) refresh whenever they're woken; this wakes a
+    sleeping one once its last status is older than its ``wake_every``.
+    Returns the ids polled.
+    """
+    specs = [s for s in plugins() if s.status and not s.tiles]
+    _gather([("status", s.id, s.status, _status_value, _status_ttl) for s in specs], timeout)
+    return [s.id for s in specs]
+
+
 def all_shortcuts(timeout=TIMEOUT):
     """Every app's shortcuts in every mode, for Settings: ``{plugin_id: [shortcut]}``.
 
