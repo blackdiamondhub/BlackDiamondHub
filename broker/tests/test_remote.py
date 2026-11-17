@@ -202,6 +202,45 @@ class SleepingAppTests(TestCase):
         self.assertEqual(self.poll()["text"], "2 cameras")
         self.assertGreaterEqual(self.starts, 1)
 
+    def make_tileless(self):
+        self.install.manifest = manifest(wake_every=3600, tiles=[], hooks=["status"])
+        self.install.save()
+        remote.installs_changed()
+
+    def test_tileless_app_is_woken_by_the_waker(self):
+        from hub import waker
+
+        self.make_tileless()
+        self.awake = False
+        # The homepage never polls an app without a tile...
+        self.assertIsNone(self.poll())
+        self.assertEqual(self.starts, 0)
+        # ...so the waker does.
+        self.assertEqual(waker.tick(), ["cams"])
+        self.assertEqual(self.starts, 1)
+
+    def test_waker_lets_tileless_app_sleep_until_wake_every(self):
+        from hub import waker
+
+        self.make_tileless()
+        waker.tick()
+        self.awake = False
+        cache.delete(status._fresh_key("status", "cams"))
+        waker.tick()
+        self.assertEqual(self.starts, 0)
+        key = status._last_key("status", "cams")
+        cache.set(key, {**cache.get(key), "updated": time.time() - 3601})
+        cache.delete(status._fresh_key("status", "cams"))
+        waker.tick()
+        self.assertEqual(self.starts, 1)
+
+    def test_waker_skips_apps_with_tiles(self):
+        from hub import waker
+
+        self.awake = False
+        self.assertEqual(waker.tick(), [])
+        self.assertEqual(self.starts, 0)
+
 
 class ManifestFetchTests(TestCase):
     def setUp(self):

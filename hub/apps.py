@@ -20,3 +20,7 @@ class HubConfig(AppConfig):
         if events.should_start():
             events.start(settings.HUB_EVENT_SOURCES)
             events.sync_instances(delay=2)
+        if events.is_server():
+            from . import waker
+
+            waker.start()
