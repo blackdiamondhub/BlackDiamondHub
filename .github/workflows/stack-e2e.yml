@@ -13,7 +13,7 @@
 # instead). Images can be registry refs, or local tags loaded from
 # images_artifact (one or more `docker save` tarballs uploaded earlier in the
 # same run). The resolved components are in the job summary and the
-# <artifact_name> artifact (resolved.json).
+# <artifact_name>-<suite> artifacts (resolved.json). Suites run as parallel jobs.
 name: stack-e2e
 
 on:
@@ -57,8 +57,13 @@ on:
         type: boolean
         default: false
       artifact_name:
+        description: Logs are uploaded as <artifact_name>-<suite>
         type: string
         default: stack-e2e
+      suites:
+        description: 'JSON list of suites: core (stack_test.py) and/or caps (capabilities_test.py)'
+        type: string
+        default: '["core", "caps"]'
 
 permissions:
   contents: read
@@ -67,7 +72,12 @@ jobs:
   stack-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(inputs.suites) }}
     env:
+      SUITE: ${{ matrix.suite }}
       HEADS: ${{ inputs.heads && '1' || '' }}
       SDK_IN_RUNTIME: ${{ inputs.sdk_in_runtime && '1' || '' }}
       SUPERVISOR_IMAGE: ${{ inputs.supervisor_image }}
@@ -136,7 +146,7 @@ jobs:
         python-version: '3.12'
 
     - name: Install test tools
-      run: pip install pytest requests selenium pillow
+      run: pip install pytest requests selenium pillow aiohttp
 
     - name: Start the stack
       env:
@@ -152,7 +162,10 @@ jobs:
         { echo '### stack-e2e components'; echo '```json'; cat "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Run stack tests
-      run: pytest -v -rxX -p no:cacheprovider tests/e2e/app_test.py tests/e2e/stack_test.py
+      run: |
+        if [ "$SUITE" = caps ]; then tests=tests/e2e/capabilities_test.py
+        else tests="tests/e2e/app_test.py tests/e2e/stack_test.py"; fi
+        pytest -v -rxX -p no:cacheprovider $tests
 
     - name: Collect logs
       if: always()
@@ -162,6 +175,6 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v7
       with:
-        name: ${{ inputs.artifact_name }}
+        name: ${{ inputs.artifact_name }}-${{ matrix.suite }}
         path: tests/e2e/.work/artifacts
         if-no-files-found: ignore

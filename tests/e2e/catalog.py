@@ -1,8 +1,9 @@
-"""Write the stack-e2e catalog.json, one entry per app, as bdh-app-catalog's
+"""Write the stack-e2e catalog.json, one entry per app version (newest first), as bdh-app-catalog's
 builder.make_entry would from the SDK builder's bdh-app.json (with manifest):
 
     python3 catalog.py <out> <wheel url prefix> <base> \
         <bdh-app.json> <image> <wheel> <name> [<bdh-app.json> <image> <wheel> <name> ...]
+    python3 catalog.py --name <app id>   # the display name the harness lists it under
 """
 import hashlib
 import json
@@ -38,12 +39,22 @@ def main(out, url_prefix, base, *apps):
     for i in range(0, len(apps), 4):
         app_json, image, wheel, name = apps[i:i + 4]
         config = json.loads(Path(app_json).read_text())
-        catalog["apps"][config["id"]] = {
+        app = catalog["apps"].setdefault(config["id"], {
             "name": name, "description": "stack-e2e", "repo": "blackdiamondlodge/BlackDiamondHub",
-            "versions": [entry(config, image, base, wheel, url_prefix, now)],
-        }
+            "versions": [],
+        })
+        app["versions"].append(entry(config, image, base, wheel, url_prefix, now))
+    for app in catalog["apps"].values():
+        app["versions"].sort(key=lambda v: tuple(int(p) for p in v["version"].split(".")), reverse=True)
     Path(out).write_text(json.dumps(catalog, indent=2) + "\n")
 
 
+NAMES = {"e2e_probe": "Probe Viewer"}
+
+
 if __name__ == "__main__":
-    main(*sys.argv[1:])
+    if sys.argv[1:2] == ["--name"]:
+        app_id = sys.argv[2]
+        print(NAMES.get(app_id) or app_id.replace("_", " ").title())
+    else:
+        main(*sys.argv[1:])

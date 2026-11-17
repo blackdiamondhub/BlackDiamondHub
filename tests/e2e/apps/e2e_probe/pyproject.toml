@@ -16,4 +16,4 @@ e2e_probe = "e2e_probe.plugin:spec"
 packages = ["e2e_probe", "e2e_probe.migrations"]
 
 [tool.setuptools.package-data]
-e2e_probe = ["templates/e2e_probe/*.html", "static/e2e_probe/*"]
+e2e_probe = ["templates/e2e_probe/*.html", "static/e2e_probe/*", "variant.json"]
