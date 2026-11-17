@@ -31,7 +31,7 @@ token=$(openssl rand -hex 32)
 wait_for() {  # <seconds> <what> <command...>
     local deadline=$((SECONDS + $1)) what=$2
     shift 2
-    until "$@" >/dev/null 2>&1; do
+    until "$@" >/dev/null; do
         if [ "$SECONDS" -ge "$deadline" ]; then
             echo "timed out after $1s waiting for $what" >&2
             return 1

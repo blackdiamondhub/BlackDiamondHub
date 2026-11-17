@@ -26,6 +26,9 @@ ARTIFACTS = Path(ENV["E2E_ARTIFACTS"])
 ARTIFACTS.mkdir(parents=True, exist_ok=True)
 
 TILE_TITLE = "Probe Viewer"
+CAM_NAME = "Probe Cam"
+# The SDK mounts an app's URLconf at "<id>/".
+PAGE = f"/{APP_ID}/"
 ICON = f"/apps/{APP_ID}/_raw/static/{APP_ID}/icon.svg"
 # broker/lifecycle.py RUNNING_TTL plus margin.
 TRUST_WINDOW = 60 + 5
@@ -79,7 +82,7 @@ def assert_image(url):
 def open_app():
     """GET the app's page through the hub's proxy port, riding out the "Starting…" page."""
     def ok():
-        resp = requests.get(APP + "/", timeout=60)
+        resp = requests.get(APP + PAGE, timeout=60)
         if resp.status_code == 503:
             return None
         assert resp.status_code == 200, resp.status_code
@@ -117,11 +120,12 @@ def test_home_tile_uses_display_name():
                 lambda: (r := get("/")).ok and TILE_TITLE in r.text and r, timeout=90, interval=2)
     (ARTIFACTS / "home.html").write_text(page.text)
     assert ICON in page.text
+    assert f'href="/apps/{APP_ID}{PAGE}"' in page.text
     assert not re.search(rf">\s*{APP_ID}\s*<", page.text), "tile labelled with the app id"
 
 
 def test_shell_page_shows_the_app():
-    shell = get(f"/apps/{APP_ID}/")
+    shell = get(f"/apps/{APP_ID}{PAGE}")
     assert shell.status_code == 200
     assert TILE_TITLE in shell.text
     try:
@@ -136,7 +140,7 @@ def test_shell_page_shows_the_app():
         opts.add_argument(arg)
     driver = webdriver.Chrome(options=opts)
     try:
-        driver.get(urljoin(HUB, f"/apps/{APP_ID}/"))
+        driver.get(urljoin(HUB, f"/apps/{APP_ID}{PAGE}"))
         frame = WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
         driver.switch_to.frame(frame)
         # The iframe shows "Starting…" (reloading itself) until the app answers.
@@ -154,7 +158,7 @@ def test_shell_page_shows_the_app():
 # --- (a) every image URL the hub hands out is an image --------------------------
 
 def test_saver_and_tile_images(saver):
-    assert saver["cam"]["name"] == TILE_TITLE
+    assert saver["cam"]["name"] == CAM_NAME
     assert saver["cam"]["url"].startswith(f"/apps/{APP_ID}/_raw/"), saver["cam"]
     urls = [saver["cam"]["url"], ICON, *saver["stock"], *(p["url"] for p in saver["photos"])]
     for url in urls:
