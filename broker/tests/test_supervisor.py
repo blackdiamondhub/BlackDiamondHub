@@ -193,6 +193,16 @@ class CatalogTests(CatalogTestCase):
         self.assertEqual(len(self.fetches), 2)
         self.assertEqual(catalog.get_cached()[0]["apps"]["hello"]["versions"][0]["version"], "2.0.0")
 
+    def test_find_refetches_once_for_a_version_published_since_the_last_fetch(self):
+        catalog.refresh()
+        self.served = catalog_data(version("2.0.0"), version("1.0.0"))
+        self.assertEqual(catalog.find("hello", "2.0.0")["version"], "2.0.0")
+        count = len(self.fetches)
+        self.assertEqual(catalog.find("hello", "1.0.0")["version"], "1.0.0")  # listed: no refetch
+        with self.assertRaisesMessage(catalog.CatalogError, "no version 9"):
+            catalog.find("hello", "9")
+        self.assertEqual(len(self.fetches), count + 1)
+
     def test_rejects_unknown_schema(self):
         self.served = catalog_data(schema=2)
         with self.assertRaisesMessage(catalog.CatalogError, "unknown catalog schema 2"):

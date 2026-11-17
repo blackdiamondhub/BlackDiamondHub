@@ -284,8 +284,25 @@ def apps(data=None):
 
 
 def find(app_id, version=None, data=None):
-    """The catalog entry for ``app_id`` at ``version`` (newest usable when None)."""
-    data = get() if data is None else data
+    """The catalog entry for ``app_id`` at ``version`` (newest usable when None).
+
+    With the cached catalog, an app or version it doesn't list yet (published
+    since the last hourly fetch) triggers one forced refresh before giving up."""
+    if data is not None:
+        return _find(app_id, version, data)
+    data = get()
+    entry = app(app_id, data)
+    if entry is None or (version is not None and not any(
+            isinstance(v, dict) and v.get("version") == version for v in entry.get("versions") or ())):
+        try:
+            refresh(force=True)
+        except CatalogError as exc:
+            log.warning("%s", exc)
+        data = get(refresh_stale=False)
+    return _find(app_id, version, data)
+
+
+def _find(app_id, version, data):
     if app(app_id, data) is None:
         raise CatalogError(f"{app_id} isn't in the catalog")
     usable = versions(app_id, data)
