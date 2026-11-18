@@ -13,7 +13,7 @@ lodge = "In the lodge"
 
 [store]  # Settings → Apps refuses installs once installed apps' memory limits pass this
 memory_budget_mb = 3072
-channel = "stable"  # only promoted versions; beta versions are tried on Mercer Island first
+channel = "beta"  # install and auto-update beta versions (X.Y.ZbN) too
 
 # Event sources for bdh_sdk.events (see the README). "ha" topics look like
 # ha/state/<entity_id>; nothing is watched until an app subscribes.

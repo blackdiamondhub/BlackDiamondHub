@@ -161,10 +161,10 @@ catalog lists it with `"channel": "beta"`. Promoting it (the catalog's
 
 Each hub follows one channel, `[store] channel` in its `site.toml`:
 
-- `stable` (the default, Sun Peaks): beta versions are invisible: the store
+- `stable` (the default): beta versions are invisible: the store
   doesn't list them, they can't be installed and they're never offered as
   updates.
-- `beta` (Mercer Island): stable and beta versions alike; the newest by PEP 440
+- `beta` (both sites): stable and beta versions alike; the newest by PEP 440
   wins, and the store marks betas with a "Beta" badge.
 
 So the release flow is: release `X.Y.ZbN`, let Mercer Island run it, then
