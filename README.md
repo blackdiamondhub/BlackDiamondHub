@@ -101,7 +101,7 @@ Each site folder has:
   `[apps.<app_id>]` tables of per-site app
   settings. Each key becomes the Django setting `BDH_<APP_ID>_<KEY>`, read by
   the app with `bdh_sdk.settings.app_setting` (a value on the Settings page or
-  in the environment wins). For example `[apps.sonos_control]` sets which
+  in the environment wins). For example `[apps.speakers]` sets which
   speakers, rooms and presets the music app shows. `runtime = "container"` in
   an app's table stops the hub loading it in-process, so it can be installed
   as a container app instead (see below). Container apps get the rest of the
