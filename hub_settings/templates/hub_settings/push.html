@@ -1,0 +1,132 @@
+{% extends 'hub_settings/_layout.html' %}
+
+{% block section %}
+<style>
+    .ps-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 14px 22px 18px; }
+    .ps-tile { background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+    .ps-tile b { display: block; font-size: 22px; color: var(--fg); }
+    .ps-tile small { color: var(--mut); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+    .ps-wrap { overflow-x: auto; padding: 0 22px 16px; }
+    .ps-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .ps-table th { text-align: left; color: var(--dim); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    .ps-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--fg); vertical-align: top; }
+    .ps-table td.mut, .ps-empty { color: var(--mut); }
+    .ps-table code { color: var(--acc2); font-size: 12px; word-break: break-all; }
+    .ps-table .hst-btn { height: 28px; padding: 0 10px; font-size: 12px; }
+    .ps-empty { padding: 4px 22px 16px; font-size: 14px; }
+    .ps-client { color: var(--mut); font-size: 12px; }
+    .ps-dir-in { color: var(--ok); } .ps-dir-out { color: var(--acc2); }
+</style>
+<div class="hst-head">
+    <div>
+        <h2>Push internals</h2>
+        <p>Live connections from app pages to the hub's push channel. Updates every 2 s while this page is open.</p>
+    </div>
+</div>
+<div id="ps" data-url="{% url 'hub_settings_push' %}">
+    <section class="hst-card"><h3>Overview</h3><div class="ps-tiles" data-tiles></div></section>
+    <section class="hst-card"><h3>Connections</h3><div data-conns></div></section>
+    <section class="hst-card"><h3>Topics published</h3><div data-topics></div></section>
+    <section class="hst-card"><h3>Close codes</h3><div data-codes></div></section>
+    <section class="hst-card"><h3>Recently closed</h3><div data-closed></div></section>
+    <section class="hst-card"><h3>Recent frames</h3><div data-frames></div></section>
+</div>
+{% csrf_token %}
+{{ stats|json_script:"ps-initial" }}
+<script>
+(function () {
+    var root = document.getElementById("ps");
+    var csrf = document.querySelector("input[name=csrfmiddlewaretoken]").value;
+    var CODES = {"1000": "closed", "1001": "page left", "1006": "dropped", "1011": "hub error",
+        "1013": "app down", "4000": "silent", "4403": "refused", "4404": "no push", "4408": "stalled",
+        "4429": "busy", "4499": "disconnected by staff"};
+
+    function esc(s) {
+        return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+            return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c];
+        });
+    }
+    function ago(t, now) {
+        var s = Math.max(0, Math.round(now - t));
+        if (s < 90) return s + " s";
+        if (s < 5400) return Math.round(s / 60) + " min";
+        return (s / 3600).toFixed(1) + " h";
+    }
+    function table(head, rows, empty) {
+        if (!rows.length) return '<p class="ps-empty">' + esc(empty) + "</p>";
+        return '<div class="ps-wrap"><table class="ps-table"><thead><tr>' +
+            head.map(function (h) { return "<th>" + esc(h) + "</th>"; }).join("") +
+            "</tr></thead><tbody>" + rows.join("") + "</tbody></table></div>";
+    }
+    function client(c) {
+        var keys = Object.keys(c || {}).filter(function (k) { return k !== "at"; });
+        if (!keys.length) return '<span class="ps-client">no report yet</span>';
+        return '<span class="ps-client">' + keys.map(function (k) { return esc(k) + "=" + esc(c[k]); }).join(" · ") + "</span>";
+    }
+
+    function render(s) {
+        var t = s.totals || {}, n = s.now;
+        var tiles = [["Open", s.connections.length], ["Connects", t.connects || 0],
+            ["Refused", t.refused || 0], ["Published", t.published || 0],
+            ["Apps listening", s.subscriptions.length], ["Up", ago(s.now - s.uptime, n)]];
+        root.querySelector("[data-tiles]").innerHTML = tiles.map(function (x) {
+            return '<div class="ps-tile"><b>' + esc(x[1]) + "</b><small>" + esc(x[0]) + "</small></div>";
+        }).join("");
+
+        root.querySelector("[data-conns]").innerHTML = table(
+            ["#", "App", "Who", "From", "Open", "Idle", "Sent", "Topics", "Resyncs", "Browser", ""],
+            s.connections.map(function (c) {
+                var k = c.counts || {};
+                return "<tr><td>" + c.id + "</td><td>" + esc(c.app) + "<br><code>" + esc(c.patterns.join(" ")) +
+                    "</code></td><td>" + esc(c.user) + '</td><td class="mut">' + esc(c.ip) + "</td><td>" +
+                    ago(c.connected_at, n) + "</td><td>" + esc(c.idle) + " s</td><td>" + (k.frames || 0) +
+                    "</td><td>" + (k.topics || 0) + "</td><td>" + (k.resyncs || 0) + "</td><td>" + client(c.client) +
+                    '</td><td><button class="hst-btn ghost" data-act="resync" data-conn="' + c.id +
+                    '">Resync</button> <button class="hst-btn ghost" data-act="disconnect" data-conn="' + c.id +
+                    '">Disconnect</button></td></tr>';
+            }), "No pages are connected.");
+
+        root.querySelector("[data-topics]").innerHTML = table(["Topic", "Count"],
+            s.topics.map(function (x) { return "<tr><td><code>" + esc(x[0]) + "</code></td><td>" + x[1] + "</td></tr>"; }),
+            "Nothing published to a listening page yet.");
+
+        root.querySelector("[data-codes]").innerHTML = table(["Code", "Meaning", "Count"],
+            Object.keys(s.codes).map(function (c) {
+                return "<tr><td>" + esc(c) + '</td><td class="mut">' + esc(CODES[c] || "") + "</td><td>" + s.codes[c] + "</td></tr>";
+            }), "No connections have closed.");
+
+        root.querySelector("[data-closed]").innerHTML = table(["#", "App", "Who", "Lasted", "Code", "Reason", "Browser"],
+            s.closed.slice(0, 20).map(function (c) {
+                return "<tr><td>" + c.id + "</td><td>" + esc(c.app) + "</td><td>" + esc(c.user) + "</td><td>" +
+                    ago(c.connected_at, c.closed_at) + "</td><td>" + esc(c.code) + '</td><td class="mut">' +
+                    esc(c.reason) + "</td><td>" + client(c.client) + "</td></tr>";
+            }), "None yet.");
+
+        root.querySelector("[data-frames]").innerHTML = table(["When", "#", "Dir", "Message"],
+            s.frames.slice(0, 30).map(function (f) {
+                return "<tr><td>" + ago(f.at, n) + " ago</td><td>" + f.conn + '</td><td class="ps-dir-' + f.dir + '">' +
+                    f.dir + "</td><td><code>" + esc(f.msg) + "</code></td></tr>";
+            }), "None yet.");
+    }
+
+    render(JSON.parse(document.getElementById("ps-initial").textContent));
+
+    function refresh() {
+        if (document.hidden) return;
+        fetch(root.dataset.url + "?live=1", {credentials: "same-origin"})
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (s) { if (s) render(s); })
+            .catch(function () {});
+    }
+    setInterval(refresh, 2000);
+
+    root.addEventListener("click", function (e) {
+        var b = e.target.closest("[data-act]");
+        if (!b) return;
+        var body = new URLSearchParams({action: b.dataset.act, conn: b.dataset.conn});
+        fetch(root.dataset.url, {method: "POST", credentials: "same-origin", body: body,
+            headers: {"X-CSRFToken": csrf}}).then(function () { setTimeout(refresh, 300); });
+    });
+})();
+</script>
+{% endblock %}

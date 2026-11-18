@@ -24,7 +24,7 @@ from django.conf import settings
 from django.http.request import validate_host
 from django.utils.encoding import escape_uri_path, iri_to_uri
 
-from . import conf, lifecycle, remote
+from . import conf, lifecycle, push, remote
 
 log = logging.getLogger(__name__)
 
@@ -207,6 +207,11 @@ async def _read_body(receive):
 async def app_proxy(scope, receive, send):
     port = scope["server"][1]
     path = scope.get("path") or "/"
+    # The hub answers these itself; they don't wake or keep the app awake.
+    if scope["type"] == "http" and path == push.INFO_PATH:
+        return await push.info(scope, receive, send, _headers(scope))
+    if scope["type"] == "websocket" and path == push.WS_PATH:
+        return await push.websocket(scope, receive, send, _headers(scope))
     if _is_internal_path(path):
         return await _refuse(scope, receive, send, 403, b"Forbidden")
     # The hub port gets this from Django; without it a DNS-rebinding page could drive apps.

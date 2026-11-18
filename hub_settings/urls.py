@@ -23,4 +23,5 @@ urlpatterns = [
     path("apps/<str:app_id>/share-grant/", apps_views.manage_share_grant, name="hub_settings_app_share_grant"),
     path("apps/<str:app_id>/uninstall/", apps_views.manage_uninstall, name="hub_settings_app_uninstall"),
     path("app/<str:app_id>/", views.app_settings, name="hub_settings_app"),
+    path("push/", views.push_stats, name="hub_settings_push"),
 ]
