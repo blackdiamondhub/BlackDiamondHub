@@ -41,14 +41,20 @@ class LoadSiteTests(SimpleTestCase):
     def test_site_without_toml_gets_empty_sections(self):
         self.assertEqual(self.site("bare"),
                          {"name": "bare", "brand": {}, "features": {}, "sections": {},
-                          "apps": {}, "runtimes": {}, "store": {}, "events": {}})
+                          "apps": {}, "runtimes": {}, "store": {"channel": "stable"}, "events": {}})
 
     def test_store_memory_budget(self):
         self.assertEqual(self.site("big", "[store]\nmemory_budget_mb = 3072\n")["store"],
-                         {"memory_budget_mb": 3072})
+                         {"memory_budget_mb": 3072, "channel": "stable"})
         for i, bad in enumerate(("0", '"3GB"', "true", "1.5")):
             with self.assertRaisesRegex(ValueError, r"\[store\] memory_budget_mb"):
                 self.site(f"bad{i}", f"[store]\nmemory_budget_mb = {bad}\n")
+
+    def test_store_channel(self):
+        self.assertEqual(self.site("beta", '[store]\nchannel = "beta"\n')["store"]["channel"], "beta")
+        for i, bad in enumerate(('"nightly"', '"Beta"', "true")):
+            with self.assertRaisesRegex(ValueError, r"\[store\] channel"):
+                self.site(f"badch{i}", f"[store]\nchannel = {bad}\n")
 
     def test_section_titles_default_to_site_neutral_words(self):
         self.assertEqual(section_titles(self.site("bare")["sections"]),

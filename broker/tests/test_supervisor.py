@@ -226,6 +226,19 @@ class CatalogTests(CatalogTestCase):
         self.assertEqual(catalog.apps(only_new), {})
         self.assertEqual(catalog.compatible(version(requires_sdk="nonsense"))[0], False)
 
+    def test_beta_versions_only_on_a_beta_hub_newest_by_pep440(self):
+        data = catalog_data(version("2.3.0rc1", channel="beta"), version("2.2.0"),
+                            version("2.3.0b2", channel="beta"), version("2.10.0b1", channel="stable"))
+        with self.settings(HUB_CHANNEL="stable"):
+            self.assertEqual([v["version"] for v in catalog.versions("hello", data)], ["2.10.0b1", "2.2.0"])
+            with self.assertRaisesMessage(catalog.CatalogError, "2.3.0rc1: beta"):
+                catalog.find("hello", "2.3.0rc1", data=data)
+            self.assertEqual(catalog.apps(catalog_data(version("1.0.0b1", channel="beta"))), {})
+        with self.settings(HUB_CHANNEL="beta"):
+            self.assertEqual([v["version"] for v in catalog.versions("hello", data)],
+                             ["2.10.0b1", "2.3.0rc1", "2.3.0b2", "2.2.0"])
+            self.assertEqual(catalog.find("hello", "2.3.0b2", data=data)["version"], "2.3.0b2")
+
 
 @override_settings(**SUPERVISOR)
 class ServiceTests(SupervisorMixin, CatalogTestCase, TestCase):
@@ -407,6 +420,27 @@ class ServiceTests(SupervisorMixin, CatalogTestCase, TestCase):
         self.assertTrue(services._newer("1.10.0", "1.9.0"))
         self.assertFalse(services._newer("1.9.0", "1.10.0"))
         self.assertFalse(services._newer("1.0.0", "1.0.0"))
+        self.assertTrue(services._newer("2.3.0b2", "2.3.0b1"))
+        self.assertTrue(services._newer("2.3.0", "2.3.0rc1"))
+        self.assertFalse(services._newer("2.3.0b1", "2.3.0"))
+
+    def test_a_stable_hub_never_offers_or_downgrades_a_beta(self):
+        with self.settings(HUB_CHANNEL="beta"):
+            self.install(version("2.3.0b1", channel="beta"))
+        record = AppInstall.objects.get()
+        self.served = catalog_data(version("2.3.0b2", channel="beta"), version("2.3.0b1", channel="beta"),
+                                   version("2.2.0"))
+        catalog.refresh(force=True)
+        with self.settings(HUB_CHANNEL="beta"):
+            self.assertEqual(services.update_available(record)["version"], "2.3.0b2")
+        with self.settings(HUB_CHANNEL="stable"):
+            self.assertIsNone(services.update_available(record))  # 2.2.0 is older: no downgrade
+            self.served = catalog_data(version("2.3.0b2", channel="beta"), version("2.3.0b1"), version("2.2.0"))
+            catalog.refresh(force=True)  # 2.3.0b1 promoted: same version, nothing to do
+            self.assertIsNone(services.update_available(record))
+            self.served = catalog_data(version("2.3.0"), version("2.3.0b2", channel="beta"))
+            catalog.refresh(force=True)
+            self.assertEqual(services.update_available(record)["version"], "2.3.0")
 
     def test_autoupdate_command(self):
         from broker.management.commands import app_autoupdate

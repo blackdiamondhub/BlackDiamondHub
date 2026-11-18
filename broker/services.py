@@ -13,6 +13,7 @@ import time
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+from packaging.version import InvalidVersion, Version
 
 from . import catalog, remote, supervisor
 from .models import AppInstall
@@ -308,11 +309,10 @@ def update_available(record, data=None):
 
 
 def _newer(a, b):
-    def key(v):
-        return [int(x) if x.isdigit() else -1 for x in re.split(r"[.+-]", v)]
+    """Whether version ``a`` is newer than ``b`` (PEP 440, so 2.3.0b2 > 2.3.0b1 > 2.2.0)."""
     try:
-        return key(a) > key(b)
-    except Exception:
+        return Version(a) > Version(b)
+    except InvalidVersion:
         return a != b
 
 
