@@ -75,15 +75,15 @@ class LoadSiteTests(SimpleTestCase):
         self.assertEqual(list(section_titles({})), list(SECTIONS))
 
     def test_app_tables_become_namespaced_django_settings(self):
-        site = self.site("home", '[apps.sonos_control]\nmodels = "*"\n'
-                                 '[apps.sonos_control.rooms]\nKitchen = { icon = "fa-utensils" }\n')
+        site = self.site("home", '[apps.speakers]\nmodels = "*"\n'
+                                 '[apps.speakers.rooms]\nKitchen = { icon = "fa-utensils" }\n')
         self.assertEqual(app_settings(site["apps"]), {
-            "BDH_SONOS_CONTROL_MODELS": "*",
-            "BDH_SONOS_CONTROL_ROOMS": {"Kitchen": {"icon": "fa-utensils"}}})
+            "BDH_SPEAKERS_MODELS": "*",
+            "BDH_SPEAKERS_ROOMS": {"Kitchen": {"icon": "fa-utensils"}}})
 
     def test_runtime_is_taken_out_of_the_app_settings(self):
         site = self.site("home", '[apps.cameras]\nruntime = "container"\ngrid = 2\n'
-                                 '[apps.wifi]\nruntime = "inprocess"\n[apps.sonos_control]\nmodels = "*"\n')
+                                 '[apps.wifi]\nruntime = "inprocess"\n[apps.speakers]\nmodels = "*"\n')
         self.assertEqual(site["apps"]["cameras"], {"grid": 2})
         self.assertEqual(container_apps(site["runtimes"]), {"cameras"})
         with self.assertRaisesRegex(ValueError, r"\[apps.wifi\] runtime"):
