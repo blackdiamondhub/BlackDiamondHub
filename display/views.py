@@ -18,6 +18,7 @@ from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_GET, require_POST
 
 from hub import provides
+from broker.views import RAW_WAKE
 from hub_settings import store, vault
 from hub_settings.views import _render, _save, saved_redirect, staff_page
 
@@ -53,6 +54,14 @@ def current_season(today=None, signal=None):
                    value("winter_on_lifts"), app_state(APP))
 
 
+def _waking(url):
+    """The saver shows the cam for as long as it's up, so its fetches may wake an
+    on-demand app (``/_raw/`` media otherwise leaves a sleeping app asleep)."""
+    if not (url.startswith("/apps/") and "/_raw/" in url):
+        return url
+    return url + ("&" if "?" in url else "?") + RAW_WAKE + "=1"
+
+
 def _preview(request):
     """Unsaved settings-page values a staff preview may try out: source, cam, rotate, caption."""
     if not (request.user.is_authenticated and request.user.is_staff):
@@ -86,7 +95,7 @@ def saver_api(request):
     if "cam" in layers:
         found = catalog.pick_background(provides.backgrounds(), preview.get("cam", value("cam")))
         if found:
-            cam = {"name": found["label"], "url": found["url"], "timestamp": found.get("timestamp"),
+            cam = {"name": found["label"], "url": _waking(found["url"]), "timestamp": found.get("timestamp"),
                    "refresh_seconds": found.get("refresh_seconds")}
     captions = preview.get("caption", value("photo_caption"))
     photos = season_photos(season, captions) if "photos" in layers else []

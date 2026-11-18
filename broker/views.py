@@ -24,6 +24,9 @@ RAW_HEADERS = ("Content-Length", "Cache-Control", "ETag", "Last-Modified")
 RAW_CACHE_MAX = 256 * 1024
 STARTING_RETRY = 5
 RAW_CACHE_SECONDS = 7 * 24 * 3600
+# Query flag on a /_raw/ URL whose fetch may wake a sleeping on-demand app (the
+# saver's live cam). Stripped before the request reaches the app.
+RAW_WAKE = "_bdh_wake"
 # The hub pages an app may send the visitor to by name (see embed-host.js NAV_NAMES).
 NAV_NAMES = frozenset({"landing_page", "broker:shell", "broker:shell_path", "hub_settings_app"})
 
@@ -175,7 +178,9 @@ def raw(request, app_id, path):
     if path.startswith("/_bdh"):
         raise Http404("No such file")
     install = remote._install(spec.id)
-    query = request.META.get("QUERY_STRING", "")
+    params = request.GET.copy()
+    waking = params.pop(RAW_WAKE, None) is not None
+    query = params.urlencode() if waking else request.META.get("QUERY_STRING", "")
     full = escape_uri_path(path) + ("?" + iri_to_uri(query) if query else "")
     from bdh_sdk.identity import signed_headers
 
@@ -197,9 +202,10 @@ def raw(request, app_id, path):
         try:
             resp = fetch()
         except requests.ConnectionError:
-            # Asleep: wake it for a static file (once per version, then cached),
-            # but not for other media, which status rows reference all day.
-            if not static or not remote._wake(install):
+            # Asleep: wake it for a static file (once per version, then cached)
+            # or a flagged fetch (the saver's cam), but not for other media,
+            # which status rows reference all day.
+            if not (static or waking) or not remote._wake(install):
                 raise
             resp = fetch()
     except (requests.RequestException, remote.RemoteError):

@@ -54,8 +54,27 @@ def _spawn(coro):
     return task
 
 
+async def _probe(app_id):
+    """True when the supervisor says ``app_id`` is already running.
+
+    The supervisor's ``start`` recreates the container even when it's up, so a
+    lapsed :data:`RUNNING_TTL` must not lead straight to a start: an app polled
+    less than once a minute would be killed mid-use on every poll.
+    """
+    try:
+        reply = await supervisor.aactivity(app_id)
+    except supervisor.SupervisorError as exc:
+        log.debug("%s: running check failed: %s", app_id, exc)
+        return False
+    return isinstance(reply, dict) and reply.get("running") is True
+
+
 async def _start(app_id):
     try:
+        if await _probe(app_id):
+            _running_until[app_id] = time.monotonic() + RUNNING_TTL
+            _last_activity[app_id] = time.monotonic()
+            return True
         view = await supervisor.astart(app_id, wait=True)
     except supervisor.SupervisorError as exc:
         log.warning("%s: start failed: %s", app_id, exc)
