@@ -98,6 +98,8 @@ def _lodge_sections():
         {"id": "ha", "label": "Home Assistant", "icon": "fa-home", "url": reverse("hub_settings_ha")},
         {"id": "apps", "label": "Apps", "icon": "fa-puzzle-piece", "url": reverse("hub_settings_apps"),
          "count": len(plugins())},
+        {"id": "push", "label": "Push internals", "icon": "fa-broadcast-tower",
+         "url": reverse("hub_settings_push")},
     ]
 
 
@@ -132,6 +134,28 @@ def _render(request, template, active, **context):
 def index(request):
     # Apps has its own entry in the admin menu, so Settings opens on General.
     return redirect("hub_settings_location")
+
+
+@staff_page
+def push_stats(request):
+    from broker import push
+
+    if request.method == "POST":
+        try:
+            conn_id = int(request.POST.get("conn", ""))
+        except ValueError:
+            return JsonResponse({"ok": False}, status=400)
+        action = request.POST.get("action")
+        if action == "resync":
+            ok = push.force_resync(conn_id)
+        elif action == "disconnect":
+            ok = push.disconnect(conn_id)
+        else:
+            return JsonResponse({"ok": False}, status=400)
+        return JsonResponse({"ok": ok})
+    if request.GET.get("live"):
+        return JsonResponse(push.stats())
+    return _render(request, "hub_settings/push.html", "push", stats=push.stats())
 
 
 def _parse_layout(raw, sections):
