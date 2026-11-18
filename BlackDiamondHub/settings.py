@@ -39,6 +39,9 @@ HUB_CONTAINER_APPS = container_apps(_SITE['runtimes'])
 # The store refuses installs past this sum of app memory limits ([store] in site.toml).
 BDH_APP_MEMORY_BUDGET_MB = int(os.getenv('BDH_APP_MEMORY_BUDGET_MB')
                                or _SITE['store'].get('memory_budget_mb', 1400))
+# Release channel the store installs and auto-updates from ([store] channel):
+# "stable" hides beta versions (PEP 440 pre-releases); "beta" offers them too.
+HUB_CHANNEL = _SITE['store']['channel']
 
 
 # Quick-start development settings - unsuitable for production

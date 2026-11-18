@@ -164,7 +164,9 @@ def _row(record, data):
         "img": (_icon(spec) if spec else "") or meta["icon"], "version": record.version,
         "lifecycle": LIFECYCLES.get(record.lifecycle, ""), "lan": record.approved_network == "lan",
         "dot": dot, "status": text, "busy": bool(job and job["state"] == jobs.RUNNING),
+        "beta": catalog.is_beta(_catalog_entry(record.app_id, record.version, data)),
         "update": update["version"] if update else "",
+        "update_beta": catalog.is_beta(update),
         "updated": _recently_updated(record),
         "manage_url": reverse("hub_settings_app_manage", args=[record.app_id]),
     }
@@ -175,15 +177,21 @@ def _recently_updated(record):
     return bool(changed and timezone.now() - changed < UPDATED_FOR)
 
 
+def _catalog_entry(app_id, version, data):
+    """The catalog's entry for ``app_id`` at ``version`` (usable here or not), or None."""
+    if data is None:
+        return None
+    app = catalog.app(app_id, data) or {}
+    for entry in app.get("versions") or ():
+        if isinstance(entry, dict) and entry.get("version") == version:
+            return entry
+    return None
+
+
 def _changelog(record, data):
     """Release notes for the installed version, from the catalog."""
-    if data is None:
-        return ""
-    app = catalog.app(record.app_id, data) or {}
-    for entry in app.get("versions") or ():
-        if isinstance(entry, dict) and entry.get("version") == record.version:
-            return str(entry.get("changelog") or "").strip()
-    return ""
+    entry = _catalog_entry(record.app_id, record.version, data)
+    return str(entry.get("changelog") or "").strip() if entry else ""
 
 
 def _container_records():
@@ -243,6 +251,7 @@ def store(request):
         newest = usable[0]
         apps.append({"id": app_id, "name": entry.get("name") or app_id, "description": entry.get("description") or "",
                      "icon": entry.get("icon") or "", "version": newest["version"],
+                     "beta": catalog.is_beta(newest),
                      "lan": newest.get("network") == "lan",
                      "url": reverse("hub_settings_store_app", args=[app_id])})
     return _render(request, "hub_settings/store.html", "apps", tabs=_tabs("store"), apps=apps,
@@ -291,7 +300,8 @@ def store_app(request, app_id):
         return redirect("hub_settings_app_manage", app_id)
     meta = _meta(app_id, data)
     return _render(request, "hub_settings/store_app.html", "apps", app=meta, app_id=app_id,
-                   version=entry["version"], changelog=entry.get("changelog") or "",
+                   version=entry["version"], beta=catalog.is_beta(entry),
+                   changelog=entry.get("changelog") or "",
                    perms=[{"value": p, **describe(p)} for p in want["permissions"]],
                    network=NETWORK_INFO.get(want["network"]), lan=want["network"] == "lan",
                    companions=want["companions"], fits=_fits(entry), no_room=NO_ROOM,
