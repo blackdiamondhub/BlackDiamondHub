@@ -13,7 +13,7 @@ feedback = false  # no feedback pill or inbox here
 lodge = "In the home"
 
 [store]  # Settings → Apps
-channel = "beta"  # install and auto-update beta versions (X.Y.ZbN) too; Sun Peaks stays on stable
+channel = "beta"  # install and auto-update beta versions (X.Y.ZbN) too
 
 # Event sources for bdh_sdk.events (see the README). "ha" topics look like
 # ha/state/<entity_id>; nothing is watched until an app subscribes.
