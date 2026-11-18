@@ -27,8 +27,8 @@
     <a class="hst-row hst-link" href="{{ a.manage_url }}{% if a.updated and not a.update %}#whats-new{% endif %}">
         {% include 'hub_settings/_app_icon.html' with src=a.img %}
         <div class="lbl">
-            <b>{{ a.label }}{% if a.update %}<span class="ap-pill upd">Update v{{ a.update }}</span>{% elif a.updated %}<span class="ap-pill new">Updated</span>{% endif %}</b>
-            <small>v{{ a.version }}{% if a.lifecycle %} · {{ a.lifecycle }}{% endif %}{% if a.lan %} · <span style="color:#ffd36b">local network</span>{% endif %}</small>
+            <b>{{ a.label }}{% if a.update %}<span class="ap-pill upd">Update v{{ a.update }}{% if a.update_beta %} · Beta{% endif %}</span>{% elif a.updated %}<span class="ap-pill new">Updated</span>{% endif %}</b>
+            <small>v{{ a.version }}{% if a.beta %}<span class="ap-pill beta">Beta</span>{% endif %}{% if a.lifecycle %} · {{ a.lifecycle }}{% endif %}{% if a.lan %} · <span style="color:#ffd36b">local network</span>{% endif %}</small>
         </div>
         <span class="ap-st" data-app="{{ a.id }}"{% if a.status %} data-job="1"{% endif %}><span class="ap-dot {{ a.dot }}"></span><span class="t">{{ a.status|default:"…" }}</span></span>
         <div class="ap-mem" data-app="{{ a.id }}"></div>

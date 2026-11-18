@@ -59,6 +59,20 @@ class AppsPageTests(SupervisorMixin, CatalogTestCase, TestCase):
         self.install(perm=["alerts"])
         self.assertEqual(self.client.get(reverse("hub_settings_store")).context["apps"], [])
 
+    def test_beta_badge_only_on_a_beta_hub(self):
+        self.served = catalog_data(version("1.1.0b1", channel="beta"), version("1.0.0"))
+        catalog.refresh(force=True)
+        with self.settings(HUB_CHANNEL="stable"):
+            self.assertNotContains(self.client.get(reverse("hub_settings_store")), "ap-pill beta")
+            self.assertEqual(self.client.get(reverse("hub_settings_store_app", args=["hello"])).context["version"],
+                             "1.0.0")
+        with self.settings(HUB_CHANNEL="beta"):
+            self.assertContains(self.client.get(reverse("hub_settings_store")), "v1.1.0b1<span class=\"ap-pill beta\">Beta</span>")
+            sheet = self.client.get(reverse("hub_settings_store_app", args=["hello"]))
+            self.assertContains(sheet, "v1.1.0b1<span class=\"ap-pill beta\">Beta</span>")
+            self.install(perm=["alerts"])
+            self.assertContains(self.client.get(reverse("hub_settings_apps")), "ap-pill beta")
+
     def test_install_grants_only_what_the_admin_chose(self):
         response = self.install(perm=["alerts", "not-asked"])
         self.assertRedirects(response, reverse("hub_settings_app_manage", args=["hello"]), fetch_redirect_response=False)

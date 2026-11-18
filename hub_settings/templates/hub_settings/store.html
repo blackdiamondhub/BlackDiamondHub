@@ -13,7 +13,7 @@
 <div class="ap-grid">
     {% for a in apps %}
     <a class="ap-tile" href="{{ a.url }}">
-        <div class="top">{% include 'hub_settings/_app_icon.html' with src=a.icon %}<div><b>{{ a.name }}</b><small>v{{ a.version }}</small></div></div>
+        <div class="top">{% include 'hub_settings/_app_icon.html' with src=a.icon %}<div><b>{{ a.name }}</b><small>v{{ a.version }}{% if a.beta %}<span class="ap-pill beta">Beta</span>{% endif %}</small></div></div>
         <p>{{ a.description|default:"No description." }}</p>
         <div class="ft"><span></span>{% if a.lan %}<span class="ap-pill trust">local network</span>{% endif %}</div>
     </a>
