@@ -41,16 +41,6 @@ CAM_RGB = (30, 90, 160)
 APP_TRAFFIC = re.compile(rf"/_broker/|/apps/{APP_ID}[/?]|supervisor/apps/{APP_ID}/")
 
 
-class KnownGap(AssertionError):
-    """A gap hub PR #352 closes. Only this exception satisfies the xfail markers
-    below; any other failure in those tests is a real one."""
-
-
-def needs_352(reason):
-    # strict: once #352 is on main the test XPASSes, which fails the job, so the
-    # marker has to be removed along with it.
-    return pytest.mark.xfail(strict=True, raises=KnownGap, reason=f"needs hub PR #352: {reason}")
-
 
 def poll(what, check, timeout, interval=1.0):
     """``check()``'s first truthy result, or fail after ``timeout`` seconds."""
@@ -234,14 +224,11 @@ def asleep():
     poll("the app to stop", is_asleep, timeout=60)
 
 
-@needs_352("main's /_raw/ wakes a sleeping app only for /static/ files, so the saver's live cam "
-           "404s while the app sleeps; #352 adds the _bdh_wake flag the saver puts on cam URLs")
 def test_sleeping_app_cam_image(saver, asleep):
     assert is_asleep()
     url = saver["cam"]["url"]
     resp = get(url)
-    if resp.status_code == 404:
-        raise KnownGap(f"{url}: 404 while the app sleeps")
+    assert resp.status_code != 404, f"{url}: 404 while the app sleeps"
     assert_probe_cam(url, resp)
 
 
@@ -253,8 +240,6 @@ def test_sleeping_app_tile_icon(asleep):
 
 # --- (b) opening an app inside its trust window doesn't recreate it -------------
 
-@needs_352("on main the first open after RUNNING_TTL calls supervisor start, which recreates "
-           "the container; #352 asks the supervisor whether it is running first")
 def test_reopen_after_trust_window_keeps_container():
     open_app()
     # settled() outlasts the app's one boot-time broker call (events.subscribe), the
@@ -270,8 +255,8 @@ def test_reopen_after_trust_window_keeps_container():
     assert not traffic, "app traffic during the quiet spell refreshed the trust window:\n" + "\n".join(traffic)
     open_app()
     after = settled()
-    if after["id"] != before["id"]:
-        raise KnownGap(f"reopening recreated the app container ({before['id'][:12]} -> {after['id'][:12]})")
+    assert after["id"] == before["id"], (
+        f"reopening recreated the app container ({before['id'][:12]} -> {after['id'][:12]})")
     assert after["started"] == before["started"], "reopening restarted the app container"
     assert after["restarts"] == before["restarts"]
 
