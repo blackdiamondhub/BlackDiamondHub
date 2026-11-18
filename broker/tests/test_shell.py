@@ -142,6 +142,17 @@ class RawTests(TestCase):
         self.assertEqual(resp.status_code, 404)
         wake.assert_not_called()
 
+    def test_flagged_media_wakes_a_sleeping_app(self):
+        # The saver's live cam: without the wake it fell back to stock art.
+        jpeg = self.reply(b"jpg")
+        jpeg.headers["Content-Type"] = "image/jpeg"
+        patch, calls = self.upstream(requests.ConnectionError(), jpeg)
+        with patch, mock.patch("broker.remote._wake", return_value=True) as wake:
+            resp = self.client.get("/apps/cams/_raw/latest/peak.jpg?t=5&_bdh_wake=1")
+        self.assertEqual((resp.status_code, b"".join(resp.streaming_content)), (200, b"jpg"))
+        wake.assert_called_once()
+        self.assertTrue(calls[-1].endswith("/latest/peak.jpg?t=5"), calls[-1])
+
     def test_new_version_refetches(self):
         patch, _ = self.upstream(self.reply(b"old"), self.reply(b"new"))
         with patch:

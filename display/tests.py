@@ -173,6 +173,12 @@ class ViewTests(TestCase):
         body = self.client.get(reverse("display_saver_api"), {"season": "summer"}).json()
         self.assertEqual(body["cam"]["url"], "http://cam/village.jpg")
 
+    def test_container_cam_url_may_wake_its_app(self):
+        self.assertEqual(views._waking("/apps/cams/_raw/latest/peak.jpg"),
+                         "/apps/cams/_raw/latest/peak.jpg?_bdh_wake=1")
+        self.assertEqual(views._waking("/apps/cams/_raw/x.jpg?a=1"), "/apps/cams/_raw/x.jpg?a=1&_bdh_wake=1")
+        self.assertEqual(views._waking("http://cam/peak.jpg"), "http://cam/peak.jpg")
+
     def test_site_slot_defaults(self):
         body = self.client.get(reverse("display_saver_api"), {"season": "winter"}).json()
         self.assertEqual(len(body["stats"]), 4)

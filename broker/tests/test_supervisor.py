@@ -505,6 +505,7 @@ class ContainerProxyTests(ProxyTestCase):
         reset_broker()
         self.starts, self.activity = [], []
         self.start_delay = 0
+        self.running = False
         patcher = patch.object(supervisor, "astart", self.astart)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -519,7 +520,7 @@ class ContainerProxyTests(ProxyTestCase):
 
     async def aactivity(self, app_id):
         self.activity.append(app_id)
-        return {"running": True}
+        return {"running": self.running}
 
     def get(self):
         return response(run(proxy.app_proxy, scope(self.port, "/")))
@@ -528,6 +529,16 @@ class ContainerProxyTests(ProxyTestCase):
         self.assertEqual(self.get()[0], 200)
         self.assertEqual(self.get()[0], 200)
         self.assertEqual(self.starts, ["cams"])  # trusted as running for a minute
+        self.assertEqual(len(self.upstream.requests), 2)
+
+    def test_a_running_app_is_not_restarted_when_the_trust_lapses(self):
+        # The supervisor's start recreates the container, so an app polled less
+        # than once a minute (webcams) was killed on every poll.
+        self.running = True
+        self.assertEqual(self.get()[0], 200)
+        lifecycle._running_until["cams"] -= lifecycle.RUNNING_TTL + 1
+        self.assertEqual(self.get()[0], 200)
+        self.assertEqual(self.starts, [])
         self.assertEqual(len(self.upstream.requests), 2)
 
     def test_slow_start_shows_the_starting_page(self):
