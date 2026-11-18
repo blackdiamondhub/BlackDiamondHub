@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bdh-app-e2e-probe"
+version = "1.0.0"
+description = "Fixture container app for the hub's stack-e2e CI job."
+requires-python = ">=3.11"
+license = "MIT"
+
+[project.entry-points."blackdiamondhub.plugins"]
+e2e_probe = "e2e_probe.plugin:spec"
+
+[tool.setuptools]
+packages = ["e2e_probe", "e2e_probe.migrations"]
+
+[tool.setuptools.package-data]
+e2e_probe = ["templates/e2e_probe/*.html", "static/e2e_probe/*"]

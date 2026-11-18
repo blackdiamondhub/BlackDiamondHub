@@ -304,3 +304,8 @@ jobs:
     - name: Container logs
       if: always()
       run: docker logs bdh || true
+
+  stack-e2e:
+    # The PR's hub with the locked supervisor, app runtime and SDK, a local
+    # registry and catalog, and a fixture container app (tests/e2e).
+    uses: ./.github/workflows/stack-e2e.yml

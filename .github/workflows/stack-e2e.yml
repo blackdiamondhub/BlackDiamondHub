@@ -1,0 +1,167 @@
+# The hub + bdh-supervisor + app runtime stack, end to end (tests/e2e), for
+# this repo and for other repos' CI to run their candidates through:
+#
+#   jobs:
+#     stack-e2e:
+#       uses: blackdiamondlodge/BlackDiamondHub/.github/workflows/stack-e2e.yml@<commit sha>
+#       with:
+#         supervisor_image: bdh-supervisor:candidate
+#         images_artifact: candidate-images
+#
+# Every component not given here is pinned in tests/e2e/stack.lock.json at
+# the commit this workflow runs from (heads: true takes what the lock tracks
+# instead). Images can be registry refs, or local tags loaded from
+# images_artifact (one or more `docker save` tarballs uploaded earlier in the
+# same run). The resolved components are in the job summary and the
+# <artifact_name> artifact (resolved.json).
+name: stack-e2e
+
+on:
+  workflow_call:
+    inputs:
+      hub_ref:
+        description: BlackDiamondHub commit/ref to build the hub from (default the workflow's own commit)
+        type: string
+        default: ''
+      hub_image:
+        description: A prebuilt hub image instead of building one
+        type: string
+        default: ''
+      supervisor_image:
+        type: string
+        default: ''
+      runtime_image:
+        type: string
+        default: ''
+      sdk_repo:
+        type: string
+        default: ''
+      sdk_ref:
+        description: bdh-sdk commit/ref whose builder builds the apps
+        type: string
+        default: ''
+      sdk_in_runtime:
+        description: Also install that SDK into the runtime image
+        type: boolean
+        default: false
+      images_artifact:
+        description: Artifact of `docker save` tarballs to load first
+        type: string
+        default: ''
+      app_artifact:
+        description: Artifact with an app under test (bdh-app.json, wheel, image.tar, base.txt)
+        type: string
+        default: ''
+      heads:
+        description: Unpinned components follow what the lock tracks, not its pins
+        type: boolean
+        default: false
+      artifact_name:
+        type: string
+        default: stack-e2e
+
+permissions:
+  contents: read
+
+jobs:
+  stack-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      HEADS: ${{ inputs.heads && '1' || '' }}
+      SDK_IN_RUNTIME: ${{ inputs.sdk_in_runtime && '1' || '' }}
+      SUPERVISOR_IMAGE: ${{ inputs.supervisor_image }}
+      RUNTIME_IMAGE: ${{ inputs.runtime_image }}
+      HUB_IMAGE: ${{ inputs.hub_image }}
+    steps:
+    - name: Checkout the harness
+      uses: actions/checkout@v7
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+
+    - name: Check the harness commit
+      env:
+        WANT: ${{ job.workflow_sha }}
+      run: |
+        test -n "$WANT" || { echo "::error::job.workflow_sha is empty"; exit 1; }
+        test "$(git rev-parse HEAD)" = "$WANT"
+
+    - name: Resolve the lock
+      id: lock
+      env:
+        SDK_REPO_IN: ${{ inputs.sdk_repo }}
+        SDK_REF_IN: ${{ inputs.sdk_ref }}
+      run: |
+        eval "$(python3 tests/e2e/lock.py resolve ${HEADS:+--heads})"
+        echo "sdk_repo=${SDK_REPO_IN:-$SDK_REPO}" >> "$GITHUB_OUTPUT"
+        echo "sdk_ref=${SDK_REF_IN:-$SDK_REF}" >> "$GITHUB_OUTPUT"
+
+    - name: Checkout the hub to test
+      if: inputs.hub_ref != ''
+      uses: actions/checkout@v7
+      with:
+        repository: blackdiamondlodge/BlackDiamondHub
+        ref: ${{ inputs.hub_ref }}
+        path: .hub
+
+    - name: Checkout bdh-sdk
+      uses: actions/checkout@v7
+      with:
+        repository: ${{ steps.lock.outputs.sdk_repo }}
+        ref: ${{ steps.lock.outputs.sdk_ref }}
+        path: .sdk
+
+    - name: Download candidate images
+      if: inputs.images_artifact != ''
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.images_artifact }}
+        path: ${{ runner.temp }}/images
+
+    - name: Load candidate images
+      if: inputs.images_artifact != ''
+      run: for f in "$RUNNER_TEMP"/images/*.tar; do docker load -i "$f"; done
+
+    - name: Download the app under test
+      if: inputs.app_artifact != ''
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.app_artifact }}
+        path: ${{ runner.temp }}/app
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.12'
+
+    - name: Install test tools
+      run: pip install pytest requests selenium pillow
+
+    - name: Start the stack
+      env:
+        HUB_SRC: ${{ inputs.hub_ref != '' && '.hub' || '' }}
+        EXTRA_APP_DIR: ${{ inputs.app_artifact != '' && format('{0}/app', runner.temp) || '' }}
+      run: BDH_SDK=.sdk bash tests/e2e/run_stack.sh
+
+    - name: Report resolved components
+      if: always()
+      run: |
+        f=tests/e2e/.work/resolved.json
+        [ -f "$f" ] || exit 0
+        { echo '### stack-e2e components'; echo '```json'; cat "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Run stack tests
+      run: pytest -v -rxX -p no:cacheprovider tests/e2e/app_test.py tests/e2e/stack_test.py
+
+    - name: Collect logs
+      if: always()
+      run: bash tests/e2e/collect_logs.sh
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: tests/e2e/.work/artifacts
+        if-no-files-found: ignore

@@ -1,0 +1,15 @@
+# CI-only site for the stack-e2e job (tests/e2e): the e2e_probe fixture as the
+# only container app, and the screensaver showing its live cam all year.
+
+[brand]
+name = "E2E Hub"
+subtitle = "stack-e2e"
+
+[apps.e2e_probe]
+runtime = "container"
+
+[apps.display]
+source_winter = "cam"
+source_spring = "cam"
+source_summer = "cam"
+source_fall = "cam"
