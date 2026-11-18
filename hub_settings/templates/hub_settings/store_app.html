@@ -6,7 +6,7 @@
 <div class="hst-head">
     <a class="hst-btn ghost" href="{% url 'hub_settings_store' %}" aria-label="Back to the store" style="display:grid;place-items:center;padding:0 16px"><i class="fas fa-chevron-left" aria-hidden="true"></i></a>
     {% include 'hub_settings/_app_icon.html' with src=app.icon lg=1 %}
-    <div><h2>Install {{ app.name }}</h2><p>v{{ version }} · Runs in its own sandbox. It can only do what you allow below.</p></div>
+    <div><h2>Install {{ app.name }}</h2><p>v{{ version }}{% if beta %}<span class="ap-pill beta">Beta</span>{% endif %} · Runs in its own sandbox. It can only do what you allow below.</p></div>
 </div>
 {% include 'hub_settings/_apps_messages.html' %}
 {% if app.description %}<p class="ap-sub" style="margin:-4px 0 18px">{{ app.description }}</p>{% endif %}

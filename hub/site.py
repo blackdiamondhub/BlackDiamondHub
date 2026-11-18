@@ -17,6 +17,9 @@ SECTION_TITLES = {"mountain": "Outside", "lodge": "Inside", "more": "More"}
 # How an app runs: in the hub process (the default) or in its own container
 # under bdh-supervisor (``runtime = "container"`` in its [apps.<id>] table).
 RUNTIMES = ("inprocess", "container")
+# Which catalog versions the app store offers: stable only, or betas (PEP 440
+# pre-releases) too. ``[store] channel``; mirrors broker.catalog.CHANNELS.
+CHANNELS = ("stable", "beta")
 
 
 def section_titles(sections=None):
@@ -31,7 +34,9 @@ def load_site(name=None, sites_dir=SITES_DIR):
     """``{"name", "brand", "location", "features", "apps", "store"}`` for the site. Brand file paths come back absolute.
 
     ``store`` is the ``[store]`` table: ``memory_budget_mb`` caps the sum of
-    installed apps' memory limits (Settings → Apps).
+    installed apps' memory limits (Settings → Apps); ``channel`` (``stable``,
+    the default, or ``beta``) is the release channel the hub installs and
+    auto-updates from.
 
     ``apps`` is ``{app_id: {key: value}}`` from the ``[apps.<app_id>]`` tables:
     per-site settings for installed apps (see :func:`app_settings`).
@@ -69,6 +74,9 @@ def load_site(name=None, sites_dir=SITES_DIR):
     budget = store.get("memory_budget_mb")
     if budget is not None and (not isinstance(budget, int) or isinstance(budget, bool) or budget <= 0):
         raise ValueError(f"site {name!r}: [store] memory_budget_mb must be a positive whole number")
+    store.setdefault("channel", "stable")
+    if store["channel"] not in CHANNELS:
+        raise ValueError(f"site {name!r}: [store] channel must be one of {', '.join(CHANNELS)}")
     return {"name": name, "brand": brand,
             "features": dict(conf.get("features", {})), "sections": sections,
             "apps": apps, "runtimes": runtimes, "store": store,

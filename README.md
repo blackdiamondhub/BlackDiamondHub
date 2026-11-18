@@ -96,7 +96,9 @@ Each site folder has:
   pill and inbox; see "Feedback" below), `[sections]` homepage section titles (`mountain`,
   `lodge` and `more`; "Outside", "Inside" and "More" unless set; staff can
   rename, add, remove and reorder groups and drag apps between them on
-  Settings → Home layout), and `[apps.<app_id>]` tables of per-site app
+  Settings → Home layout), `[store]` settings for Settings → Apps
+  (`memory_budget_mb`, and `channel`: see "Release channels" below), and
+  `[apps.<app_id>]` tables of per-site app
   settings. Each key becomes the Django setting `BDH_<APP_ID>_<KEY>`, read by
   the app with `bdh_sdk.settings.app_setting` (a value on the Settings page or
   in the environment wins). For example `[apps.sonos_control]` sets which
@@ -149,6 +151,26 @@ python manage.py app_install <id> --approve          # update to a version that 
 python manage.py app_status                          # the hub's and the supervisor's view
 python manage.py app_uninstall <id> [--purge]        # --purge deletes the app's data
 ```
+
+#### Release channels
+
+An app version is a **beta** when its version is a PEP 440 pre-release
+(`2.3.0b1`, `2.3.0rc1`): its repo publishes it as a GitHub pre-release and the
+catalog lists it with `"channel": "beta"`. Promoting it (the catalog's
+`promote.yml`) flips that entry to `stable`, same image, no rebuild.
+
+Each hub follows one channel, `[store] channel` in its `site.toml`:
+
+- `stable` (the default, Sun Peaks): beta versions are invisible: the store
+  doesn't list them, they can't be installed and they're never offered as
+  updates.
+- `beta` (Mercer Island): stable and beta versions alike; the newest by PEP 440
+  wins, and the store marks betas with a "Beta" badge.
+
+So the release flow is: release `X.Y.ZbN`, let Mercer Island run it, then
+promote it (or release `X.Y.Z`). A hub switched from beta back to stable keeps
+the beta it has (it's never downgraded) and updates to the next stable version
+newer than it.
 
 ### Feedback
 

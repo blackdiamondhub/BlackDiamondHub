@@ -4,9 +4,11 @@ Fetched with ``If-None-Match`` and cached on disk (``BDH_CATALOG_CACHE_DIR``),
 refreshed when it is over an hour old and on demand (``catalog_refresh``).
 A failed or invalid fetch keeps the last good copy.
 
-Versions are listed newest first. :func:`versions` hides what this hub can't
-use: yanked versions, newer hub APIs and SDK requirements the hub's bdh-sdk
-doesn't meet.
+Versions are listed newest first (PEP 440). :func:`versions` hides what this
+hub can't use: yanked versions, newer hub APIs, SDK requirements the hub's
+bdh-sdk doesn't meet and, unless the hub follows the beta channel
+(``[store] channel = "beta"`` in its site.toml), beta versions
+(``"channel": "beta"``, PEP 440 pre-releases until they're promoted).
 """
 import json
 import logging
@@ -47,6 +49,20 @@ def url():
 def cache_dir():
     configured = getattr(settings, "BDH_CATALOG_CACHE_DIR", "")
     return Path(configured or os.path.join(settings.MEDIA_ROOT, ".catalog"))
+
+
+CHANNELS = ("stable", "beta")
+
+
+def hub_channel():
+    """The release channel this hub follows: ``stable`` (default) or ``beta``."""
+    value = getattr(settings, "HUB_CHANNEL", "stable")
+    return value if value in CHANNELS else "stable"
+
+
+def is_beta(entry):
+    """Whether catalog version ``entry`` is on the beta channel (no channel means stable)."""
+    return isinstance(entry, dict) and entry.get("channel") == "beta"
 
 
 def hub_api():
@@ -217,12 +233,14 @@ def get(refresh_stale=True):
 
 # --- reading it ----------------------------------------------------------------
 
-def compatible(entry, api=None, sdk=None):
+def compatible(entry, api=None, sdk=None, channel=None):
     """Whether this hub can use catalog version ``entry`` (and why not)."""
     if not isinstance(entry, dict) or not isinstance(entry.get("version"), str):
         return False, "malformed"
     if entry.get("yanked"):
         return False, "yanked"
+    if is_beta(entry) and (channel or hub_channel()) != "beta":
+        return False, "beta (this hub follows stable)"
     api = hub_api() if api is None else api
     wanted = entry.get("hub_api")
     if not isinstance(wanted, int) or isinstance(wanted, bool) or wanted > api:
@@ -269,11 +287,19 @@ def display_name(install):
 
 
 def versions(app_id, data=None):
-    """Usable versions of ``app_id``, newest first."""
+    """Usable versions of ``app_id``, newest first (PEP 440)."""
     entry = app(app_id, data)
     if entry is None:
         return []
-    return [v for v in entry.get("versions") or () if compatible(v)[0]]
+    usable = [v for v in entry.get("versions") or () if compatible(v)[0]]
+    return sorted(usable, key=_version_key, reverse=True)
+
+
+def _version_key(entry):
+    try:
+        return (1, Version(entry["version"]))
+    except InvalidVersion:
+        return (0, Version("0"))
 
 
 def apps(data=None):

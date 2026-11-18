@@ -9,11 +9,11 @@
     {% include 'hub_settings/_app_icon.html' with src=app.img lg=1 %}
     <div>
         <h2>{{ app.label }}</h2>
-        <p><span class="ap-st"><span class="ap-dot {{ app.dot }}"></span>{{ app.status }}</span> · v{{ app.version }}{% if app.used_mb %} · {{ app.used_mb }} of {{ app.limit_mb }} MB{% elif app.limit_mb %} · up to {{ app.limit_mb }} MB{% endif %}</p>
+        <p><span class="ap-st"><span class="ap-dot {{ app.dot }}"></span>{{ app.status }}</span> · v{{ app.version }}{% if app.beta %}<span class="ap-pill beta">Beta</span>{% endif %}{% if app.used_mb %} · {{ app.used_mb }} of {{ app.limit_mb }} MB{% elif app.limit_mb %} · up to {{ app.limit_mb }} MB{% endif %}</p>
     </div>
     <div class="act">
         <form method="post" action="{% url 'hub_settings_app_restart' app.id %}">{% csrf_token %}<button class="hst-btn ghost" type="submit"{% if app.busy %} disabled{% endif %}><i class="fas fa-rotate-right" aria-hidden="true"></i> Restart</button></form>
-        {% if app.update %}<form method="post" action="{% url 'hub_settings_app_update' app.id %}">{% csrf_token %}<button class="hst-btn" type="submit"{% if app.busy %} disabled{% endif %}>Update to v{{ app.update }}</button></form>{% endif %}
+        {% if app.update %}<form method="post" action="{% url 'hub_settings_app_update' app.id %}">{% csrf_token %}<button class="hst-btn" type="submit"{% if app.busy %} disabled{% endif %}>Update to v{{ app.update }}{% if app.update_beta %} (beta){% endif %}</button></form>{% endif %}
     </div>
 </div>
 {% include 'hub_settings/_apps_messages.html' %}
