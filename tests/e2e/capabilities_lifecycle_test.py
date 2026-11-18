@@ -71,14 +71,14 @@ def test_wake_every_wakes_sleeping_app():
     if running(FEED):
         stop(FEED)
     started = _started(FEED)
-    # Three wake_every periods.
-    deadline = time.monotonic() + 60
+    # Two wake_every periods plus slack.
+    deadline = time.monotonic() + 45
     while time.monotonic() < deadline:
         if running(FEED) or _started(FEED) != started:
             break
         time.sleep(2)
     else:
-        raise PlatformGap("feed was not woken within 3x its wake_every")
+        raise PlatformGap("feed was not woken within 2x its wake_every")
     poll("feed asleep again", lambda: not running(FEED), 180, interval=3)
 
 
@@ -140,7 +140,7 @@ def test_unhealthy_upgrade_rolls_back():
     # Not waiting: the hub's own wait keeps restarting the crashing app to
     # fetch its manifest well past its timeout.
     result = _upgrade("3.0.0", wait=False)
-    deadline = time.monotonic() + 90
+    deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         sup = _supervisor(STORE) or {}
         if sup.get("version") == "2.0.0" and sup.get("status") == "installed":
