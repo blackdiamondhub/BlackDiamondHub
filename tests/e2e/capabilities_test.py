@@ -161,9 +161,11 @@ print("{}")
     data = base64.b64decode(opened["data_b64"])
     assert data == png
     assert Image.open(io.BytesIO(data)).size == (64, 36)
-    # Only the grantee reads it; the denied app can't publish over it either.
+    # Only the grantee reads it; the denied app can't publish a share its
+    # manifest doesn't declare (publishing is gated by manifest, not grants).
     refused(DENIED, "shares.open", {"provider": PRODUCER, "name": "snap"})
-    refused(DENIED, "shares.publish", {"name": "snap", "main": sha, "attachments": {}, "expected_revision": None})
+    refused(DENIED, "shares.publish", {"name": "snap", "main": sha, "attachments": {}, "expected_revision": None},
+            code="invalid", status=400)
     assert _share_rows(DENIED) == 0
 
 

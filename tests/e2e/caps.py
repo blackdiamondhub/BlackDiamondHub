@@ -103,9 +103,9 @@ def ok(app, op, payload=None):
     return out["result"]
 
 
-def refused(app, op, payload=None):
+def refused(app, op, payload=None, code="forbidden", status=403):
     out = rpc(app, op, payload)
-    assert not out["ok"] and out["code"] == "forbidden" and out["status"] == 403, f"{app} {op}: {out}"
+    assert not out["ok"] and out["code"] == code and out["status"] == status, f"{app} {op}: {out}"
     return out
 
 

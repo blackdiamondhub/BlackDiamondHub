@@ -43,8 +43,9 @@ async def record(request, handler):
         return await handler(request)
     if request.path != "/api/websocket":
         body = None
-        if request.content_type == "application/json":
-            body = await request.json()
+        if request.content_type == "application/json" and request.can_read_body:
+            raw = await request.text()
+            body = json.loads(raw) if raw.strip() else None
         calls.append({"method": request.method, "path": request.path, "body": body})
         if request.headers.get("Authorization") != f"Bearer {TOKEN}" and not request.path.startswith("/api/tts_proxy"):
             return web.json_response({"message": "unauthorized"}, status=401)

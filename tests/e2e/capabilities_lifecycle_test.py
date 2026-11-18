@@ -11,7 +11,7 @@ import pytest
 import requests
 
 from caps import (
-    FEED, PRODUCER, STORE, PlatformGap, app_get, app_url, broker_rpc, django, gap, info, inspect, ok, poll, port,
+    FEED, PRODUCER, STORE, PlatformGap, app_get, broker_rpc, django, gap, info, inspect, ok, poll, port,
     running, stop, subscription, token,
 )
 from stack_test import ENV, get
@@ -84,14 +84,14 @@ def test_wake_every_wakes_sleeping_app():
 
 # --- upgrade / rollback / uninstall -------------------------------------------
 
-def _upgrade(version, timeout=180):
+def _upgrade(version, timeout=180, wait=True):
     return django(f"""
 import json
 from broker import services
 from broker.models import AppInstall
 try:
     r = services.upgrade(AppInstall.objects.get(app_id={STORE!r}), services._entry({STORE!r}, {version!r}),
-                         wait=True, timeout={timeout})
+                         wait={wait!r}, timeout={timeout})
     print(json.dumps({{"ok": True, "version": r.version}}))
 except Exception as exc:
     print(json.dumps({{"ok": False, "error": repr(exc)}}))
@@ -137,16 +137,15 @@ print("{{}}")
 
 @gap("no health gate on upgrade: an update that can't start stays installed with no automatic rollback")
 def test_unhealthy_upgrade_rolls_back():
-    result = _upgrade("3.0.0")
+    # Not waiting: the hub's own wait keeps restarting the crashing app to
+    # fetch its manifest well past its timeout.
+    result = _upgrade("3.0.0", wait=False)
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
-        try:
-            resp = requests.get(app_url(STORE, "files/data"), timeout=30)
-            if resp.status_code == 200 and (_supervisor(STORE) or {}).get("version") == "2.0.0":
-                assert resp.json() == {"found": True, "value": "v1"}
-                return
-        except requests.RequestException:
-            pass
+        sup = _supervisor(STORE) or {}
+        if sup.get("version") == "2.0.0" and sup.get("status") == "installed":
+            assert app_get(STORE, "files/data").json() == {"found": True, "value": "v1"}
+            return
         time.sleep(5)
     raise PlatformGap(f"3.0.0 left in place: upgrade={result} supervisor={_supervisor(STORE)}")
 
@@ -177,7 +176,9 @@ print(json.dumps([AppInstall.objects.filter(app_id={STORE!r}).exists(),
     for name, kind in ((f"bdh-app-{STORE}", "container"), (f"bdh-app-{STORE}-data", "volume"),
                        (f"bdh-app-{STORE}", "network")):
         poll(f"{kind} {name} removed", lambda: inspect(name, kind) is None, 60)
-    assert get(f"/apps/{STORE}/").status_code == 404
+    # Uninstalling from another process (manage.py) reaches the server's spec
+    # cache at its next one-minute re-read.
+    poll(f"/apps/{STORE}/ gone", lambda: get(f"/apps/{STORE}/").status_code == 404, 90, interval=3)
     try:
         resp = requests.get(f"http://localhost:{app_port}/{STORE}/files/data", timeout=10)
         assert resp.status_code != 200, f"old app port still serves the app: {resp.text[:200]}"
