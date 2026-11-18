@@ -1,0 +1,1 @@
+# No extra in-process apps: the stack-e2e site runs only the built-in apps.

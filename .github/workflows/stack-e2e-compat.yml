@@ -1,0 +1,28 @@
+# Non-blocking drift check: the stack with what stack.lock.json tracks
+# (latest supervisor, runtime and SDK release) instead of its pins, plus the
+# SDK's main branch installed into the runtime. A failure here means the next
+# lock bump (stack-e2e-lock.yml) or SDK release will break stack-e2e.
+name: stack-e2e-compat
+
+on:
+  schedule:
+    - cron: '17 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  heads:
+    uses: ./.github/workflows/stack-e2e.yml
+    with:
+      heads: true
+      artifact_name: stack-e2e-heads
+
+  sdk-main:
+    uses: ./.github/workflows/stack-e2e.yml
+    with:
+      heads: true
+      sdk_ref: main
+      sdk_in_runtime: true
+      artifact_name: stack-e2e-sdk-main

@@ -10,3 +10,6 @@ staticfiles
 *.bak.*
 backups
 go2rtc
+tests/e2e/.work
+.sdk
+.hub

@@ -16,3 +16,9 @@ go2rtc/go2rtc.yaml
 # Database backups written by docker/entrypoint.sh
 backups/
 media/apps/
+
+# stack-e2e harness scratch (tests/e2e/run_stack.sh)
+tests/e2e/.work/
+tests/e2e/apps/*/build/
+tests/e2e/apps/*/*.egg-info/
+!tests/e2e/stack.lock.json

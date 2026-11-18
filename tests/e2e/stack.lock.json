@@ -1,0 +1,15 @@
+{
+  "supervisor": {
+    "image": "ghcr.io/blackdiamondlodge/bdh-supervisor@sha256:288b230edfc853ce06cf3669a81a28353c7086190bfc18d649a316c0b95b0a09",
+    "tracks": "ghcr.io/blackdiamondlodge/bdh-supervisor:latest"
+  },
+  "runtime": {
+    "image": "ghcr.io/blackdiamondlodge/bdh-app-runtime@sha256:be3d220df5bbbbb449116e6dc6c5b94da42186f06933be23b92ed6bfca4414bd",
+    "tracks": "ghcr.io/blackdiamondlodge/bdh-app-runtime:hub-api-2"
+  },
+  "sdk": {
+    "repo": "blackdiamondlodge/bdh-sdk",
+    "commit": "1dee52f17f41d051dd88fec3d2457a02273bf5aa",
+    "tracks": "v0"
+  }
+}
