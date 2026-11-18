@@ -61,9 +61,9 @@ on:
         type: string
         default: stack-e2e
       suites:
-        description: 'JSON list of suites: core (stack_test.py) and/or caps (capabilities_test.py)'
+        description: 'JSON list of suites: core (stack_test.py), caps (capabilities_test.py), caps-life (capabilities_lifecycle_test.py)'
         type: string
-        default: '["core", "caps"]'
+        default: '["core", "caps", "caps-life"]'
 
 permissions:
   contents: read
@@ -163,8 +163,11 @@ jobs:
 
     - name: Run stack tests
       run: |
-        if [ "$SUITE" = caps ]; then tests=tests/e2e/capabilities_test.py
-        else tests="tests/e2e/app_test.py tests/e2e/stack_test.py"; fi
+        case "$SUITE" in
+          caps) tests=tests/e2e/capabilities_test.py ;;
+          caps-life) tests=tests/e2e/capabilities_lifecycle_test.py ;;
+          *) tests="tests/e2e/app_test.py tests/e2e/stack_test.py" ;;
+        esac
         pytest -v -rxX -p no:cacheprovider $tests
 
     - name: Collect logs

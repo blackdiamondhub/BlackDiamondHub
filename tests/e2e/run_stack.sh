@@ -19,7 +19,7 @@
 #                     only when not already present locally
 #   HUB_SRC           hub checkout to build (default: this one), or
 #   HUB_IMAGE         a prebuilt hub image
-#   SUITE             core (default) or caps: also the capability tests'
+#   SUITE             core (default), caps or caps-life: also the capability tests'
 #                     identities (variants.py), a fake Home Assistant and a
 #                     short supervisor idle timeout
 #   EXTRA_APP_DIR     an app under test: bdh-app.json, its wheel, image.tar
@@ -94,7 +94,7 @@ echo "::endgroup::"
 
 echo "::group::fixture app images (SDK builder)"
 srcs=(tests/e2e/apps/e2e_probe)
-if [ "$suite" = caps ]; then
+if [[ $suite == caps* ]]; then
     # The capability tests' identities: the same probe code, other manifests.
     python3 tests/e2e/variants.py "$work/variants" | tee "$work/variants.txt"
     while read -r _ _ dir; do srcs+=("${dir#"$here"/}"); done < "$work/variants.txt"
@@ -173,7 +173,7 @@ wait_for 90 postgres docker exec bdh-e2e-db pg_isready -U postgres -h 127.0.0.1
 echo "::endgroup::"
 
 supervisor_env=() hub_env=(-e APP_PORTS=4)
-if [ "$suite" = caps ]; then
+if [[ $suite == caps* ]]; then
     echo "::group::fake Home Assistant"
     python3 tests/e2e/fake_ha.py "$ha_port" >"$work/fake_ha.log" 2>&1 &
     echo $! > "$work/fake_ha.pid"
@@ -248,7 +248,7 @@ app_port=$(sed -n 's/.* on port \([0-9]*\) .*/\1/p' "$work/install.txt" | head -
 if [ -n "$extra_id" ]; then
     docker exec bdh-e2e-hub /app/.venv/bin/python manage.py app_install "$extra_id" --timeout 180 | tee -a "$work/install.txt"
 fi
-if [ "$suite" = caps ]; then
+if [[ $suite == caps* ]]; then
     docker exec -i bdh-e2e-hub /app/.venv/bin/python manage.py shell < tests/e2e/install_caps.py | tee -a "$work/install.txt"
     grep -q '^caps installed$' "$work/install.txt" || { echo "capability fixtures not installed" >&2; exit 1; }
 fi
