@@ -4,6 +4,8 @@ from datetime import date, datetime, timedelta, timezone
 from .options import SEASON_IDS
 
 EARLY_WINDOW = timedelta(days=30)
+# An app's announced opening day is trusted only this close to the winter start setting.
+OPENS_WINDOW = timedelta(days=60)
 
 
 
@@ -48,6 +50,48 @@ def next_start(today, mmdd):
     """The first date after ``today`` that falls on ``mmdd``."""
     start = _in_year(today.year, mmdd)
     return start if start > today else _in_year(today.year + 1, mmdd)
+
+
+def opens_on(hint):
+    """A season hint's scheduled start (``opens_on``), or None."""
+    try:
+        return date.fromisoformat(hint.get("opens_on"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _plausible(day, starts):
+    """Whether an announced opening day is near the winter start setting."""
+    winter = starts["winter"]
+    return min(day - last_start(day, winter), next_start(day, winter) - day) <= OPENS_WINDOW
+
+
+def winter_signal(hints, today, starts):
+    """Whether a hint says winter has come.
+
+    A scheduled hint (``opens_on``) counts from that day, and only for a while:
+    a stale or implausible date (say, last year's) says nothing.
+    """
+    for hint in hints:
+        if hint.get("season") != "winter":
+            continue
+        if not hint.get("opens_on"):
+            return True
+        day = opens_on(hint)
+        if day and _plausible(day, starts) and timedelta(0) <= today - day <= OPENS_WINDOW:
+            return True
+    return False
+
+
+def opening_day(hints, today, starts):
+    """The earliest plausible winter opening day an app announces that is still ahead.
+
+    Dates far from the winter start setting are ignored, so a bad feed can't
+    replace the setting with something silly.
+    """
+    days = [day for hint in hints if hint.get("season") == "winter"
+            and (day := opens_on(hint)) and day > today and _plausible(day, starts)]
+    return min(days, default=None)
 
 
 def by_date(today, starts):

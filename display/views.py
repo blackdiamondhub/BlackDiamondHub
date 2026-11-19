@@ -28,7 +28,7 @@ from .models import DisplayLoad, DisplaySample, Heartbeat, SaverPhoto, UploadLin
 from .photos import BadPhoto, add_photo
 from .options import APP, SEASON_IDS, SEASONS, SLOTS, SOURCES, STOCK_STYLES, value
 from .schedule import is_night, lodge_minute, parse_hhmm, window
-from .season import by_date, lodge_today, parse_mmdd, resolve
+from .season import by_date, lodge_today, opening_day, parse_mmdd, resolve, winter_signal
 from .stats import collect
 
 SOURCE_LAYERS = {"stock": ["stock"], "photos": ["photos"], "cam": ["cam"], "mix": ["stock", "photos", "cam"]}
@@ -39,13 +39,21 @@ def stock_art(season):
     return [static(f"display/stock/{season}/{style}.webp") for style in STOCK_STYLES]
 
 
-def season_signal():
-    """Whether an app says winter has come early (None when no app can tell)."""
+def season_info(today):
+    """``(signal, opens)``: whether an app says winter has come (None when no app can
+    tell), and the winter opening day an app announces (None if none)."""
     from bdh_sdk.provides import SEASON
 
     if not provides.providers(SEASON):
-        return None
-    return any(h.get("season") == "winter" for h in provides.season_hints())
+        return None, None
+    hints = provides.season_hints()
+    starts = options.starts()
+    return winter_signal(hints, today, starts), opening_day(hints, today, starts)
+
+
+def season_signal(today=None):
+    """Whether an app says winter has come early (None when no app can tell)."""
+    return season_info(today or lodge_today())[0]
 
 
 def current_season(today=None, signal=None):
@@ -84,7 +92,7 @@ def _preview(request):
 def saver_api(request):
     today = lodge_today()
     starts = options.starts()
-    signal = season_signal()
+    signal, opens = season_info(today)
     season = request.GET.get("season")
     if season not in SEASON_IDS:
         season = current_season(today, signal)
@@ -115,7 +123,7 @@ def saver_api(request):
         "burn_in": value("burn_in"),
         "idle_minutes": value("idle_minutes"),
         "night": window(),
-        "stats": collect(keys, today, starts, signal),
+        "stats": collect(keys, today, starts, signal, opens),
     })
     response["Cache-Control"] = "no-store"
     return response
