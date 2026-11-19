@@ -65,7 +65,7 @@
 .bdh-saver .row b {
     display: block; font-size: 1.55em; font-weight: 400; color: rgba(240, 244, 250, .9); margin-bottom: 2px;
 }
-.bdh-saver .season, .bdh-saver .cam-name {
+.bdh-saver .cam-name {
     position: absolute; right: 3.1vw; bottom: 4.8vh; font-size: clamp(12px, .95vw, 18px);
     color: rgba(240, 244, 250, .55); letter-spacing: .08em; text-transform: uppercase;
     transition: translate 120s linear;

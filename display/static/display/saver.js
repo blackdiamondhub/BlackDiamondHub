@@ -107,7 +107,7 @@
         root.style.display = 'none';
         root.innerHTML = '<div class="layer stock"></div><div class="layer photos"></div><div class="layer cam"></div><div class="shade"></div>'
             + '<div class="info"><div class="clock"></div><div class="date"></div><div class="row"></div></div>'
-            + '<div class="cam-name"></div><div class="caption"></div><div class="season"></div><div class="hint">Tap anywhere</div>';
+            + '<div class="cam-name"></div><div class="caption"></div><div class="hint">Tap anywhere</div>';
         // Swallow the tap that wakes the display so it doesn't land on what's underneath.
         ['pointerdown', 'touchstart', 'mousedown'].forEach(type => root.addEventListener(type, e => {
             e.preventDefault();
@@ -140,7 +140,6 @@
     function drift() {
         const r = n => Math.round(Math.random() * n * 2 - n) + 'px';
         $('.info').style.translate = `${r(40)} ${r(24)}`;
-        $('.season').style.translate = `${r(20)} ${r(12)}`;
     }
 
     // Night mode, in lodge time (the display's own clock may be on another zone).
@@ -349,7 +348,6 @@
             season = d.season;
             $('.layer.stock').innerHTML = scene(season);
         }
-        $('.season').textContent = d.label || season;
         $('.row').innerHTML = (d.stats || []).map(s =>
             `<div><b>${esc(s.time ? timeText(s.time) : s.value)}</b>${esc(s.label)}</div>`).join('');
         const camLayer = $('.layer.cam');

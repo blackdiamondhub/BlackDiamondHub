@@ -858,9 +858,16 @@ class SaverBrokenPhotoSeleniumTest(SeleniumTestCase):
         self.open_saver()
         # Wait for the photos to have been tried and the saver to have fallen back.
         WebDriverWait(self.browser, 20).until(lambda d: (
-            d.find_element(By.CSS_SELECTOR, ".bdh-saver .season").get_attribute("textContent")
+            d.find_element(By.CSS_SELECTOR, ".bdh-saver .clock").get_attribute("textContent")
             and "on" in self.layer("stock").get_attribute("class")
             and "on" not in self.layer("photos").get_attribute("class")))
+
+    def test_season_name_is_not_shown(self):
+        self.open_saver()
+        WebDriverWait(self.browser, 20).until(
+            lambda d: d.find_element(By.CSS_SELECTOR, ".bdh-saver .clock").get_attribute("textContent"))
+        text = self.browser.find_element(By.CSS_SELECTOR, ".bdh-saver").get_attribute("textContent").lower()
+        self.assertNotIn("summer", text)
 
     def test_stock_rotates_season_paintings(self):
         self.open_saver()  # no photos yet: the stock layer shows
