@@ -64,6 +64,8 @@ if [ -n "${BDH_SUPERVISOR_SOCKET:-}" ]; then
     ( sleep 60; python manage.py app_siteinstall || true ) &
     ( while sleep 1800; do python manage.py app_autoupdate --nightly || true; done ) &
 fi
+# Announce the hub over mDNS so displays can find it (BDH_MDNS=off to stop).
+( until python manage.py mdns_advertise; do sleep 30; done ) &
 # Daily: delete expired sessions (CSRF tokens live in sessions, so every
 # anonymous visitor gets a row).
 ( while sleep 86400; do python manage.py clearsessions || true; done ) &

@@ -45,13 +45,15 @@ def clear(app_id=None):
             _jobs.pop(app_id, None)
 
 
-def start(app_id, label, fn, *args, **kwargs):
-    """Run ``fn(*args, **kwargs)`` for ``app_id``; False if a job is already running."""
+def start(app_id, label, fn, *args, info=None, **kwargs):
+    """Run ``fn(*args, **kwargs)`` for ``app_id``; False if a job is already running.
+
+    ``info`` is kept on the job for the pages to show (e.g. the version being installed)."""
     with _lock:
         job = _jobs.get(app_id)
         if job and job["state"] == RUNNING:
             return False
-        _jobs[app_id] = {"label": label, "state": RUNNING, "error": "", "ended": 0.0}
+        _jobs[app_id] = {"label": label, "state": RUNNING, "error": "", "ended": 0.0, "info": dict(info or {})}
     if inline:
         _run(app_id, fn, args, kwargs)
     else:

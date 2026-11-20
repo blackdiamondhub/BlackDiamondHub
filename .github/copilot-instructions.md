@@ -53,6 +53,7 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
 ### Docker Services (docker-compose.yml)
 - **djangoapp** (`BlackDiamondHub`) — Django app on port 8000, image from GHCR
   - Runs `docker/entrypoint.sh`: waits for the DB; if migrations are pending, `pg_dump`s to `./backups` (host volume, last 10 kept) and runs `migrate`; then serves with **Daphne** (not `runserver`). Static files are collected at image build and served by **WhiteNoise**.
+  - It also runs `manage.py mdns_advertise` in the background (`hub/mdns.py`). This announces the hub over mDNS/DNS-SD as **"Black Diamond Hub"** (`_bdh-hub._tcp`, TXT `path`/`port`/`site`/`name`/`location`) so the BDH Display kiosk can find it without a hardcoded IP. It relies on the container's host networking. `BDH_MDNS=off` disables it; `BDH_MDNS_ADDRESS` overrides the announced LAN IP.
   - Requires `DJANGO_SECRET_KEY` in `.env`; `DJANGO_DEBUG` defaults to off (set `DJANGO_DEBUG=true` in a local `.env` for development).
   - `/healthz` (DB check, exempt from ALLOWED_HOSTS) backs the image's Docker `HEALTHCHECK`.
   - Rollback: images are also tagged `:sha-<commit>`; pin `image:` in compose to a previous sha and `docker compose up -d`. Watchtower does not roll back on its own, and an image rollback does not undo migrations (restore from `./backups` if needed).

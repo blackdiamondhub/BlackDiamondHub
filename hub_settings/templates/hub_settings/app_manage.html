@@ -13,22 +13,39 @@
     </div>
     <div class="act">
         <form method="post" action="{% url 'hub_settings_app_restart' app.id %}">{% csrf_token %}<button class="hst-btn ghost" type="submit"{% if app.busy %} disabled{% endif %}><i class="fas fa-rotate-right" aria-hidden="true"></i> Restart</button></form>
-        {% if app.update %}<form method="post" action="{% url 'hub_settings_app_update' app.id %}">{% csrf_token %}<button class="hst-btn" type="submit"{% if app.busy %} disabled{% endif %}>Update to v{{ app.update }}{% if app.update_beta %} (beta){% endif %}</button></form>{% endif %}
+        {% if review and not app.busy %}<a class="hst-btn amber" href="#review"><i class="fas fa-shield-halved" aria-hidden="true"></i> Review update</a>
+        {% elif app.update %}<form method="post" action="{% url 'hub_settings_app_update' app.id %}">{% csrf_token %}<button class="hst-btn" type="submit"{% if app.busy %} disabled{% endif %}>{% if app.busy and job.label == 'Updating' %}Updating…{% else %}Update to v{{ app.update }}{% if app.update_beta %} (beta){% endif %}{% endif %}</button></form>{% endif %}
     </div>
 </div>
 {% include 'hub_settings/_apps_messages.html' %}
 {% if job and job.state == 'failed' %}<div class="hst-note bad">{{ job.label }} failed: {{ job.error }}</div>{% endif %}
 {% if error %}<div class="hst-note bad">{{ error }}</div>{% endif %}
-{% if review %}
+{% if app.busy and job.label == 'Updating' and job.info.version %}
+<section class="hst-card" id="updating">
+    <h3>Updating to v{{ job.info.version }}…</h3>
+    <div class="hst-row"><div class="lbl"><small>Downloading and restarting {{ app.label }}. This page refreshes on its own.</small><div class="ap-prog"><i></i></div></div></div>
+</section>
+{% elif review and not app.busy %}
 <form method="post" action="{% url 'hub_settings_app_update' app.id %}">{% csrf_token %}<input type="hidden" name="approve" value="1">
-<section class="hst-card">
-    <h3>v{{ review.version }} asks for more access</h3>
-    {% for p in review.perms %}<div class="hst-row ap-perm"><i class="fa-solid {{ p.icon }}" aria-hidden="true"></i><div class="lbl"><b>{{ p.title }}</b>{% if p.detail %}<small>{{ p.detail }}</small>{% endif %}</div></div>{% endfor %}
-    {% if review.network %}<div class="hst-row ap-perm"><i class="fa-solid {{ review.network.0 }}" aria-hidden="true"></i><div class="lbl"><b>{{ review.network.1 }}</b><small>{{ review.network.2 }}</small></div></div>{% endif %}
-    {% for c in review.companions %}<div class="hst-row ap-perm"><i class="fa-solid fa-cubes" aria-hidden="true"></i><div class="lbl"><b>Helper service: {{ c }}</b></div></div>{% endfor %}
-    <div class="hst-row"><div class="lbl"><small>Auto-update skips updates like this until you approve them.</small></div><button class="hst-btn" type="submit">Approve and update</button></div>
+<section class="hst-card appr" id="review">
+    <h3><i class="fas fa-shield-halved" aria-hidden="true"></i> Review update to v{{ review.version }}{% if review.beta %} · Beta{% endif %}</h3>
+    {% if review.changelog %}<div class="hst-row"><div class="lbl"><b>What's new</b><small style="white-space:normal;line-height:1.5">{{ review.changelog|linebreaksbr }}</small></div></div>{% endif %}
+    <div class="hst-row"><div class="lbl"><b>Access changes</b></div></div>
+    {% for p in review.items %}<div class="hst-row ap-perm"><i class="fa-solid {{ p.icon }}" aria-hidden="true"></i><div class="lbl"><b>{{ p.title }}{% if p.new %}<span class="new">NEW</span>{% elif p.less %}<span class="less">LESS</span>{% endif %}</b>{% if p.detail %}<small>{{ p.detail }}</small>{% endif %}</div></div>{% endfor %}
+    <div class="hst-row"><div class="lbl"><small>Until you approve, it stays on v{{ app.version }} and won't auto-update.</small></div>
+        <a class="hst-btn ghost" href="{% url 'hub_settings_apps' %}">Not now</a>
+        <button class="hst-btn amber" type="submit">Approve and update</button>
+    </div>
 </section>
 </form>
+{% endif %}
+{% if done %}
+<div class="hst-note ok" id="updated"><i class="fas fa-circle-check" aria-hidden="true"></i> Updated to v{{ done.version }}.{% if done.added %} {{ done.added|join:", " }} {{ done.added|length|pluralize:"is,are" }} on.{% endif %}</div>
+{% if done.settings_url %}
+<section class="hst-card">
+    <a class="hst-row hst-link" href="{{ done.settings_url }}"><i class="fas fa-sliders" aria-hidden="true"></i><div class="lbl"><b>Check this app's settings</b><small>The new version may have options to set up</small></div><span class="hst-btn ghost" style="display:inline-flex;align-items:center">Open settings</span></a>
+</section>
+{% endif %}
 {% endif %}
 {% if changelog %}
 <section class="hst-card" id="whats-new">

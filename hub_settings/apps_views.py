@@ -159,6 +159,7 @@ def _row(record, data):
     else:
         dot, text = "", ""
     update = services.update_available(record, data) if data else None
+    extra = services.widened(record, update) if update else {}
     return {
         "id": record.app_id, "label": _label(spec) if spec else meta["name"],
         "img": (_icon(spec) if spec else "") or meta["icon"], "version": record.version,
@@ -167,9 +168,19 @@ def _row(record, data):
         "beta": catalog.is_beta(_catalog_entry(record.app_id, record.version, data)),
         "update": update["version"] if update else "",
         "update_beta": catalog.is_beta(update),
+        "approval": bool(extra), "asks": _asks(extra),
         "updated": _recently_updated(record),
         "manage_url": reverse("hub_settings_app_manage", args=[record.app_id]),
     }
+
+
+def _asks(extra):
+    """One line naming what an update would newly get, e.g. "Show alerts on the hub · Local network"."""
+    parts = [describe(p)["title"] for p in extra.get("permissions", ())]
+    if extra.get("network") in NETWORK_INFO and NETWORK_INFO[extra["network"]]:
+        parts.append(NETWORK_INFO[extra["network"]][1])
+    parts += [f"Helper service: {c}" for c in extra.get("companions", ())]
+    return " · ".join(dict.fromkeys(parts))
 
 
 def _recently_updated(record):
@@ -191,6 +202,10 @@ def _catalog_entry(app_id, version, data):
 def _changelog(record, data):
     """Release notes for the installed version, from the catalog."""
     entry = _catalog_entry(record.app_id, record.version, data)
+    return _notes(entry)
+
+
+def _notes(entry):
     return str(entry.get("changelog") or "").strip() if entry else ""
 
 
@@ -219,10 +234,12 @@ def installed(request):
     records = _container_records()
     rows = [_row(r, data) for r in records]
     builtin = _builtin_rows({r.app_id for r in records})
+    approval = [r for r in rows if r["update"] and r["approval"]]
     return _render(request, "hub_settings/apps.html", "apps",
-                   tabs=_tabs("installed"), rows=rows, builtin=builtin,
+                   tabs=_tabs("installed"), rows=[r for r in rows if r not in approval],
+                   approval=approval, builtin=builtin,
                    total=len(rows) + len(builtin), budget_mb=budget_mb(),
-                   updates=sum(1 for r in rows if r["update"]),
+                   updates=sum(1 for r in rows if r["update"] and not r["approval"]),
                    busy=any(r["busy"] for r in rows) or jobs.running("*"),
                    enabled=supervisor.enabled(), catalog_ok=data is not None)
 
@@ -338,31 +355,51 @@ def manage(request, app_id):
     spec = _spec(app_id)
     job = jobs.get(app_id)
     granted = set(record.granted_permissions or ())
+    settings_url = _settings_url(spec) if spec else ""
     return _render(request, "hub_settings/app_manage.html", "apps", app=row, record=record,
                    job=job, error=(live.get("error") if live.get("status") == "failed" else ""),
-                   logs=logs, settings_url=_settings_url(spec) if spec else "",
+                   logs=logs, settings_url=settings_url,
                    perms=[{"value": p, "on": p in granted, **describe(p)}
                           for p in record.requested_permissions or ()],
                    summary=_short([p for p in record.requested_permissions or () if p in granted]),
                    network=NETWORK_INFO.get(record.approved_network),
                    changelog=_changelog(record, data),
                    sharing=_sharing(record), receives=_receives(record),
-                   review=_review(record, request.GET.get("review"), data))
+                   review=_review(record, data), done=_done(record, job, settings_url))
 
 
-def _review(record, version, data):
-    """What update ``version`` asks for beyond what's approved, for the review card."""
-    if not version or data is None:
-        return None
-    entry = services.update_available(record, data)
-    if entry is None or entry["version"] != version:
+def _review(record, data):
+    """The review card for an update that needs approval, or None."""
+    entry = services.update_available(record, data) if data is not None else None
+    if entry is None:
         return None
     extra = services.widened(record, entry)
     if not extra:
         return None
-    return {"version": version, "perms": [describe(p) for p in extra.get("permissions", ())],
-            "network": NETWORK_INFO.get(extra.get("network")), "companions": extra.get("companions", ())}
+    want = services.requested(entry)
+    items = [{**describe(p), "new": True} for p in extra.get("permissions", ())]
+    net = NETWORK_INFO.get(want["network"])
+    if "network" in extra and net:
+        items.append({"icon": net[0], "title": net[1], "detail": net[2], "new": True})
+    elif services._rank(want["network"]) < services._rank(record.approved_network):
+        old = NETWORK_INFO.get(record.approved_network)
+        items.append({"icon": net[0] if net else "fa-ban", "title": net[1] + " only" if net else "No network access",
+                      "detail": f"Less access than now: it no longer needs {old[1].lower()}" if old else "",
+                      "less": True})
+    items += [{"icon": "fa-cubes", "title": f"Helper service: {c}", "detail": "", "new": True}
+              for c in extra.get("companions", ())]
+    return {"version": entry["version"], "beta": catalog.is_beta(entry), "changelog": _notes(entry),
+            "items": items}
 
+
+def _done(record, job, settings_url):
+    """The "Updated" card after an update job finished, or None."""
+    info = (job or {}).get("info") or {}
+    if not job or job["state"] != jobs.DONE or info.get("version") != record.version:
+        return None
+    added = info.get("added") or []
+    return {"version": record.version, "added": added,
+            "settings_url": settings_url if info.get("approved") else ""}
 
 
 def _back(app_id):
@@ -457,17 +494,22 @@ def _update(app_id, version, approve):
 @require_POST
 def manage_update(request, app_id):
     record = _record(app_id)
+    to_list = request.POST.get("next") == "apps"
+    back = redirect("hub_settings_apps") if to_list else _back(app_id)
     entry = services.update_available(record)
     if entry is None:
         messages.info(request, "Already up to date.")
-        return _back(app_id)
+        return back
     extra = services.widened(record, entry)
     if extra and request.POST.get("approve") != "1":
-        messages.warning(request, "This update asks for more access; review it below.")
-        return redirect(reverse("hub_settings_app_manage", args=[app_id]) + "?review=" + entry["version"])
-    if not jobs.start(app_id, "Updating", _update, app_id, entry["version"], bool(extra)):
+        return _back(app_id)  # the app page opens with the review card
+    info = {"version": entry["version"], "approved": bool(extra),
+            "added": [describe(p)["title"] for p in extra.get("permissions", ())]}
+    if not jobs.start(app_id, "Updating", _update, app_id, entry["version"], bool(extra), info=info):
         messages.info(request, "Something is already running for this app.")
-    return _back(app_id)
+    elif to_list:
+        messages.success(request, f"Updating {_app_name(record)} to v{entry['version']}.")
+    return back
 
 
 @staff_page
@@ -513,8 +555,15 @@ def _update_all():
 @staff_page
 @require_POST
 def update_all(request):
-    if not jobs.start("*", "Updating all", _update_all):
+    pending = services.pending_updates()
+    ready = [r for r, e in pending if not services.widened(r, e)]
+    held = [_app_name(r) for r, e in pending if services.widened(r, e)]
+    wait = f" {', '.join(held)} {'needs' if len(held) == 1 else 'need'} your approval first." if held else ""
+    if not ready:
+        messages.info(request, "Nothing to update without your approval." + wait)
+    elif not jobs.start("*", "Updating all", _update_all):
         messages.info(request, "An update is already running.")
     else:
-        messages.success(request, "Updating apps in the background.")
+        n = len(ready)
+        messages.success(request, f"Updating {n} app{'s' if n != 1 else ''} in the background.{wait}")
     return redirect("hub_settings_apps")

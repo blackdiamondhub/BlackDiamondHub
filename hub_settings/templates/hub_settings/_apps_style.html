@@ -34,6 +34,21 @@
     .ap-sub { color: var(--mut); font-size: 14px; }
     .ap-empty { padding: 26px 22px; color: var(--mut); }
     .hst-row a.hst-btn { display: inline-flex; align-items: center; text-decoration: none; }
+    .ap-pill.appr { background: rgba(255,193,77,.16); color: #ffc94d; }
+    .hst-btn.sm { height: 34px; padding: 0 14px; font-size: 13.5px; }
+    .hst-btn.amber { background: #ffc94d; color: #1a1300; }
+    a.hst-btn { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; }
+    .hst-card.appr { border-color: rgba(255,193,77,.45); }
+    .hst-card.appr h3 { color: #ffc94d; }
+    .ap-perm .new { color: #ffc94d; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; margin-left: 8px; }
+    .ap-perm .less { color: #6ecf8c; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; margin-left: 8px; }
+    .ap-item { position: relative; }
+    .ap-item > a.ap-go::after { content: ""; position: absolute; inset: 0; }
+    .ap-item > a.ap-go { color: inherit; text-decoration: none; }
+    .ap-item form, .ap-item .hst-btn { position: relative; z-index: 1; }
+    .ap-prog { height: 6px; border-radius: 3px; background: #26354f; overflow: hidden; margin-top: 10px; }
+    .ap-prog i { display: block; height: 100%; width: 40%; background: var(--acc); border-radius: 3px; animation: ap-slide 1.4s ease-in-out infinite; }
+    @keyframes ap-slide { from { margin-left: -40%; } to { margin-left: 100%; } }
     @media (max-width: 1100px) { .ap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @media (max-width: 760px) { .ap-grid { grid-template-columns: 1fr; } .ap-mem { display: none; } }
 </style>

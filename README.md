@@ -314,6 +314,11 @@ bdh-supervisor, Watchtower) against a PostgreSQL server elsewhere on the LAN.
     without internet. Installs and upgrades need ghcr.io (the app images are
     public, so no registry credentials are needed) and the catalog.
 
+    Discovery: the hub announces itself on the LAN over mDNS/DNS-SD as
+    "Black Diamond Hub" (`_bdh-hub._tcp`), so BDH Display kiosks find it
+    without being given an IP. Set `BDH_MDNS=off` in `.env` to turn this off,
+    or `BDH_MDNS_ADDRESS=<ip>` if the wrong interface gets announced.
+
 3. Admin login (admins see settings and admin-only app features):
 
     ```sh
