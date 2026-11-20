@@ -158,6 +158,17 @@ def ha_settings(request):
         if err:
             errors[NEW] = err
 
+    # Apps tell instances apart by name, so two can't share one.
+    named = [(r.id, posted[r.id]) for r in rows] + ([(NEW, new)] if new else [])
+    seen = {}
+    for key, fields in named:
+        seen.setdefault(fields["name"].casefold(), []).append(key)
+    for keys in seen.values():
+        for key in keys[1:]:
+            err = new["error"] if key == NEW else errors.setdefault(key, {})
+            err.setdefault("name", "Another connection has this name.")
+            errors[key] = err
+
     if tokens and not vault.available():
         message = "The secret store has no key on this hub; see the README."
         return _page(request, rows, posted, errors, new, status=400, message=message)
