@@ -3,13 +3,16 @@
  * same key just restarts its countdown (unless "Keep open" was tapped). A new
  * alert plays its sound (chimes.js), then reads out `speak`, unless it's the
  * night window; a repeat with `resound` plays them again. A "dismiss" message
- * closes the alert wherever it is showing. Only the hub's own display listens. */
+ * closes the alert wherever it is showing. Only the hub's own display listens.
+ * The alert's own iframe can post {bdhAlert: 'hold'} (e.g. while the doorbell
+ * mic is open) to pause the countdown, 'release' to resume with a short grace
+ * period, and 'hangup' to close the alert. */
 (function () {
     'use strict';
     const isDisplay = () => window.innerWidth >= 1280;
     let ws = null, backoff = 1000, retry = null, resizeTimer = null;
-    const KEEP_MAX_S = 600;
-    let root = null, current = null, closeTimer = null, closesAt = 0, kept = false, stopVoice = null;
+    const KEEP_MAX_S = 600, RELEASE_GRACE_S = 30;
+    let root = null, current = null, closeTimer = null, closesAt = 0, kept = false, held = false, stopVoice = null;
 
     function el(tag, cls) {
         const e = document.createElement(tag);
@@ -53,6 +56,19 @@
         setKept(true);
         clearTimeout(closeTimer);
         closeTimer = setTimeout(close, KEEP_MAX_S * 1000);
+    }
+
+    /* While held the alert behaves as kept open (with the same safety cap); on
+     * release a not-kept alert gets a fresh short countdown. */
+    function hold(on) {
+        if (!current || held === on) return;
+        held = on;
+        root.classList.toggle('held', on);
+        if (kept) return;
+        clearTimeout(closeTimer);
+        closeTimer = null;
+        if (on) closeTimer = setTimeout(close, KEEP_MAX_S * 1000);
+        else startTimer(RELEASE_GRACE_S, false);
     }
 
     function startTimer(ttl, repeat) {
@@ -110,9 +126,9 @@
         body.textContent = alert.body || '';
         body.hidden = !alert.body;
         root.classList.add('on');
-        if (!same) setKept(false);
-        // A repeat of a kept alert (e.g. another ring) leaves it kept open.
-        if (!kept) startTimer(Math.max(1, Math.min(600, alert.ttl || 60)), same);
+        if (!same) { setKept(false); held = false; root.classList.remove('held'); }
+        // A repeat of a kept or held alert (e.g. another ring) leaves it open.
+        if (!kept && !held) startTimer(Math.max(1, Math.min(600, alert.ttl || 60)), same);
     }
 
     function close() {
@@ -122,7 +138,8 @@
         hush();
         current = null;
         setKept(false);
-        root.classList.remove('on');
+        held = false;
+        root.classList.remove('on', 'held');
         // Drop the iframe so live video stops streaming.
         root.querySelector('.hub-alert-frame').textContent = '';
         const saver = window.BDHSaver;
@@ -160,6 +177,13 @@
     window.addEventListener('resize', () => {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => (isDisplay() ? connect() : disconnect()), 500);
+    });
+    window.addEventListener('message', e => {
+        const iframe = root && current && root.querySelector('.hub-alert-frame iframe');
+        if (!iframe || e.source !== iframe.contentWindow || !e.data) return;
+        const cmd = e.data.bdhAlert;
+        if (cmd === 'hold' || cmd === 'release') hold(cmd === 'hold');
+        else if (cmd === 'hangup') close();
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
     window.BDHAlerts = {show, close, keepOpen};
