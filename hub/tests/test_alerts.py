@@ -1,6 +1,8 @@
 import asyncio
 import importlib
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
 from asgiref.sync import async_to_sync
@@ -13,6 +15,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from broker.tests.base import make_install, reset_broker
 from hub import alerts
 from tests.selenium_helpers import SeleniumTestCase, wait_for_paint
 
@@ -196,3 +199,59 @@ class AlertHoldTest(SeleniumTestCase):
         self.assertTrue(self.browser.find_elements(*self.SHOWN))
         self.post_from_frame("hangup")
         WebDriverWait(self.browser, 5).until(EC.invisibility_of_element_located(self.SHOWN))
+
+
+class _PopupPage(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"<!doctype html><title>Pop-up</title><p id=pop>pop-up</p>"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+@tag("selenium")
+class AlertHoldThroughAppFrameTest(SeleniumTestCase):
+    """The real path: an app's pop-up runs on the app's own origin inside the hub's
+    /_bare/ page inside the alert overlay, so its hold has to cross both frames."""
+    SHOWN = (By.CSS_SELECTOR, ".hub-alert.on")
+
+    def setUp(self):
+        super().setUp()
+        self.app = ThreadingHTTPServer(("127.0.0.1", 0), _PopupPage)
+        threading.Thread(target=self.app.serve_forever, daemon=True).start()
+        self.addCleanup(self.app.server_close)
+        self.addCleanup(self.app.shutdown)
+        port = self.app.server_address[1]
+        make_install(port=port, upstream=f"http://127.0.0.1:{port}")
+        reset_broker()
+        self.addCleanup(reset_broker)
+
+    def show(self, ttl):
+        self.browser.execute_script(
+            "BDHAlerts.show({key: 'k', title: 'Door', embed_url: '/apps/cams/_bare/cameras/popup/1/',"
+            " ttl: arguments[0]})", ttl)
+
+    def post_from_app(self, cmd):
+        browser = self.browser
+        wait = WebDriverWait(browser, 10)
+        wait.until(EC.frame_to_be_available_and_switch_to_it((By.CSS_SELECTOR, ".hub-alert-frame iframe")))
+        wait.until(EC.frame_to_be_available_and_switch_to_it((By.ID, "bdh-app-frame")))
+        wait.until(EC.presence_of_element_located((By.ID, "pop")))
+        browser.execute_script("parent.postMessage({bdh: 1, type: 'alert', cmd: arguments[0]}, '*')", cmd)
+        browser.switch_to.default_content()
+
+    def test_app_popup_holds_and_hangs_up_the_alert(self):
+        browser = self.browser
+        browser.get(f"{self.live_server_url}/accounts/login/")
+        wait_for_paint(browser)
+        self.show(3)
+        self.post_from_app("hold")
+        time.sleep(4)  # past the ttl
+        self.assertTrue(browser.find_elements(*self.SHOWN))
+        self.post_from_app("hangup")
+        WebDriverWait(browser, 5).until(EC.invisibility_of_element_located(self.SHOWN))

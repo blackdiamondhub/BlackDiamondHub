@@ -2,7 +2,7 @@
  *
  * Messages are only taken from the app's frame on the app's origin, and only
  * as {bdh: 1, type, ...}: title, resize, activity, navigate, toast, theme, open-overlay,
- * telemetry.
+ * telemetry, alert.
  */
 (function () {
     'use strict';
@@ -21,6 +21,7 @@
     var NAV_NAMES = {landing_page: 0, 'broker:shell': 1, 'broker:shell_path': 2, hub_settings_app: 3};
     // Names an app may only open for itself (args must be exactly [its id]).
     var OWN_ONLY = {hub_settings_app: 1};
+    var ALERT_CMDS = {hold: 1, release: 1, hangup: 1};
     var NAV_PATH = /^\/(apps\/(?!_)[\w-]+(\/(?!_(bare|raw)(\/|$))[^]*)?)?$/;
 
     var wrapper = frame.closest('.content-wrapper');
@@ -119,6 +120,14 @@
         // (the count itself comes from the app's state, not from the message).
         'feedback-changed': function () {
             if (frame.dataset.appId === 'feedback' && window.hubRefreshUnreadFeedback) window.hubRefreshUnreadFeedback();
+        },
+        // An alert pop-up (a bare page in the hub's alert overlay) holds the alert
+        // open, releases it, or hangs up; the overlay (alerts.js) only hears its
+        // own iframe, which is this page, so pass the command up.
+        alert: function (d) {
+            if (!bare || window.parent === window
+                || !Object.prototype.hasOwnProperty.call(ALERT_CMDS, d.cmd)) return;
+            window.parent.postMessage({bdhAlert: d.cmd}, window.location.origin);
         },
     };
 
