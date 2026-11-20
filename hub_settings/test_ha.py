@@ -136,6 +136,21 @@ class SettingsPageTests(HACase):
                    "default": "home"})
         self.assertEqual(ha.default_id(), "home")
 
+    def test_names_must_differ(self):
+        # Apps label each instance by name; two "Home Assistant"s looked the same.
+        self.add("home", default=True)
+        self.add("cabin", order=1)
+        resp = self.post({**self.fields("home", "Home Assistant", "http://a:8123"),
+                          **self.fields("cabin", "home assistant ", "http://a:8123")})
+        self.assertEqual(resp.status_code, 400)
+        self.assertNotIn("name", resp.context["cards"][0]["error"])
+        self.assertIn("name", resp.context["cards"][1]["error"])
+        resp = self.post({**self.fields("home", "Home", "http://a:8123"), **self.fields("cabin", "Cabin", "http://a:8123"),
+                          "new__id": "barn", **self.fields("new", "CABIN", "http://b:1", token="t")})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("name", resp.context["new"]["error"])
+        self.assertEqual(HAInstance.objects.count(), 2)
+
     def test_new_id_rules(self):
         self.add("home", default=True)
         base = {**self.fields("home", "Home", "http://a:8123")}
