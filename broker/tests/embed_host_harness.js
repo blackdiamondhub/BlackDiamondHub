@@ -4,7 +4,7 @@
 //   node embed_host_harness.js <embed-host.js> <bare 0|1>  < messages.json
 //
 // messages.json is a list of {origin, source: "frame"|"other", data}; prints a
-// list with what each one did: {nav, title, style, appended, events, error}.
+// list with what each one did: {nav, title, style, appended, events, posted, error}.
 'use strict';
 const fs = require('fs');
 const vm = require('vm');
@@ -50,6 +50,7 @@ const window = {
     addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
 };
 window.top = window;
+window.parent = {postMessage(data, origin) { log.posted.push({data, origin}); }};
 
 vm.runInNewContext(fs.readFileSync(script, 'utf8'), {
     window, document, URL, JSON, Object, Array, String, Math, Proxy,
@@ -60,7 +61,7 @@ vm.runInNewContext(fs.readFileSync(script, 'utf8'), {
 
 const out = [];
 for (const msg of JSON.parse(fs.readFileSync(0, 'utf8'))) {
-    log = {nav: [], events: [], appended: []};
+    log = {nav: [], events: [], appended: [], posted: []};
     title.textContent = '';
     const before = ids['bdh-app-bg'] ? ids['bdh-app-bg'].textContent : '';
     let error = null;
@@ -74,7 +75,7 @@ for (const msg of JSON.parse(fs.readFileSync(0, 'utf8'))) {
     const style = ids['bdh-app-bg'] ? ids['bdh-app-bg'].textContent : '';
     out.push({
         nav: log.nav, title: title.textContent, style: style === before ? '' : style,
-        appended: log.appended.map((el) => el.tagName), events: log.events, error,
+        appended: log.appended.map((el) => el.tagName), events: log.events, posted: log.posted, error,
     });
 }
 process.stdout.write(JSON.stringify(out));

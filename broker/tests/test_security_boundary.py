@@ -92,7 +92,7 @@ def msg(data, origin=APP_ORIGIN, source="frame"):
     return {"origin": origin, "source": source, "data": data}
 
 
-NOTHING = {"nav": [], "title": "", "style": "", "appended": [], "events": [], "error": None}
+NOTHING = {"nav": [], "title": "", "style": "", "appended": [], "events": [], "posted": [], "error": None}
 
 
 class PostMessageTests(TestCase):
@@ -152,3 +152,14 @@ class PostMessageTests(TestCase):
             "#123456", "red", "#000}body{display:none", "rgb(1,2,3)}*{x:y", "url(http://evil/)", "rgba(0,0,0,0)")])
         self.assertIn("#123456", results[0]["style"])
         self.assertEqual([r["style"] for r in results[1:]], [""] * 5)
+
+    def test_alert_commands_reach_the_overlay_only_from_a_popup(self):
+        cmds = [msg({"bdh": 1, "type": "alert", "cmd": c})
+                for c in ("hold", "release", "hangup", "close", "toString", None)]
+        results = frame_messages(cmds + [msg({"bdh": 1, "type": "alert", "cmd": "hold"}, origin="null")], bare="1")
+        self.assertEqual([r["posted"] for r in results[:3]],
+                         [[{"data": {"bdhAlert": c}, "origin": "http://hub.local:8000"}]
+                          for c in ("hold", "release", "hangup")])
+        self.assertEqual(results[3:], [NOTHING] * 4)
+        # A normal app page (not in the alert overlay) can't touch alerts.
+        self.assertEqual(frame_messages(cmds[:1]), [NOTHING])
