@@ -288,6 +288,18 @@ class HomeAssistantTests(RpcTestCase):
                          ["sensor.fp_temp", "sensor.hue", "sensor.loose"])
         self.assertEqual([d["id"] for d in got["devices"]], ["d1", "d3"])
         self.assertEqual(got["unit_system"], {"temperature": "°F"})
+        self.assertEqual(got["areas"], [])
+
+    def test_registry_keeps_areas_of_readable_entities_and_devices(self):
+        reg = {
+            "entities": [{"entity_id": "sensor.fp_temp", "device_id": "d1", "area_id": "den"},
+                         {"entity_id": "lock.front", "device_id": "d2", "area_id": "hall"}],
+            "devices": [{"id": "d1", "area_id": "lounge"}, {"id": "d2", "area_id": "porch"}],
+            "areas": [{"area_id": a, "name": a.title()} for a in ("den", "hall", "lounge", "porch")],
+        }
+        with mock.patch("bdh_sdk.ha.get_registry", return_value=reg):
+            got = self.ok("ha.registry")
+        self.assertEqual([a["area_id"] for a in got["areas"]], ["den", "lounge"])
 
     def test_registry_platform_filter(self):
         with mock.patch("bdh_sdk.ha.get_registry", return_value=self.REGISTRY) as reg:
@@ -385,6 +397,30 @@ class GrantTests(TestCase):
         install = AppInstall(app_id="x", requested_permissions=["alerts", "speakers"],
                              granted_permissions=["alerts", "media"])
         self.assertEqual(install.grants, frozenset({"alerts"}))
+
+    def test_sdk_fake_broker_mirrors_the_hub(self):
+        """bdh_sdk.testing.FakeBroker.for_plugin must refuse what this broker refuses,
+        so app tests catch an app relying on an op its manifest doesn't grant."""
+        from bdh_sdk import grants as sdk_g
+        from bdh_sdk.testing import PERMISSION_RULES
+
+        from broker import rpc
+
+        self.assertEqual(set(rpc.OPS), set(PERMISSION_RULES))
+        grants = {"ha.read:sensor.*", "ha.read:light.kitchen", "ha.call:light.*",
+                  "ha.call:lock.lock", "events.subscribe:ha/state/+/kitchen",
+                  "events.publish:shared/#"}
+        for eid in ("sensor.x", "switch.sensor", "light.kitchen", "light.den", "", None):
+            self.assertEqual(sdk_g.can_read(grants, eid), g.can_read(grants, eid), eid)
+        for domain, service in (("light", "turn_on"), ("lights", "turn_on"),
+                                ("lock", "lock"), ("lock", "unlock")):
+            self.assertEqual(sdk_g.can_call(grants, domain, service),
+                             g.can_call(grants, domain, service), (domain, service))
+        for pattern in ("ha/state/light/kitchen", "ha/state/#", "cams/+/x", "shared/a", "timers/x"):
+            self.assertEqual(sdk_g.can_subscribe(grants, "cams", pattern),
+                             g.can_subscribe(grants, "cams", pattern), pattern)
+            self.assertEqual(sdk_g.can_publish(grants, "cams", pattern),
+                             g.can_publish(grants, "cams", pattern), pattern)
 
 
 class PortIsolationTests(RpcTestCase):
