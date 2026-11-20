@@ -1275,6 +1275,24 @@ class AppSourceSettingsSeleniumTest(SeleniumTestCase):
         self.pick("mix")
         self.assertEqual(self.shows(), {"picker": False, "rotate": True, "caption": True})
 
+    def overflow(self):
+        """Visible things in the screen saver card that stick out past its right edge."""
+        return self.browser.execute_script("""
+            const card = document.querySelector('.dsp-saver'), edge = card.getBoundingClientRect().right + 1;
+            return [...card.querySelectorAll('*')].filter(e => !e.closest('.dsp-prev') && e.getClientRects().length
+                && e.getBoundingClientRect().right > edge)
+                .map(e => e.tagName + (e.id ? '#' + e.id : '') + '.' + e.className + ' ' + (e.textContent || '').trim().slice(0, 30));
+        """)
+
+    def test_nothing_sticks_out_of_the_card(self):
+        self.addCleanup(self.browser.set_window_size, 1920, 1080)
+        for width in (1920, 1400, 1280, 1024, 800, 600):
+            self.browser.set_window_size(width, 1080)
+            for source in ("stock", "photos", "hillcams.cams", "deckcam.cam", "gallery.shots", "mix"):
+                self.pick(source)
+                with self.subTest(width=width, source=source):
+                    self.assertEqual(self.overflow(), [])
+
     def test_preview_shows_the_live_picture(self):
         self.assertIn("/display/stock/summer/", self.preview_src())
         self.pick("hillcams.cams")
