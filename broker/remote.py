@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 import requests
 from bdh_sdk.identity import signed_headers
 from bdh_sdk.plugins import ALL_MODES, CHOICE, MULTI, Setting
+from bdh_sdk.provides import MAX_SAVER_SOURCES, SAVER_TEXT_MAX, SaverSource
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -296,15 +297,22 @@ def _fix_stay(_app_id, value):
     return value
 
 
-def _fix_backgrounds(app_id, value):
-    for bg in value or ():
-        if isinstance(bg, dict):
-            bg["url"] = raw_url(app_id, bg.get("url"))
-    return [bg for bg in value or () if isinstance(bg, dict) and bg.get("url")]
+def _fix_saver(app_id, value):
+    # Only paths on the app's own origin: an absolute URL could point the screen anywhere.
+    out = []
+    for img in value if isinstance(value, list) else ():
+        if not isinstance(img, dict) or not _app_path(img.get("url")):
+            continue
+        img["url"] = f"/apps/{app_id}/_raw{img['url']}"
+        for key in ("id", "label", "caption"):
+            if isinstance(img.get(key), str):
+                img[key] = img[key][:SAVER_TEXT_MAX]
+        out.append(img)
+    return out
 
 
 _FIXES = {"status": _fix_status, "card": _fix_card, "stay": _fix_stay,
-          "provide:backgrounds": _fix_backgrounds}
+          "provide:saver": _fix_saver}
 
 
 def parse_marker(path):
@@ -420,6 +428,7 @@ class RemoteSpec:
     settings_pages: tuple = ()
     provides: dict = field(default_factory=dict, hash=False)
     stat_keys: tuple = ()
+    saver_sources: tuple = ()
     permissions: tuple = ()
     app: None = None
     urls: None = None
@@ -476,6 +485,27 @@ def _pages(app_id, manifest):
     return tuple(pages)
 
 
+def _saver_sources(app_id, manifest):
+    # Checked entry by entry, so one bad source doesn't hide the app's others.
+    out, keys = [], set()
+    for s in manifest.get("saver_sources") or ():
+        if len(out) >= MAX_SAVER_SOURCES:
+            log.warning("%s: more than %d saver sources; ignoring the rest", app_id, MAX_SAVER_SOURCES)
+            break
+        try:
+            src = SaverSource(key=s["key"], title=s["title"], description=s.get("description") or "",
+                              kind=s.get("kind"))
+        except (AttributeError, KeyError, TypeError, ValueError):
+            log.warning("%s: skipping bad saver source %r", app_id, s)
+            continue
+        if src.key in keys:
+            log.warning("%s: skipping duplicate saver source %r", app_id, src.key)
+            continue
+        keys.add(src.key)
+        out.append(src)
+    return tuple(out)
+
+
 def spec_from_manifest(install, manifest):
     app_id = install.app_id
     hooks = set(manifest.get("hooks") or ())
@@ -487,6 +517,7 @@ def spec_from_manifest(install, manifest):
         id=app_id, port=install.port, version=install.version or str(manifest.get("version") or ""),
         tiles=_tiles(app_id, manifest), settings=_settings(app_id, manifest),
         settings_pages=_pages(app_id, manifest), provides=provides, stat_keys=stat_keys,
+        saver_sources=_saver_sources(app_id, manifest),
         permissions=tuple(manifest.get("permissions") or ()), **markers)
 
 

@@ -24,6 +24,39 @@
     .dsp-src b { font-weight: 500; font-size: 15.5px; display: flex; align-items: center; gap: 8px; }
     .dsp-src input { accent-color: var(--acc); width: 16px; height: 16px; margin: 0; }
     .dsp-src small { display: block; color: var(--mut); font-size: 13px; margin: 4px 0 0 24px; }
+    .dsp-src .dsp-app {
+        display: inline-block; margin: 6px 0 0 24px; padding: 1px 6px; border-radius: 8px; font: 600 10px system-ui, sans-serif;
+        font-style: normal; background: #2d6cdf; color: #fff;
+    }
+    .dsp-src.bad label:has(input:checked) { border-color: var(--red); }
+    .dsp-intro { margin: 0 0 14px; color: var(--mut); font-size: 14.5px; line-height: 1.45; }
+    .dsp-start {
+        display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 14px;
+        background: var(--card2); border: 1px solid var(--line);
+    }
+    .dsp-start.bad { border-color: var(--red); }
+    .dsp-start b { font-weight: 500; font-size: 15.5px; }
+    .dsp-start input { width: 76px; }
+    .dsp-start small { margin-left: auto; color: var(--mut); font-size: 13.5px; }
+    .dsp-start.bad small { color: var(--red); }
+    .dsp-glbl i { font-style: normal; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--dim); }
+    .dsp-saver .dsp-glbl { margin-top: 18px; }
+    .dsp-saver .dsp-slots { padding: 0; }
+    .dsp-for[hidden], .dsp-line[hidden] { display: none; }
+    .dsp-prev .wake {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        color: #eef3fa; font-size: 15px; background: rgba(0, 0, 0, .35);
+    }
+    .dsp-prev .wake[hidden] { display: none; }
+    .dsp-prev .clock { position: absolute; left: 18px; bottom: 34px; font-size: 30px; font-weight: 300; color: #fff; text-shadow: 0 1px 6px rgba(0, 0, 0, .5); }
+    .dsp-prev .strip {
+        position: absolute; left: 0; right: 0; bottom: 0; height: 24px; display: flex; gap: 18px; padding: 0 16px;
+        align-items: center; font-size: 11px; color: #cfd9e6; background: rgba(0, 0, 0, .45); overflow: hidden; white-space: nowrap;
+    }
+    .dsp-ctl .dsp-shared { font-size: 13px; color: var(--dim); }
+    .dsp-tog { display: flex; align-items: center; gap: 14px; }
+    .dsp-tog > span:first-child { white-space: nowrap; font-size: 15px; }
+    .dsp-tog small { color: var(--dim); font-size: 13px; }
     .dsp-bg { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
     .dsp-prev { position: relative; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #000; }
     .dsp-prev svg, .dsp-prev img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -166,9 +199,18 @@
 
     <div class="dsp">
         <div>
-            <section class="hst-card">
+            <section class="hst-card dsp-saver">
                 <h3>Screen saver <span>Currently showing: {{ showing }}</span></h3>
                 <div class="dsp-body">
+                    <p class="dsp-intro">Shown when the hub is idle. Tap to wake.</p>
+                    <label class="dsp-start{% if errors.idle_minutes %} bad{% endif %}" for="dsp-idle">
+                        <b>Start after</b>
+                        <input type="number" inputmode="numeric" class="hst-in num{% if errors.idle_minutes %} bad{% endif %}" id="dsp-idle"
+                               name="idle_minutes" min="1" max="120" value="{{ v.idle_minutes }}">
+                        <span>min without a touch</span>
+                        <small>{% if errors.idle_minutes %}{{ errors.idle_minutes }}{% else %}All seasons{% endif %}</small>
+                    </label>
+                    <div class="dsp-glbl">What it shows <i>— each season can show something different</i></div>
                     <div class="dsp-tabs" role="tablist">
                         {% for s in seasons %}
                         <button type="button" role="tab" data-tab="{{ s.id }}" class="{% if s.id == selected %}on{% endif %}"
@@ -178,37 +220,73 @@
                         {% endfor %}
                     </div>
                     {% for s in seasons %}
-                    <div class="dsp-src" data-season="{{ s.id }}"{% if s.id != selected %} hidden{% endif %}>
-                        {% for v, l in sources %}
-                        <label>
-                            <b><input type="radio" name="source_{{ s.id }}" value="{{ v }}"{% if v == s.source %} checked{% endif %}>{{ l }}</b>
-                            <small{% if v == 'photos' %} data-photo-count="{{ s.id }}" data-label="{{ s.label|lower }}"{% endif %}>{% if v == 'stock' %}Built-in {{ s.label|lower }} paintings{% elif v == 'photos' %}{{ s.photo_count }} photo{{ s.photo_count|pluralize }} for {{ s.label|lower }}{% elif v == 'cam' %}{{ default_cam|default:'Live image' }}{% else %}Rotate paintings, photos &amp; cam{% endif %}</small>
+                    <div class="dsp-src{% if s.error %} bad{% endif %}" data-season="{{ s.id }}"{% if s.id != selected %} hidden{% endif %}>
+                        {% for c in choices %}
+                        <label data-src="{{ c.id }}">
+                            <b><input type="radio" name="source_{{ s.id }}" value="{{ c.id }}" data-kind="{{ c.kind }}"
+                                      data-count="{{ c.items|length }}"{% if c.available %} data-available{% endif %}{% if c.id == s.source %} checked{% endif %}>{{ c.title }}</b>
+                            <small{% if c.id == 'photos' %} data-photo-count="{{ s.id }}" data-label="{{ s.label|lower }}"{% endif %}>{% if c.id == 'photos' %}{{ s.photo_count }} photo{{ s.photo_count|pluralize }} for {{ s.label|lower }}{% else %}{{ c.description }}{% endif %}</small>
+                            {% if c.app_label %}<i class="dsp-app" title="From the {{ c.app_label }} app">App</i>{% endif %}
                         </label>
                         {% endfor %}
                     </div>
+                    {% if s.error %}<small class="err" data-season="{{ s.id }}" style="color:var(--red)"{% if s.id != selected %} hidden{% endif %}>{{ s.error }}</small>{% endif %}
                     {% endfor %}
                     <div class="dsp-bg">
-                        <div class="dsp-prev" id="dsp-prev"><span class="tag" id="dsp-prev-tag">Preview</span></div>
+                        <div class="dsp-prev" id="dsp-prev">
+                            <span class="wake" id="dsp-prev-wake" hidden>Waking camera…</span>
+                            <span class="tag" id="dsp-prev-tag">Preview</span>
+                            <b class="clock" id="dsp-prev-clock"></b>
+                            <div class="strip" id="dsp-prev-strip"></div>
+                        </div>
                         <div class="dsp-ctl">
-                            <p>Images drift slowly to protect the screen and crossfade between each other. Portrait photos show whole over a soft blurred fill. With <b>Mix</b>, the background rotates between the paintings, your photos and the live cam.</p>
-                            <label class="dsp-line">
+                            {% for c in choices %}
+                            <div class="dsp-for" data-for-src="{{ c.id }}"{% if c.id != chosen.id %} hidden{% endif %}>
+                                <p>{{ c.intro }}</p>
+                                {% if c.picker or c.pick_missing %}
+                                <label class="dsp-line">
+                                    <span>Camera</span>
+                                    <select class="hst-in" data-pick-for="{{ c.id }}" aria-label="{{ c.title }} picture">
+                                        <option value="">Rotate through all</option>
+                                        {% for i in c.items %}<option value="{{ i.value }}"{% if c.pick == i.value %} selected{% endif %}>{{ i.label }}</option>{% endfor %}
+                                        {% if c.pick_missing %}<option value="{{ c.pick }}" selected>{{ c.pick }} (unavailable)</option>{% endif %}
+                                    </select>
+                                </label>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                            <input type="hidden" name="saver_pick" id="dsp-pick" value="{{ v.saver_pick }}">
+                            {% if errors.saver_pick %}<small style="color:var(--red)">{{ errors.saver_pick }}</small>{% endif %}
+                            <label class="dsp-line" id="dsp-rot-row"{% if not chosen.rotates %} hidden{% endif %}>
                                 <span>Change every</span>
                                 <input type="range" name="rotate_seconds" min="15" max="90" step="5" value="{{ v.rotate_seconds }}" id="dsp-rot">
                                 <output for="dsp-rot" id="dsp-rot-out">{{ v.rotate_seconds }} s</output>
                             </label>
                             {% if errors.rotate_seconds %}<small style="color:var(--red)">{{ errors.rotate_seconds }}</small>{% endif %}
-                            {% if cams or v.cam %}
-                            <label class="dsp-line">
-                                <span>Live cam</span>
-                                <select class="hst-in" name="cam" id="dsp-cam">
-                                    <option value="">Automatic{% if default_cam and not v.cam %} ({{ default_cam }}){% endif %}</option>
-                                    {% for c in cams %}<option value="{{ c.slug }}"{% if c.slug == v.cam %} selected{% endif %}>{{ c.name }}</option>{% endfor %}
-                                    {% if v.cam and v.cam not in cam_ids %}<option value="{{ v.cam }}" selected>{{ v.cam }} (unavailable)</option>{% endif %}
-                                </select>
+                            <label class="dsp-tog" id="dsp-caption-row"{% if not chosen.captions %} hidden{% endif %}>
+                                <span>Show caption</span>
+                                <span class="hst-tog"><input type="checkbox" role="switch" id="dsp-caption" name="photo_caption"{% if v.photo_caption %} checked{% endif %}><span></span></span>
+                                <small>Date or caption, top right</small>
                             </label>
-                            {% else %}<input type="hidden" id="dsp-cam" value="">{% endif %}
+                            <div class="dsp-shared">Camera, timing and caption are shared by every season.</div>
                         </div>
                     </div>
+                    <div class="dsp-glbl">Info strip along the bottom <i>— <span id="dsp-strip-season">{% for s in seasons %}{% if s.id == selected %}{{ s.label }}{% endif %}{% endfor %}</span></i></div>
+                    {% for s in seasons %}
+                    <div class="dsp-slots" data-season="{{ s.id }}"{% if s.id != selected %} hidden{% endif %}>
+                        {% for slot in s.slots %}
+                        <label>
+                            <small>Slot {{ slot.n }}</small>
+                            <select class="hst-in" name="{{ slot.key }}" aria-label="{{ s.label }} slot {{ slot.n }}">
+                                {% for group, items in slot_groups %}<optgroup label="{{ group }}">
+                                    {% for val, l in items %}<option value="{{ val }}"{% if val == slot.value %} selected{% endif %}>{{ l }}</option>{% endfor %}
+                                </optgroup>{% endfor %}
+                                <option value="none"{% if slot.value == 'none' %} selected{% endif %}>Nothing</option>
+                            </select>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    {% endfor %}
                 </div>
             </section>
 
@@ -281,67 +359,36 @@
             </section>
 
             <section class="hst-card">
-                <h3>Info strip <span id="dsp-strip-season">{% for s in seasons %}{% if s.id == selected %}{{ s.label }}{% endif %}{% endfor %}</span></h3>
-                {% for s in seasons %}
-                <div class="dsp-slots" data-season="{{ s.id }}"{% if s.id != selected %} hidden{% endif %}>
-                    {% for slot in s.slots %}
-                    <label>
-                        <small>Slot {{ slot.n }}</small>
-                        <select class="hst-in" name="{{ slot.key }}" aria-label="{{ s.label }} slot {{ slot.n }}">
-                            {% for group, items in slot_groups %}<optgroup label="{{ group }}">
-                                {% for val, l in items %}<option value="{{ val }}"{% if val == slot.value %} selected{% endif %}>{{ l }}</option>{% endfor %}
-                            </optgroup>{% endfor %}
-                            <option value="none"{% if slot.value == 'none' %} selected{% endif %}>Nothing</option>
-                        </select>
-                    </label>
-                    {% endfor %}
-                </div>
-                {% endfor %}
-            </section>
-
-            <section class="hst-card">
-                <h3>Schedule</h3>
-                <div class="hst-row">
-                    <label class="lbl" for="dsp-idle"><b>Screensaver after</b>
-                        {% if errors.idle_minutes %}<small class="err">{{ errors.idle_minutes }}</small>{% else %}<small>No touches for this long</small>{% endif %}</label>
-                    <div class="ctl">
-                        <input type="number" inputmode="numeric" class="hst-in num{% if errors.idle_minutes %} bad{% endif %}" id="dsp-idle"
-                               name="idle_minutes" min="1" max="120" value="{{ v.idle_minutes }}"><span class="hst-unit">min</span>
-                    </div>
-                </div>
+                <h3>Overnight &amp; screen care</h3>
                 <div class="hst-row">
                     <label class="lbl" for="dsp-burn"><b>Burn-in protection</b><small>Slow pixel shift on every screen</small></label>
                     <div class="ctl"><span class="hst-tog"><input type="checkbox" role="switch" id="dsp-burn" name="burn_in"{% if v.burn_in %} checked{% endif %}><span></span></span></div>
                 </div>
                 <div class="hst-row">
-                    <label class="lbl" for="dsp-caption"><b>Show photo date</b><small>Month and year in the corner of your photos</small></label>
-                    <div class="ctl"><span class="hst-tog"><input type="checkbox" role="switch" id="dsp-caption" name="photo_caption"{% if v.photo_caption %} checked{% endif %}><span></span></span></div>
+                    <label class="lbl" for="dsp-night"><b>Dark overnight</b><small>Screensaver goes fully black; touch still wakes it</small></label>
+                    <div class="ctl"><span class="hst-tog"><input type="checkbox" role="switch" id="dsp-night" name="night"{% if v.night %} checked{% endif %}><span></span></span></div>
                 </div>
-                                    <div class="hst-row">
-                                        <label class="lbl" for="dsp-night"><b>Dark overnight</b><small>Screensaver goes fully black; touch still wakes it</small></label>
-                                        <div class="ctl"><span class="hst-tog"><input type="checkbox" role="switch" id="dsp-night" name="night"{% if v.night %} checked{% endif %}><span></span></span></div>
-                                    </div>
-                                    <div class="hst-row">
-                                        <label class="lbl" for="dsp-night-from"><b>Dark from</b>
-                                            {% if errors.night_from or errors.night_until %}<small class="err">{% firstof errors.night_from errors.night_until %}</small>{% else %}<small>Lodge time</small>{% endif %}</label>
-                                        <div class="ctl">
-                                            <input type="time" class="hst-in time{% if errors.night_from %} bad{% endif %}" id="dsp-night-from" name="night_from" value="{{ v.night_from }}" aria-label="Dark from">
-                                            <span class="hst-unit">to</span>
-                                            <input type="time" class="hst-in time{% if errors.night_until %} bad{% endif %}" id="dsp-night-until" name="night_until" value="{{ v.night_until }}" aria-label="Dark until">
-                                        </div>
-                                    </div>
-                                    <div class="hst-row">
-                                        <label class="lbl" for="dsp-connect-host"><b>UniFi Connect screens</b><small>Also turn the backlight off overnight; a touch wakes it. Console address, empty for none</small></label>
-                                        <div class="ctl"><input type="text" class="hst-in" id="dsp-connect-host" name="connect_host" value="{{ v.connect_host }}" placeholder="192.168.1.26" autocomplete="off"></div>
-                                    </div>
-                                    <div class="hst-row">
-                                        <label class="lbl" for="dsp-connect-user"><b>Console user</b><small>A local user on the console</small></label>
-                                        <div class="ctl"><input type="text" class="hst-in" id="dsp-connect-user" name="connect_username" value="{{ v.connect_username }}" autocomplete="off"></div>
-                                    </div>
-                                    <div class="hst-row">
-                                        <label class="lbl" for="dsp-connect-pw"><b>Console password</b><small>{% if connect_password_set %}Saved; leave blank to keep it{% else %}Not set{% endif %}</small></label>
-                                        <div class="ctl"><input type="password" class="hst-in" id="dsp-connect-pw" name="connect_password" value="" autocomplete="new-password"{% if connect_password_set %} placeholder="••••••••"{% endif %}></div>
-                                    </div>
+                <div class="hst-row">
+                    <label class="lbl" for="dsp-night-from"><b>Dark from</b>
+                        {% if errors.night_from or errors.night_until %}<small class="err">{% firstof errors.night_from errors.night_until %}</small>{% else %}<small>Lodge time</small>{% endif %}</label>
+                    <div class="ctl">
+                        <input type="time" class="hst-in time{% if errors.night_from %} bad{% endif %}" id="dsp-night-from" name="night_from" value="{{ v.night_from }}" aria-label="Dark from">
+                        <span class="hst-unit">to</span>
+                        <input type="time" class="hst-in time{% if errors.night_until %} bad{% endif %}" id="dsp-night-until" name="night_until" value="{{ v.night_until }}" aria-label="Dark until">
+                    </div>
+                </div>
+                <div class="hst-row">
+                    <label class="lbl" for="dsp-connect-host"><b>UniFi Connect screens</b><small>Also turn the backlight off overnight; a touch wakes it. Console address, empty for none</small></label>
+                    <div class="ctl"><input type="text" class="hst-in" id="dsp-connect-host" name="connect_host" value="{{ v.connect_host }}" placeholder="192.168.1.26" autocomplete="off"></div>
+                </div>
+                <div class="hst-row">
+                    <label class="lbl" for="dsp-connect-user"><b>Console user</b><small>A local user on the console</small></label>
+                    <div class="ctl"><input type="text" class="hst-in" id="dsp-connect-user" name="connect_username" value="{{ v.connect_username }}" autocomplete="off"></div>
+                </div>
+                <div class="hst-row">
+                    <label class="lbl" for="dsp-connect-pw"><b>Console password</b><small>{% if connect_password_set %}Saved; leave blank to keep it{% else %}Not set{% endif %}</small></label>
+                    <div class="ctl"><input type="password" class="hst-in" id="dsp-connect-pw" name="connect_password" value="" autocomplete="new-password"{% if connect_password_set %} placeholder="••••••••"{% endif %}></div>
+                </div>
             </section>
 
             <section class="hst-card">
@@ -423,6 +470,7 @@
 {{ season_choices|json_script:"dsp-seasons" }}
 {{ stock|json_script:"dsp-stock" }}
 {{ home_pictures|json_script:"dsp-home-pics" }}
+{{ saver_previews|json_script:"dsp-saver-pics" }}
 <script src="{% static 'display/library.js' %}" defer></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
@@ -430,16 +478,41 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-tab]').forEach(b => { labels[b.dataset.tab] = b.textContent.trim(); });
     const prev = document.getElementById('dsp-prev');
     const stock = JSON.parse(document.getElementById('dsp-stock').textContent);
+    const appPics = JSON.parse(document.getElementById('dsp-saver-pics').textContent);
+    const pickIn = document.getElementById('dsp-pick');
+    const wake = document.getElementById('dsp-prev-wake');
     let library = JSON.parse(document.getElementById('dsp-photos').textContent);
+    const chosenSrc = season => document.querySelector(`input[name="source_${season}"]:checked`);
     // What the season's chosen source would put on screen: the owner's photos for
-    // "My photos" and "Mix" (paintings when there are none), otherwise a painting.
+    // "My photos" and "Mix" (paintings when there are none), an app's pictures
+    // (the picked camera, if any), otherwise a painting.
     function previewPool(season) {
-        const src = document.querySelector(`input[name="source_${season}"]:checked`);
-        if (src && (src.value === 'photos' || src.value === 'mix')) {
+        const src = chosenSrc(season);
+        const id = src ? src.value : 'stock';
+        if (id === 'photos' || id === 'mix') {
             const mine = library.filter(p => p.enabled && (!p.seasons.length || p.seasons.includes(season)));
-            if (mine.length) return mine.map(p => p.image);
+            if (mine.length) return { urls: mine.map(p => p.image), tag: 'Preview \u00b7 ' + labels[season] };
         }
-        return stock[season] || [];
+        const app = appPics[id];
+        if (app && app.items.length) {
+            const picked = app.items.find(i => i.value === pickIn.value);
+            const item = picked || app.items[0];
+            const rotating = !picked && app.items.length > 1;
+            return { urls: [item.url], live: app.kind === 'live',
+                     tag: app.title + ' \u00b7 ' + item.label + (rotating ? ' (rotating)' : '') };
+        }
+        return { urls: stock[season] || [], tag: 'Preview \u00b7 ' + labels[season] };
+    }
+    // Only the chosen source's controls show; "Change every" whenever it rotates.
+    function showControls() {
+        const src = chosenSrc(document.getElementById('dsp-tab').value);
+        const id = src ? src.value : 'stock';
+        const kind = src ? src.dataset.kind : 'stock';
+        document.querySelectorAll('[data-for-src]').forEach(el => { el.hidden = el.dataset.forSrc !== id; });
+        const picked = pickIn.value.startsWith(id + '/');
+        const rotates = !!src && 'available' in src.dataset && (kind !== 'live' || (+src.dataset.count > 1 && !picked));
+        document.getElementById('dsp-rot-row').hidden = !rotates;
+        document.getElementById('dsp-caption-row').hidden = !(kind === 'photos' || kind === 'mix');
     }
     function select(season) {
         document.querySelectorAll('[data-tab]').forEach(b => {
@@ -450,36 +523,61 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('[data-season]').forEach(el => { el.hidden = el.dataset.season !== season; });
         document.getElementById('dsp-tab').value = season;
         document.getElementById('dsp-strip-season').textContent = labels[season];
-        document.getElementById('dsp-prev-tag').textContent = 'Preview \u00b7 ' + labels[season];
         document.getElementById('dsp-preview').href = '/?saver=1&saver_season=' + season;
+        paintStrip();
+        showControls();
         paintPrev();
     }
     function paintPrev() {
         const season = document.getElementById('dsp-tab').value;
         const pool = previewPool(season);
+        document.getElementById('dsp-prev-tag').textContent = pool.tag;
         const shown = prev.querySelector('img');
-        if (shown && prev.dataset.season === season && pool.includes(shown.getAttribute('src'))) return;
-        prev.dataset.season = season;
+        if (shown && prev.dataset.shows === season && pool.urls.includes(shown.getAttribute('src'))) return;
+        prev.dataset.shows = season;
         prev.querySelectorAll('svg, img').forEach(el => el.remove());
+        wake.hidden = true;
         if (window.BDHSaver) prev.insertAdjacentHTML('afterbegin', window.BDHSaver.scene(season));
         // A picture from the chosen source, over the drawn scene in case it doesn't load.
-        if (pool.length) {
+        if (pool.urls.length) {
             const img = new Image();
             img.alt = '';
-            img.onerror = () => img.remove();
-            img.src = pool[Math.floor(Math.random() * pool.length)];
+            wake.hidden = !pool.live;
+            img.onload = () => { wake.hidden = true; };
+            img.onerror = () => { wake.hidden = true; img.remove(); };
+            img.src = pool.urls[Math.floor(Math.random() * pool.urls.length)];
             prev.querySelector('svg') ? prev.querySelector('svg').after(img) : prev.prepend(img);
         }
     }
-    document.querySelectorAll('.dsp-src input[type="radio"]').forEach(r => r.addEventListener('change', paintPrev));
+    function paintStrip() {
+        const season = document.getElementById('dsp-tab').value;
+        const strip = document.getElementById('dsp-prev-strip');
+        strip.replaceChildren(...[...document.querySelectorAll(`.dsp-slots[data-season="${season}"] select`)]
+            .filter(s => s.value !== 'none' && s.selectedOptions[0])
+            .map(s => { const n = document.createElement('span'); n.textContent = s.selectedOptions[0].textContent; return n; }));
+    }
+    const clock = document.getElementById('dsp-prev-clock');
+    const tick = () => { clock.textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
+    tick();
+    setInterval(tick, 30000);
+    document.querySelectorAll('.dsp-slots select').forEach(s => s.addEventListener('change', paintStrip));
+    document.querySelectorAll('.dsp-saver .dsp-src input[type="radio"]').forEach(r => r.addEventListener('change', () => {
+        showControls();
+        paintPrev();
+    }));
+    document.querySelectorAll('[data-pick-for]').forEach(s => s.addEventListener('change', () => {
+        pickIn.value = s.value;
+        showControls();
+        paintPrev();
+    }));
     document.addEventListener('dsp-photos', e => { library = e.detail; paintPrev(); });
     // Preview what's on the form right now, saved or not.
     document.getElementById('dsp-preview').addEventListener('click', e => {
         const season = document.getElementById('dsp-tab').value;
         const q = new URLSearchParams({ saver: '1', saver_season: season });
-        const src = document.querySelector(`input[name="source_${season}"]:checked`);
+        const src = chosenSrc(season);
         if (src) q.set('saver_source', src.value);
-        q.set('saver_cam', document.getElementById('dsp-cam').value);
+        q.set('saver_pick', pickIn.value);
         q.set('saver_rotate', document.getElementById('dsp-rot').value);
         q.set('saver_caption', document.getElementById('dsp-caption').checked ? '1' : '0');
         e.currentTarget.href = '/?' + q;

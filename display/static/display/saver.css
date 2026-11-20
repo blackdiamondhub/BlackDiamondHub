@@ -66,11 +66,11 @@
     display: block; font-size: 1.55em; font-weight: 400; color: rgba(240, 244, 250, .9); margin-bottom: 2px;
 }
 .bdh-saver .cam-name {
-    position: absolute; right: 3.1vw; bottom: 4.8vh; font-size: clamp(12px, .95vw, 18px);
-    color: rgba(240, 244, 250, .55); letter-spacing: .08em; text-transform: uppercase;
-    transition: translate 120s linear;
+    position: absolute; right: 3.1vw; font-size: clamp(12px, .95vw, 18px);
+    color: rgba(240, 244, 250, .7); text-shadow: 0 1px 3px rgba(0, 0, 0, .6), 0 0 14px rgba(0, 0, 0, .4);
 }
-.bdh-saver .cam-name, .bdh-saver .caption { bottom: calc(4.8vh + 1.7em); letter-spacing: .04em; text-transform: none; opacity: 0; transition: opacity 3s; }
+/* Top right: the bottom-right corner is where site logos (e.g. Sun Peaks webcams) sit. */
+.bdh-saver .cam-name, .bdh-saver .caption { top: 4.8vh; letter-spacing: .04em; text-transform: none; opacity: 0; transition: opacity 3s; }
 .bdh-saver .cam-name.on, .bdh-saver .caption.on { opacity: 1; }
 .bdh-saver .caption {
     position: absolute; right: 3.1vw; font-size: clamp(12px, .95vw, 18px); color: rgba(240, 244, 250, .7);

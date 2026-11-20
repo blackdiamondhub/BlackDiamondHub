@@ -3,7 +3,7 @@ import os
 from importlib import resources
 
 from bdh_sdk.plugins import LIFECYCLE_ON_DEMAND, NETWORK_NONE, PluginSpec, Tile
-from bdh_sdk.provides import BACKGROUNDS
+from bdh_sdk.provides import SAVER, SaverSource
 
 
 def _variant():
@@ -24,7 +24,8 @@ if VARIANT is None:
         id="e2e_probe",
         app="e2e_probe.apps.E2eProbeConfig",
         urls="e2e_probe.urls",
-        provides={BACKGROUNDS: "e2e_probe.provides.backgrounds"},
+        provides={SAVER: "e2e_probe.provides.saver"},
+        saver_sources=(SaverSource("cam", "Probe Cam"),),
         tiles=(Tile(title="Probe Viewer", url_name="e2e_probe_index", icon="e2e_probe/icon.svg",
                     section="mountain", subtitle="stack-e2e fixture"),),
         api_version=2,

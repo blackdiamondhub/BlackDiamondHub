@@ -5,6 +5,7 @@ import secrets
 from datetime import timedelta
 
 from bdh_sdk.plugins import BOOL, SECRET
+from bdh_sdk.provides import LIVE
 from bdh_sdk.qr import qr_svg
 from bdh_sdk.storage import app_state
 from django.http import HttpResponse, JsonResponse
@@ -26,12 +27,13 @@ from . import catalog, options
 from .library import photo_json, season_photos
 from .models import DisplayLoad, DisplaySample, Heartbeat, SaverPhoto, UploadLink
 from .photos import BadPhoto, add_photo
-from .options import APP, SEASON_IDS, SEASONS, SLOTS, SOURCES, STOCK_STYLES, value
+from .options import APP, BUILTIN_SOURCES, SEASON_IDS, SEASONS, SLOTS, STOCK_STYLES, value
 from .schedule import is_night, lodge_minute, parse_hhmm, window
 from .season import by_date, lodge_today, opening_day, parse_mmdd, resolve, winter_signal
 from .stats import collect
 
-SOURCE_LAYERS = {"stock": ["stock"], "photos": ["photos"], "cam": ["cam"], "mix": ["stock", "photos", "cam"]}
+# Pictures Mix takes from apps' sources between them, so one big album can't swamp the reply.
+MIX_IMAGES = 200
 log = logging.getLogger(__name__)
 
 
@@ -70,15 +72,15 @@ def _waking(url):
     return url + ("&" if "?" in url else "?") + RAW_WAKE + "=1"
 
 
-def _preview(request):
-    """Unsaved settings-page values a staff preview may try out: source, cam, rotate, caption."""
+def _preview(request, source_ids):
+    """Unsaved settings-page values a staff preview may try out: source, pick, rotate, caption."""
     if not (request.user.is_authenticated and request.user.is_staff):
         return {}
     out = {}
-    if request.GET.get("source") in SOURCE_LAYERS:
+    if request.GET.get("source") in source_ids:
         out["source"] = request.GET["source"]
-    if "cam" in request.GET:
-        out["cam"] = request.GET["cam"][:80]
+    if "pick" in request.GET:
+        out["pick"] = request.GET["pick"][:200]
     try:
         out["rotate"] = min(90, max(15, int(request.GET["rotate"])))
     except (KeyError, ValueError):
@@ -86,6 +88,41 @@ def _preview(request):
     if request.GET.get("caption") in ("0", "1"):
         out["caption"] = request.GET["caption"] == "1"
     return out
+
+
+def _layer(src, images, pick, captions):
+    """An app source as the saver draws it: ``{"id", "kind", "title", "items", "pick"}``.
+
+    A live source with a picked picture sends only that one; otherwise the saver rotates through them.
+    """
+    items = []
+    for img in images:
+        item = {"id": img["id"], "url": img["url"], "label": img.get("label") or ""}
+        if src["kind"] == LIVE:
+            item["url"] = _waking(item["url"])
+            item["refresh_seconds"] = img.get("refresh_seconds")
+        else:
+            item["caption"] = (img.get("caption") or "") if captions else ""
+        items.append(item)
+    chosen = None
+    source_id, _, image_id = (pick or "").partition("/")
+    if src["kind"] == LIVE and source_id == src["id"] and image_id:
+        one = [i for i in items if i["id"] == image_id]
+        if one:
+            chosen, items = image_id, one
+    return {"id": src["id"], "kind": src["kind"], "title": src["title"], "items": items, "pick": chosen}
+
+
+def _share(layers, total):
+    """Trims Mix's app layers to ``total`` pictures between them, taken from each in turn."""
+    take = [0] * len(layers)
+    while total > 0 and any(n < len(layer["items"]) for n, layer in zip(take, layers)):
+        for i, layer in enumerate(layers):
+            if total > 0 and take[i] < len(layer["items"]):
+                take[i] += 1
+                total -= 1
+    for n, layer in zip(take, layers):
+        layer["items"] = layer["items"][:n]
 
 
 @require_GET
@@ -96,28 +133,34 @@ def saver_api(request):
     season = request.GET.get("season")
     if season not in SEASON_IDS:
         season = current_season(today, signal)
-    preview = _preview(request)
+    sources = provides.saver_sources()
+    by_id = {s["id"]: s for s in sources}
+    preview = _preview(request, set(BUILTIN_SOURCES) | set(by_id))
 
-    layers = SOURCE_LAYERS[preview.get("source") or value(f"source_{season}")]
-    cam = None
-    if "cam" in layers:
-        found = catalog.pick_background(provides.backgrounds(), preview.get("cam", value("cam")))
-        if found:
-            cam = {"name": found["label"], "url": _waking(found["url"]), "timestamp": found.get("timestamp"),
-                   "refresh_seconds": found.get("refresh_seconds")}
+    chosen = preview.get("source") or catalog.resolve_source(value(f"source_{season}"), sources)
+    if chosen == "mix":
+        wanted = ["stock", "photos", *by_id]
+    else:
+        wanted = [chosen] if chosen in ("stock", "photos") or chosen in by_id else []
+    app_ids = [w for w in wanted if w in by_id]
     captions = preview.get("caption", value("photo_caption"))
-    photos = season_photos(season, captions) if "photos" in layers else []
-    layers = [layer for layer in layers if (layer != "cam" or cam) and (layer != "photos" or photos)]
-    if not layers:
-        layers = ["stock"]
+    pick = preview["pick"] if "pick" in preview else catalog.resolve_pick(sources)
+    images = provides.saver_images(app_ids) if app_ids else {}
+    layers = [layer for layer in (_layer(by_id[i], images.get(i) or (), pick, captions) for i in app_ids)
+              if layer["items"]]
+    if chosen == "mix":
+        _share(layers, MIX_IMAGES)
+    photos = season_photos(season, captions) if "photos" in wanted else []
+    shown = {layer["id"] for layer in layers} | {"stock"} | ({"photos"} if photos else set())
+    order = [w for w in wanted if w in shown] or ["stock"]
 
     keys = [options.slot(season, n) for n in range(1, SLOTS + 1)]
     response = JsonResponse({
         "season": season,
         "label": dict(SEASONS)[season],
-        "sources": layers,
+        "sources": order,
         "rotate_seconds": preview.get("rotate", value("rotate_seconds")),
-        "cam": cam,
+        "layers": layers,
         "photos": photos,
         "stock": stock_art(season),
         "burn_in": value("burn_in"),
@@ -340,9 +383,11 @@ def settings_page(request):
     spec = _spec()
     saved = store.saved(spec.id)
     errors, status = {}, 200
+    sources = provides.saver_sources()
 
     if request.method == "POST":
         values, errors, raw = _form_values(request.POST)
+        _check_saver(values, errors, saved, sources)
         if not errors:
             _save(request, spec, saved, values)
             tab = request.POST.get("tab")
@@ -350,13 +395,16 @@ def settings_page(request):
         current, status = {**_current(spec, saved), **raw}, 400
     else:
         current = _current(spec, saved)
+        if "saver_pick" not in saved:
+            current["saver_pick"] = catalog.resolve_pick(sources)
 
     showing = current_season_safe()
     selected = request.GET.get("season") if request.GET.get("season") in SEASON_IDS else showing
 
     photos = list(SaverPhoto.objects.all())
     seasons = [{
-        "id": sid, "label": label, "source": current[f"source_{sid}"],
+        "id": sid, "label": label, "source": catalog.resolve_source(current[f"source_{sid}"], sources),
+        "error": errors.get(f"source_{sid}", ""),
         "photo_count": sum(1 for p in photos if p.enabled and p.in_season(sid)),
         "start": current[f"{sid}_start"], "start_key": f"{sid}_start",
         "start_error": errors.get(f"{sid}_start", ""),
@@ -364,23 +412,74 @@ def settings_page(request):
                   for n in range(1, SLOTS + 1)],
     } for sid, label in SEASONS]
 
-    backgrounds = provides.backgrounds()
-    cams = [{"slug": b["id"], "name": b["label"]} for b in backgrounds]
-    chosen = catalog.pick_background(backgrounds, current["cam"])
+    live = [s["id"] for s in sources if s["kind"] == LIVE]
+    images = provides.saver_images(live) if live else {}
+    choices = _controls(catalog.saver_choices([s["source"] for s in seasons], sources), images,
+                        current["saver_pick"])
+    chosen = next((s["source"] for s in seasons if s["id"] == selected), "stock")
+    for c in choices:
+        c["selected"] = c["id"] == chosen
     in_use = [slot["value"] for season in seasons for slot in season["slots"]]
-    sources = SOURCES if backgrounds else [s for s in SOURCES if s[0] not in ("cam", "mix")]
+    previews = {c["id"]: {"title": c["title"], "kind": c["kind"], "items": c["items"]} for c in choices if c["items"]}
     return _render(
         request, "display/settings.html", "display",
         v=current, errors=errors, seasons=seasons, selected=selected,
-        showing=dict(SEASONS)[showing], sources=sources, slot_groups=catalog.stat_groups(in_use),
-        cams=cams, cam_ids={c["slug"] for c in cams}, season_apps=catalog.season_apps(),
-        default_cam=chosen["label"] if chosen else "",
+        showing=dict(SEASONS)[showing], choices=choices,
+        chosen=next((c for c in choices if c["selected"]), choices[0]),
+        slot_groups=catalog.stat_groups(in_use), season_apps=catalog.season_apps(), saver_previews=previews,
         photos=[photo_json(p) for p in photos], season_choices=SEASONS,
         stock={sid: stock_art(sid) for sid in SEASON_IDS},
         home_bgs=options.HOME_BACKGROUNDS, home_tiles=options.HOME_TILES, home_pictures=home_pictures(),
         has_errors=bool(errors), just_saved=request.GET.get("saved") == "1", status=status,
         connect_password_set="connect_password" in vault.names(spec.id),
     )
+
+
+INTROS = {
+    "stock": "Paintings for the season, slowly panning, one after another.",
+    "photos": "Shows your library photos for this season, slowly panning, one after another.",
+    "mix": "Takes turns between the paintings, your photos and each app's pictures.",
+}
+
+
+def _controls(choices, images, pick):
+    """Adds what each source's controls need: its intro, its pictures and whether it rotates or captions."""
+    for c in choices:
+        items = [{"id": i["id"], "value": f"{c['id']}/{i['id']}", "label": i.get("label") or i["id"],
+                  "url": _waking(i["url"]) if c["kind"] == LIVE else i["url"]} for i in images.get(c["id"]) or ()]
+        c["items"] = items
+        c["pick"] = pick if pick.startswith(c["id"] + "/") else ""
+        c["pick_missing"] = bool(c["pick"]) and c["pick"].partition("/")[2] not in {i["id"] for i in items}
+        if c["kind"] == LIVE:
+            c["intro"] = "Live pictures that refresh as each camera updates." + (
+                " Pick one, or rotate through all of them." if len(items) > 1 else "")
+        elif c["kind"] == "photos" and c.get("app_label"):
+            c["intro"] = f"Photos from the {c['app_label']} app, slowly panning, one after another."
+        elif not c["available"]:
+            c["intro"] = "No app offers this now, so the screen saver shows the paintings instead."
+        else:
+            c["intro"] = INTROS[c["id"]]
+        c["picker"] = c["kind"] == LIVE and len(items) > 1
+        c["rotates"] = c["available"] and (c["kind"] != LIVE or (len(items) > 1 and not c["pick"]))
+        c["captions"] = c["kind"] in ("photos", "mix")
+    return choices
+
+
+def _check_saver(values, errors, saved, sources):
+    """Season sources must be ones on offer (or what's already saved); a picture must be a live source's."""
+    offered = set(BUILTIN_SOURCES) | {s["id"] for s in sources}
+    for sid in SEASON_IDS:
+        key = f"source_{sid}"
+        picked = (values.get(key) or "").strip() or "stock"
+        if picked not in offered and picked != saved.get(key):
+            errors[key] = "Pick a screen saver source from the list"
+        values[key] = picked
+    pick = (values.get("saver_pick") or "").strip()
+    live = {s["id"] for s in sources if s["kind"] == LIVE}
+    source_id, _, image_id = pick.partition("/")
+    if pick and pick != saved.get("saver_pick") and not (source_id in live and image_id and len(pick) <= 200):
+        errors["saver_pick"] = "Pick a picture from the list"
+    values["saver_pick"] = pick
 
 
 CLAIM_COOKIE = "display_upload"
