@@ -1,6 +1,6 @@
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
@@ -40,7 +40,7 @@ def cams():
 
 
 def winter():
-    return SeasonHint(WINTER, "Lifts are open") if STATE.get("open") else None
+    return SeasonHint(WINTER, "Lifts are open", opens_on=STATE.get("opens_on")) if STATE.get("open") else None
 
 
 def _stats_spec(id="snow_report", path=P + "snow_stats", **kw):
@@ -129,6 +129,9 @@ class ProvidesTests(SimpleTestCase):
             STATE["open"] = True
             self.assertEqual(provides.season_hints(),
                              [{"app": "Lifts", "season": "winter", "reason": "Lifts are open"}])
+            cache.clear()
+            STATE["opens_on"] = date(2026, 11, 26)
+            self.assertEqual(provides.season_hints()[0]["opens_on"], "2026-11-26")
 
     def test_headless_app_is_valid_and_provides(self):
         STATE["release"] = threading.Event()

@@ -9,18 +9,28 @@ from .season import by_date, next_start
 log = logging.getLogger(__name__)
 
 
-def days_until_lifts(today, starts, opened):
-    """Days until winter starts, while an app says the lifts are still closed."""
-    if opened is None or opened or by_date(today, starts) == "winter":
+def days_until_lifts(today, starts, opened, opens=None):
+    """Days until the lifts open, while an app says they're still closed.
+
+    Counts to ``opens`` (an opening day an app announced) when given, else to
+    the winter start setting.
+    """
+    if opened is None or opened:
         return None
-    days = (next_start(today, starts["winter"]) - today).days
+    if opens:
+        days = (opens - today).days
+    elif by_date(today, starts) == "winter":
+        return None
+    else:
+        days = (next_start(today, starts["winter"]) - today).days
     return {"label": "Until lifts open", "value": "1 day" if days == 1 else f"{days} days"}
 
 
-def collect(keys, today, starts, opened=None):
+def collect(keys, today, starts, opened=None, opens=None):
     """The info strip for stat ids ``keys`` (see ``display.catalog``), in order, skipping gaps.
 
-    ``opened`` is whether an app says winter has come (None: no app knows).
+    ``opened`` is whether an app says winter has come (None: no app knows);
+    ``opens`` is the opening day an app announced, if any.
     """
     from hub import provides
 
@@ -36,7 +46,7 @@ def collect(keys, today, starts, opened=None):
                 item = provided.get(key)
                 item = item and {k: v for k, v in item.items() if k != "order"}
             elif key == "days_until_lifts":
-                item = days_until_lifts(today, starts, opened)
+                item = days_until_lifts(today, starts, opened, opens)
             else:
                 item = None
         except Exception as exc:

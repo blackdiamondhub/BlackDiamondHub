@@ -30,7 +30,7 @@ from hub_settings.models import AppSetting
 from .models import DisplayLoad, DisplaySample, Heartbeat, SaverPhoto, UploadLink
 from .options import DEFAULT_STARTS, SEASONS, STOCK_STYLES
 from .schedule import is_night, parse_hhmm
-from .season import parse_mmdd, resolve
+from .season import opening_day, parse_mmdd, resolve, winter_signal
 from .stats import collect, days_until_lifts
 
 STARTS = dict(DEFAULT_STARTS)  # winter 11-21, spring 03-15, summer 06-01, fall 09-15
@@ -70,6 +70,28 @@ class SeasonTests(TestCase):
     def test_lifts_off(self):
         self.assertEqual(resolve(date(2026, 11, 1), STARTS, lifts_open=3, use_lifts=False), "fall")
 
+    def test_scheduled_hint_counts_from_its_day(self):
+        hints = [{"season": "winter", "opens_on": "2026-11-26"}]
+        self.assertFalse(winter_signal(hints, date(2026, 11, 25), STARTS))
+        self.assertTrue(winter_signal(hints, date(2026, 11, 26), STARTS))
+        self.assertTrue(winter_signal([{"season": "winter"}], date(2026, 11, 25), STARTS))
+        self.assertFalse(winter_signal([{"season": "summer"}], date(2026, 11, 25), STARTS))
+
+    def test_stale_or_implausible_opening_day_says_nothing(self):
+        # Last year's date still on the resort's page must not bring winter forward.
+        self.assertFalse(winter_signal([{"season": "winter", "opens_on": "2025-11-26"}], date(2026, 11, 1), STARTS))
+        self.assertFalse(winter_signal([{"season": "winter", "opens_on": "2026-07-01"}], date(2026, 7, 2), STARTS))
+        self.assertFalse(winter_signal([{"season": "winter", "opens_on": "garbage"}], date(2026, 11, 1), STARTS))
+
+    def test_opening_day(self):
+        today = date(2026, 11, 24)
+        hints = [{"season": "winter", "opens_on": "2026-12-05"}, {"season": "winter", "opens_on": "2026-11-26"},
+                 {"season": "winter"}, {"season": "winter", "opens_on": "2026-11-24"}]
+        self.assertEqual(opening_day(hints, today, STARTS), date(2026, 11, 26))
+        self.assertIsNone(opening_day([{"season": "winter", "opens_on": "2027-03-01"}], today, STARTS))
+        self.assertIsNone(opening_day([{"season": "summer", "opens_on": "2026-11-26"}], today, STARTS))
+        self.assertIsNone(opening_day([], today, STARTS))
+
     def test_parse_mmdd(self):
         self.assertEqual(parse_mmdd("02-29"), (2, 29))
         for bad in ("11/21", "1-21", "13-01", "02-30", "", "abc"):
@@ -83,6 +105,14 @@ class StatTests(TestCase):
         self.assertEqual(days_until_lifts(today, STARTS, False)["value"], "10 days")
         self.assertIsNone(days_until_lifts(today, STARTS, True))
         self.assertIsNone(days_until_lifts(today, STARTS, None))
+
+    def test_days_until_announced_opening(self):
+        # Opening day moved past the winter start setting: keep counting down to it.
+        today = date(2026, 11, 24)
+        self.assertIsNone(days_until_lifts(today, STARTS, False))
+        self.assertEqual(days_until_lifts(today, STARTS, False, date(2026, 11, 26))["value"], "2 days")
+        self.assertEqual(days_until_lifts(today, STARTS, False, date(2026, 11, 25))["value"], "1 day")
+        self.assertIsNone(days_until_lifts(today, STARTS, True, date(2026, 11, 26)))
 
     @mock.patch("hub.provides.stats", return_value={})
     @mock.patch("hub.provides.stat_owners", return_value=set())
@@ -120,8 +150,13 @@ def lifts_hint():
     return SeasonHint(WINTER, "Lifts are open") if PROVIDED.get("open") else None
 
 
+def opening_hint():
+    return SeasonHint(WINTER, "Opening day", opens_on=date(2026, 11, 26))
+
+
 _OWN = ("snow_report", "lift_status", "sunpeaks_webcams", "weather")
-BASE = tuple(s for s in settings.HUB_PLUGINS if s.id not in _OWN)
+# Installed apps that hint at the season would change what these tests expect.
+BASE = tuple(s for s in settings.HUB_PLUGINS if s.id not in _OWN and SEASON not in s.provides)
 SNOW = PluginSpec(id="snow_report", app="snow_report", provides={STATS: P + "snow_stats"},
                   stat_keys=(("temp_top", "Up top"), ("temp_village", "At the lodge"), ("snow_48h", "48h snow")))
 LIFTS = PluginSpec(id="lift_status", app="lift_status", provides={STATS: P + "lift_stats"},
@@ -206,6 +241,25 @@ class ViewTests(TestCase):
             cache.clear()
             PROVIDED["open"] = True
             self.assertEqual(self.client.get(reverse("display_saver_api")).json()["season"], "winter")
+
+    def test_announced_opening_day_drives_countdown(self):
+        opening = PluginSpec(id="resort_events", app="resort_events", provides={SEASON: P + "opening_hint"})
+        lifts = PluginSpec(id="lift_status", app="lift_status", provides={SEASON: P + "lifts_hint"})
+
+        def saver(day):
+            cache.clear()
+            with mock.patch("display.views.lodge_today", return_value=day):
+                return self.client.get(reverse("display_saver_api")).json()
+
+        with override_settings(HUB_PLUGINS=BASE + (opening, lifts), BDH_DISPLAY_SLOTS_WINTER="days_until_lifts",
+                               BDH_DISPLAY_SLOTS_FALL="days_until_lifts"):
+            body = saver(date(2026, 11, 19))
+            self.assertEqual((body["season"], body["stats"]), ("fall", [{"label": "Until lifts open", "value": "7 days"}]))
+            body = saver(date(2026, 11, 24))  # past the 11-21 setting, still closed
+            self.assertEqual((body["season"], body["stats"]), ("winter", [{"label": "Until lifts open", "value": "2 days"}]))
+            self.assertEqual(saver(date(2026, 11, 26))["stats"], [])
+            PROVIDED["open"] = True
+            self.assertEqual(saver(date(2026, 11, 24))["stats"], [])
 
     def test_site_without_mountain_apps(self):
         with override_settings(HUB_PLUGINS=BASE + (WEATHER,), **NO_SITE_SLOTS):

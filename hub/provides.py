@@ -90,7 +90,10 @@ def _season_value(result):
         return None
     if not isinstance(result, SeasonHint):
         raise TypeError(f"season provider returned {type(result).__name__}")
-    return {"season": result.season, "reason": result.reason}
+    out = {"season": result.season, "reason": result.reason}
+    if getattr(result, "opens_on", None):
+        out["opens_on"] = result.opens_on.isoformat()
+    return out
 
 
 def _run(capability, specs, convert, timeout):
@@ -135,7 +138,10 @@ def backgrounds(timeout=TIMEOUT):
 
 
 def season_hints(timeout=TIMEOUT):
-    """``[{"app", "season", "reason"}]`` from season providers that currently give a hint."""
+    """``[{"app", "season", "reason"[, "opens_on"]}]`` from season providers that currently give a hint.
+
+    ``opens_on`` (ISO date) means the season is scheduled to start that day rather than already started.
+    """
     return [{"app": app_label(spec), **value}
             for spec, value in _run(SEASON, providers(SEASON), lambda s: _season_value, timeout)
             if value]
