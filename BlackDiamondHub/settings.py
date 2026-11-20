@@ -309,15 +309,6 @@ SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
 SPOTIFY_REDIRECT_URI = f'{os.getenv("HOST")}/sonos_control/spotify/auth/callback/'
 SPOTIFY_SCOPE= ['user-read-recently-played', 'user-top-read', 'user-library-read']
 
-###############################
-### Home Assistant Settings ###
-###############################
-HOMEASSISTANT_URL = os.environ.get('HOMEASSISTANT_URL', 'http://homeassistant.local:8123')
-HOMEASSISTANT_ACCESS_TOKEN = os.environ.get('HOMEASSISTANT_ACCESS_TOKEN')
-
-HOMEASSISTANT_URL_2 = os.environ.get('HOMEASSISTANT_URL_2', 'http://homeassistant.local:8123')
-HOMEASSISTANT_ACCESS_TOKEN_2 = os.environ.get('HOMEASSISTANT_ACCESS_TOKEN_2')
-
 # During an owner visit (a stay marked owner) the hub acts as signed in as
 # this user. Blank turns automatic sign-in off. Use a non-staff account:
 # anyone on the LAN gets its access for the visit.

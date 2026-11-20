@@ -124,9 +124,8 @@ and every topic starts with the source name:
 
 - `type = "home_assistant"`: one websocket to Home Assistant, watching only the
   entities that apps subscribe to. Publishes `<name>/state/<entity_id>` with
-  `{entity_id, old, new, attributes}`. Uses `HOMEASSISTANT_URL` and
-  `HOMEASSISTANT_ACCESS_TOKEN`; set `url_env`/`token_env` to read a second
-  instance from other variables.
+  `{entity_id, old, new, attributes}`. Every instance on Settings → Home
+  Assistant gets one, named after its id; nothing is read from the environment.
 - `type = "webhook"`: `POST /hub/api/events/hook/<name>/<topic>` with a JSON
   body and an `X-Hub-Secret` header matching the variable named by
   `secret_env`. Publishes `<name>/<topic>`.
@@ -251,13 +250,11 @@ the Settings page already treats them as secrets. Usernames (cameras
 
 Limits: anyone with root on the hub VM (or a shell in the hub container) can
 read the key and so every secret, and an app can leak a secret it has been
-given. The hub's own credentials (`DJANGO_SECRET_KEY`, `DB_PASSWORD`,
-`HOMEASSISTANT_ACCESS_TOKEN`, `HA_TOKEN`, `NAPOLEON_*`, `GEMSTONE_PASSWORD`,
-`UNIFI_PROTECT_API_KEY_n`, `BDH_CAMERAS_PROTECT_PASSWORD_n`,
-`BDL_MODES_API_KEY`, `GOOGLE_PLACES_API_KEY`, `BDH_SHUTTLE_REMINDERS_API_KEY`,
-`SPOTIFY_CLIENT_SECRET`, `HUB_REMOTE_TOKEN`, `BDH_SUPERVISOR_TOKEN`,
-`WIFI_PASSWORD_FOR_*`, ...) still come from `.env`; environment values remain
-the fallback when nothing is saved.
+given. Home Assistant and every app's accounts and keys live only on the
+Settings pages (container apps never see the hub's environment). Only the
+hub's own infrastructure credentials (`DJANGO_SECRET_KEY`, `DB_PASSWORD`,
+`SPOTIFY_CLIENT_SECRET`, `HUB_REMOTE_TOKEN`, `BDH_SUPERVISOR_TOKEN`, ...)
+still come from `.env`.
 
 ### Shared data between apps
 

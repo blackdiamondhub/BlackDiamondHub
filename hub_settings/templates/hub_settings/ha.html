@@ -25,7 +25,7 @@
     {% if message %}<div class="hst-note bad" role="alert">{{ message }}</div>
     {% elif has_errors %}<div class="hst-note bad" role="alert">Some values need fixing.</div>{% endif %}
     {% if not vault_ok %}<div class="hst-note bad" role="alert">The secret store has no key on this hub, so tokens can't be saved; see the README.</div>{% endif %}
-    {% if from_env %}<div class="hst-note ok">The hub is using the server's environment for Home Assistant. Save it here to manage it from this page.</div>{% endif %}
+    {% if not cards %}<div class="hst-note bad">Home Assistant isn't set up yet. Add it below so apps can use it.</div>{% endif %}
 
     {% for c in cards %}
     <section class="hst-card" data-instance="{{ c.id }}">

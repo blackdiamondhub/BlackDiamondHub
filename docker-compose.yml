@@ -30,21 +30,6 @@ services:
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
 
-      # Wifi app settings (bdh-app-wifi)
-      WIFI_NETWORKS_AUTH: ${WIFI_NETWORKS_AUTH}
-      WIFI_NETWORKS_PUBLIC: ${WIFI_NETWORKS_PUBLIC}
-
-      WIFI_PASSWORD_FOR_BDL: ${WIFI_PASSWORD_FOR_BDL}
-      WIFI_PASSWORD_FOR_BDL_TO_MI: ${WIFI_PASSWORD_FOR_BDL_TO_MI}
-      WIFI_PASSWORD_FOR_BDL_GUEST: ${WIFI_PASSWORD_FOR_BDL_GUEST}
-
-      # Home Assistant Settings
-      HOMEASSISTANT_URL: ${HOMEASSISTANT_URL}
-      HOMEASSISTANT_ACCESS_TOKEN: ${HOMEASSISTANT_ACCESS_TOKEN}
-
-      # Home Assistant Settings 2
-      HOMEASSISTANT_URL_2: ${HOMEASSISTANT_URL_2}
-      HOMEASSISTANT_ACCESS_TOKEN_2: ${HOMEASSISTANT_ACCESS_TOKEN_2}
 
       # Owner visits: hub acts as signed in as this non-staff user (blank = off)
       HUB_OWNER_VISIT_USER: ${HUB_OWNER_VISIT_USER:-}
@@ -64,39 +49,6 @@ services:
       BDH_SUPERVISOR_SOCKET: /run/bdh-supervisor/supervisor.sock
       BDH_SUPERVISOR_TOKEN: ${BDH_SUPERVISOR_TOKEN:-}
 
-      # Napoleon fireplaces (Ayla cloud)
-      NAPOLEON_EMAIL: ${NAPOLEON_EMAIL:-}
-      NAPOLEON_PASSWORD: ${NAPOLEON_PASSWORD:-}
-      NAPOLEON_EUROPE: ${NAPOLEON_EUROPE:-}
-
-      # Restaurants app: Google Places API (New) key; blank = no fetching
-      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
-
-      # UniFi Protect API (for camera discovery)
-      UNIFI_PROTECT_HOST_1: ${UNIFI_PROTECT_HOST_1}
-      UNIFI_PROTECT_API_KEY_1: ${UNIFI_PROTECT_API_KEY_1}
-      UNIFI_PROTECT_NAME_1: ${UNIFI_PROTECT_NAME_1}
-      UNIFI_PROTECT_HOST_2: ${UNIFI_PROTECT_HOST_2}
-      UNIFI_PROTECT_API_KEY_2: ${UNIFI_PROTECT_API_KEY_2}
-      UNIFI_PROTECT_NAME_2: ${UNIFI_PROTECT_NAME_2}
-      # View-only Protect local user (private API: events, recordings)
-      BDH_CAMERAS_PROTECT_USERNAME_1: ${BDH_CAMERAS_PROTECT_USERNAME_1:-}
-      BDH_CAMERAS_PROTECT_PASSWORD_1: ${BDH_CAMERAS_PROTECT_PASSWORD_1:-}
-      BDH_CAMERAS_PROTECT_USERNAME_2: ${BDH_CAMERAS_PROTECT_USERNAME_2:-}
-      BDH_CAMERAS_PROTECT_PASSWORD_2: ${BDH_CAMERAS_PROTECT_PASSWORD_2:-}
-
-      # Gemstone Lights (AWS Amplify cloud)
-      GEMSTONE_EMAIL: ${GEMSTONE_EMAIL}
-      GEMSTONE_PASSWORD: ${GEMSTONE_PASSWORD}
-
-      # bdl_modes AppDaemon app (vacation / preheat / home)
-      BDL_MODES_URL: ${BDL_MODES_URL:-}
-      BDL_MODES_API_KEY: ${BDL_MODES_API_KEY:-}
-      BDL_MODES_PREHEAT: ${BDL_MODES_PREHEAT:-false}
-
-      # bdl_shuttle AppDaemon app (bus reminders on the dining room Sonos)
-      BDH_SHUTTLE_REMINDERS_URL: ${BDH_SHUTTLE_REMINDERS_URL:-}
-      BDH_SHUTTLE_REMINDERS_API_KEY: ${BDH_SHUTTLE_REMINDERS_API_KEY:-}
 
     network_mode: host
 
