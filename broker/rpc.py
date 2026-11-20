@@ -459,7 +459,10 @@ def ha_registry(install, grants, payload):
                 and g.can_read(grants, e.get("entity_id"))]
     device_ids = {e.get("device_id") for e in entities if e.get("device_id")}
     devices = [d for d in reg.get("devices") or () if isinstance(d, dict) and d.get("id") in device_ids]
-    return {"entities": entities, "devices": devices, "unit_system": reg.get("unit_system") or {}}
+    area_ids = {x.get("area_id") for x in (*entities, *devices) if x.get("area_id")}
+    areas = [a for a in reg.get("areas") or () if isinstance(a, dict) and a.get("area_id") in area_ids]
+    return {"entities": entities, "devices": devices, "areas": areas,
+            "unit_system": reg.get("unit_system") or {}}
 
 
 def ha_instances(install, grants, payload):
