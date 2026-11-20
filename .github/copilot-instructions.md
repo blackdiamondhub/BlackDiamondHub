@@ -27,7 +27,7 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
 - **Backend**: Django 5.1, Python 3.11, PostgreSQL, Daphne/Channels (ASGI)
 - **Frontend**: Bootstrap 5 (crispy-bootstrap5), Font Awesome 6 icons
 - **Auth**: Django auth + social-auth-app-django (Spotify OAuth)
-- **Home Assistant**: REST API at `192.168.10.212:8123`, token stored in `.env` as `HA_TOKEN`
+- **Home Assistant**: REST API at `192.168.10.212:8123`; URL and token are set on Settings → Home Assistant (`HAInstance` rows, token in the vault), not in `.env`
 - **Containerization**: Docker + docker-compose (see Deployment section)
 - **Environment**: `.env` file for secrets (not committed)
 
@@ -125,7 +125,7 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
 - `bdh_sdk.ha` — shared Home Assistant client (`get_entity_states`, `get_history`, `call_service`, `ws_commands`…), in bdh-sdk so extracted apps can use it. Apps import it from `bdh_sdk.ha`, never from another app (`hub/ha_client.py` and `device_control.ha_client` are compatibility re-exports)
 - **Remote control (development only).** Set `HUB_REMOTE_TOKEN` in the hub's `.env` to turn it on; leave it unset in production and the websocket, the API and the script are all off. `base.html` then loads `hub/static/hub/remote.js` on every page, which connects to `ws/hub/remote/` (`hub/remote.py`). `GET /hub/api/remote/` with header `X-Hub-Token` lists the connected screens; `POST` `{target: ip or screen id, cmd, args, timeout}` runs a command on the newest connection from that screen and returns its reply (504 on timeout). Commands: `state`, `query`, `tap` (`selector`/`text`/`x,y`, `fingers`, `hold_ms`), `swipe`, `key`, `type`, `scroll`, `measure` (frame rate, long tasks, per-video decoded/dropped fps), `logs`, `navigate`, `reload`, `back`, `eval` (async function body). Synthetic taps have no user activation, so a refused `requestFullscreen` falls back to a stand-in that applies the page's `:fullscreen` rules to `.hub-remote-fs` and fakes `document.fullscreenElement`.
 - `tests/selenium_helpers.py` — Shared Selenium test utilities (login, Chrome options, network waits)
-- `.env` — Environment variables (HA_TOKEN, DB credentials, etc.)
+- `.env` — Environment variables (Django secret, DB credentials, supervisor token, etc.)
 - `requirements.txt` — Python dependencies
 
 ## Base Template & Navbar (`templates/base.html`)

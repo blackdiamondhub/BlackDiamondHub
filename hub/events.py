@@ -4,11 +4,9 @@ Each ``[events.sources.<name>]`` table in ``site.toml`` is a source that
 publishes topics starting with ``<name>/``:
 
 Home Assistant instances
-    Every instance on Settings > Home Assistant (or the single ``ha``
-    instance from the environment until one is saved) gets a source named
-    after its id, kept in step by ``sync_instances()``. A ``home_assistant``
-    table in ``site.toml`` only adds a source of its own when it names
-    ``url_env`` / ``token_env``.
+    Every instance on Settings > Home Assistant gets a source named after
+    its id, kept in step by ``sync_instances()``. A ``home_assistant`` table
+    in ``site.toml`` doesn't add a source of its own.
 
 ``type = "home_assistant"``
     One websocket to Home Assistant. Publishes ``<name>/state/<entity_id>``
@@ -65,25 +63,11 @@ def start(sources):
     global _started
     _config.update(sources)
     _started = True
-    for name, conf in sources.items():
-        if conf["type"] != "home_assistant" or name in _sources:
-            continue
-        if "url_env" not in conf and "token_env" not in conf:
-            continue  # an instance; sync_instances() starts it
-        url = os.environ.get(conf.get("url_env", "HOMEASSISTANT_URL"), "")
-        token = os.environ.get(conf.get("token_env", "HOMEASSISTANT_ACCESS_TOKEN"), "")
-        if not url or not token:
-            log.warning("event source %s: no Home Assistant url/token; not started", name)
-            continue
-        source = HomeAssistantSource(name, url, token)
-        _sources[name] = source
-        source.start()
 
 
 def reserved_names():
     """Source names that aren't Home Assistant instances (e.g. webhooks)."""
-    return {name for name, conf in _config.items()
-            if conf["type"] != "home_assistant" or "url_env" in conf or "token_env" in conf}
+    return {name for name, conf in _config.items() if conf["type"] != "home_assistant"}
 
 
 def sync_instances(delay=0):

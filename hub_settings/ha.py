@@ -1,8 +1,7 @@
 """The Home Assistant instances ``bdh_sdk.ha`` talks to, from Settings → Home Assistant.
 
-With no saved instances the hub keeps using the single ``ha`` instance from
-``HOMEASSISTANT_URL`` / ``HOMEASSISTANT_ACCESS_TOKEN``. Once any instance is
-saved, only saved instances exist. Tokens are vault secrets of the ``hub`` owner.
+Only saved instances exist; with none saved, Home Assistant isn't set up.
+Tokens are vault secrets of the ``hub`` owner.
 """
 
 import re
@@ -30,12 +29,6 @@ def clear(**_kwargs):
         _tokens.clear()
 
 
-def env_connection():
-    from bdh_sdk import ha
-
-    return ha._EnvProvider().connection(None)
-
-
 def _rows():
     global _cache
     with _lock:
@@ -50,13 +43,13 @@ def instances():
     """``[{id, name, site, default}]`` with exactly one default."""
     rows = _rows()
     if not rows:
-        return [{"id": DEFAULT_ID, "name": "Home Assistant", "site": "", "default": True}]
+        return []
     default = next((r.id for r in rows if r.is_default), rows[0].id)
     return [{"id": r.id, "name": r.name, "site": r.site, "default": r.id == default} for r in rows]
 
 
 def default_id():
-    return next(i["id"] for i in instances() if i["default"])
+    return next((i["id"] for i in instances() if i["default"]), None)
 
 
 def exists(instance_id):
@@ -70,9 +63,7 @@ def connection(instance=None):
 
     rows = _rows()
     if not rows:
-        if instance not in (None, DEFAULT_ID):
-            raise HAError(f"unknown Home Assistant instance {instance!r}")
-        return env_connection()
+        raise HAError("Home Assistant isn't set up (Settings → Home Assistant)")
     if instance is None:
         instance = default_id()
     row = next((r for r in rows if r.id == instance), None)

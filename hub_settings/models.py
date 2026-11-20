@@ -83,7 +83,7 @@ class HAInstance(models.Model):
     The id is what apps pass as ``instance=`` and the prefix of the instance's
     event topics (``<id>/state/<entity_id>``), so it can't change once saved.
     The access token lives in the vault (``hub_settings.ha.token_name``).
-    With no rows the hub uses the single ``ha`` instance from the environment.
+    With no rows apps have no Home Assistant.
     """
 
     id = models.CharField(primary_key=True, max_length=40)

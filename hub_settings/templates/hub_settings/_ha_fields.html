@@ -42,6 +42,6 @@
         {% endif %}
         <input type="password" class="hst-in txt{% if f.error.token %} bad{% endif %}" id="ha-{{ p }}-token" name="{{ p }}__token"
                value="" autocomplete="new-password" spellcheck="false"
-               placeholder="{% if f.token_set %}Replace (blank keeps it){% elif p == 'new' and from_env %}Blank keeps the server's token{% else %}Enter to set{% endif %}">
+               placeholder="{% if f.token_set %}Replace (blank keeps it){% else %}Enter to set{% endif %}">
     </div>
 </div>

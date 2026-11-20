@@ -40,27 +40,10 @@ def _taken_ids():
     return events.reserved_names() | {s.id for s in plugins()} | {"hub"}
 
 
-def _env_url():
-    try:
-        return ha.env_connection()[0] or ""
-    except Exception:
-        return ""
-
-
-@sensitive_variables()
-def _env_token():
-    try:
-        return ha.env_connection()[1] or ""
-    except Exception:
-        return ""
-
-
 def _blank_new(rows):
     if rows:
         return {"id": "", "name": "", "site": "", "url": "", "error": {}}
-    # Nothing saved yet: the hub runs on the environment's instance. Offer it
-    # as the first one so saving keeps everything working.
-    return {"id": ha.DEFAULT_ID, "name": "Home Assistant", "site": "", "url": _env_url(), "error": {}}
+    return {"id": ha.DEFAULT_ID, "name": "Home Assistant", "site": "", "url": "", "error": {}}
 
 
 def _cards(rows, posted=None, errors=None):
@@ -82,7 +65,7 @@ def _cards(rows, posted=None, errors=None):
 def _page(request, rows, posted=None, errors=None, new=None, status=200, message=""):
     return _render(
         request, "hub_settings/ha.html", "ha",
-        cards=_cards(rows, posted, errors), new=new or _blank_new(rows), from_env=not rows,
+        cards=_cards(rows, posted, errors), new=new or _blank_new(rows),
         has_errors=bool(errors) or bool(message), message=message,
         just_saved=request.GET.get("saved") == "1", vault_ok=vault.available(), status=status,
     )
@@ -162,8 +145,6 @@ def ha_settings(request):
         new = _check(new_fields, err, new_id=new_id, taken=taken)
         new.update(id=new_id, error=err)
         new_token = post.get(f"{NEW}__token", "")
-        if not new_token and not rows and "url" not in err and new["url"] == _env_url().rstrip("/"):
-            new_token = _env_token()  # first save of the environment's instance keeps its token
         if new_token:
             tokens[new_id] = new_token
         else:
@@ -226,8 +207,6 @@ def ha_test(request):
         row = HAInstance.objects.filter(pk=instance_id).first()
         if row is not None and row.url.rstrip("/") == url:
             token = ha._token(row.id)
-        elif row is None and not HAInstance.objects.exists() and url == _env_url().rstrip("/"):
-            token = _env_token()
     if not token:
         return JsonResponse({"ok": False, "message": "Enter the access token to test this address."})
     headers = {"Authorization": f"Bearer {token}"}

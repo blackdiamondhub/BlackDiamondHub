@@ -181,7 +181,7 @@ if [[ $suite == caps* ]]; then
     echo "::endgroup::"
     # Idle apps stop after 75 s (the hub reports activity at most once a minute).
     supervisor_env=(-e BDH_IDLE_TIMEOUT=75)
-    hub_env=(-e APP_PORTS=12 -e HOMEASSISTANT_URL="http://127.0.0.1:$ha_port" -e HOMEASSISTANT_ACCESS_TOKEN=fake-ha-token)
+    hub_env=(-e APP_PORTS=12 -e BDH_SECRETS_KEY_FILE=/tmp/bdh-secrets.key)
 fi
 
 echo "::group::bdh-supervisor"
@@ -240,6 +240,22 @@ hub_up() {
 }
 wait_for 180 hub hub_up
 echo "::endgroup::"
+
+if [[ $suite == caps* ]]; then
+    echo "::group::Home Assistant setting"
+    # Saved like Settings -> Home Assistant does; the hub only reads HA from there.
+    docker exec bdh-e2e-hub /app/.venv/bin/python manage.py generate_secrets_key
+    docker exec bdh-e2e-hub /app/.venv/bin/python manage.py shell -c "
+from hub_settings import ha, vault
+from hub_settings.models import HAInstance
+HAInstance.objects.update_or_create(id='ha', defaults={'name': 'Home Assistant', 'url': 'http://127.0.0.1:$ha_port', 'is_default': True})
+vault.set_secret(ha.VAULT_OWNER, ha.token_name('ha'), 'fake-ha-token')
+print('ha saved')"
+    # Restart so the running hub (events source, HA cache) picks it up.
+    docker restart bdh-e2e-hub >/dev/null
+    wait_for 180 hub hub_up
+    echo "::endgroup::"
+fi
 
 echo "::group::install apps"
 docker exec bdh-e2e-hub /app/.venv/bin/python manage.py app_install e2e_probe --timeout 180 | tee "$work/install.txt"
