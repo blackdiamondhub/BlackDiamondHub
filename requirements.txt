@@ -87,6 +87,7 @@ urllib3==2.2.2
 websocket-client==1.8.0
 wsproto==1.2.0
 xmltodict==0.13.0
+zeroconf==0.154.0
 zope.interface==7.0.3
 python-dateutil
 pytz
