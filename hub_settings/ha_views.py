@@ -6,12 +6,13 @@ testing a new one) needs the token entered again.
 """
 
 from urllib.parse import urlsplit
+import time
 
 import requests
 from django.db import transaction
 from django.http import JsonResponse
 from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from . import ha, vault
 from .models import HAInstance
@@ -19,6 +20,10 @@ from .views import _render, saved_redirect, staff_page
 
 NEW = "new"
 TEST_TIMEOUT = 8
+STATUS_TIMEOUT = 4
+STATUS_CACHE = 20  # seconds a REST probe's answer is reused
+LIVE_STATES = {"connected", "reconnecting", "unreachable", "bad_token", "no_token"}
+_probes = {}  # instance id -> (monotonic time, url, state)
 
 
 def _clean_url(raw):
@@ -90,6 +95,7 @@ def _check(fields, errors, *, new_id=None, taken=()):
 
 def _after_change():
     ha.clear()
+    _probes.clear()
     from hub import events
 
     events.sync_instances()
@@ -237,3 +243,41 @@ def ha_test(request):
     if count is not None:
         msg += f", {count} entities"
     return JsonResponse({"ok": True, "message": msg + "."})
+
+
+@sensitive_variables("token")
+def _probe(row):
+    """Ask Home Assistant's REST API directly, for an instance with no live connection here."""
+    hit = _probes.get(row.id)
+    now = time.monotonic()
+    if hit and hit[1] == row.url and now - hit[0] < STATUS_CACHE:
+        return hit[2]
+    token = ha._token(row.id)
+    if not token:
+        state = "no_token"
+    else:
+        try:
+            resp = requests.get(f"{row.url.rstrip('/')}/api/config",
+                                headers={"Authorization": f"Bearer {token}"}, timeout=STATUS_TIMEOUT)
+            state = {200: "connected", 401: "bad_token", 403: "bad_token"}.get(resp.status_code, "unreachable")
+        except requests.RequestException:
+            state = "unreachable"
+    _probes[row.id] = (now, row.url, state)
+    return state
+
+
+@staff_page
+@require_GET
+def ha_status(request):
+    """Each saved instance's connection state, for the dot in its card's title bar.
+
+    The live event-source connection when there is one; otherwise (nobody
+    subscribed, or not the server process) a quick REST check.
+    """
+    from hub import events
+
+    out = {}
+    for row in HAInstance.objects.order_by("order", "name"):
+        state = events.instance_status(row.id)
+        out[row.id] = state if state in LIVE_STATES else _probe(row)
+    return JsonResponse({"instances": out})

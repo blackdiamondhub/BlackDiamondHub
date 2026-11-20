@@ -110,6 +110,12 @@ def sync_instances(delay=0):
             source.start()
 
 
+def instance_status(name):
+    """The live event source's ``status`` for an instance, or ``None`` if none runs here."""
+    source = _sources.get(name)
+    return source.status if isinstance(source, HomeAssistantSource) else None
+
+
 def wanted_entities(name, patterns):
     """Entity ids source ``name`` must watch, or ``None`` for every entity."""
     entities = set()
@@ -134,6 +140,10 @@ def state_event(entity_id, old, new):
 class HomeAssistantSource:
     RETRY_MIN, RETRY_MAX = 5, 60
     IDLE = 30  # seconds without traffic before a ping
+    # After a drop, say "reconnecting" this long (a Home Assistant restart) before "unreachable".
+    RECONNECTING = 180
+    # status: connecting, connected, reconnecting, unreachable, bad_token, no_token or idle (no
+    # subscribers, so no connection to judge by).
 
     def __init__(self, name, url=None, token=None, conn=None):
         """``conn`` returns ``(url, token)``; it's asked again on every connect."""
@@ -143,6 +153,8 @@ class HomeAssistantSource:
         if url is not None:
             self.url, self.token = self._target(url, token)
         self.entities = set()
+        self.status = "connecting"
+        self._lost_at = None
         self._ws = None
         self._current = None
         self._stopped = False
@@ -200,6 +212,7 @@ class HomeAssistantSource:
             except Exception as exc:
                 if self._stopped:
                     break
+                self._failed(exc)
                 log.warning("event source %s: %s; retrying in %ss", self.name, exc, delay)
                 time.sleep(delay)
                 delay = min(delay * 2, self.RETRY_MAX)
@@ -210,6 +223,7 @@ class HomeAssistantSource:
         with self._lock:
             entities = self.entities
         if entities == set():
+            self.status, self._lost_at = "idle", None
             time.sleep(self.IDLE)  # nobody subscribed; check again later
             return
         url, token = target = self._target(*self._conn())
@@ -232,6 +246,7 @@ class HomeAssistantSource:
                     return  # changed or stopped while connecting
                 self._ws = ws
                 self._current = target
+                self.status, self._lost_at = "connected", None
             log.info("event source %s: connected, watching %s", self.name,
                      "every entity" if entities is None else ", ".join(sorted(entities)))
             self._read(ws)
@@ -239,7 +254,20 @@ class HomeAssistantSource:
             with self._lock:
                 if self._ws is ws:
                     self._ws = None
+                if self.status == "connected":
+                    self.status, self._lost_at = "reconnecting", time.monotonic()
             ws.close()
+
+    def _failed(self, exc):
+        """Set ``status`` after a failed connect or a dropped session."""
+        if str(exc) == "no access token":
+            self.status, self._lost_at = "no_token", None
+        elif str(exc) == "authentication failed":
+            self.status, self._lost_at = "bad_token", None
+        elif self._lost_at is not None and time.monotonic() - self._lost_at < self.RECONNECTING:
+            self.status = "reconnecting"
+        else:
+            self.status, self._lost_at = "unreachable", None
 
     def _read(self, ws):
         import websocket

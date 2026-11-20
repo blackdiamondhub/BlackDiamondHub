@@ -10,6 +10,7 @@ urlpatterns = [
     path("quick/", views.quick_actions, name="hub_settings_quick"),
     path("home-assistant/", ha_views.ha_settings, name="hub_settings_ha"),
     path("home-assistant/test/", ha_views.ha_test, name="hub_settings_ha_test"),
+    path("home-assistant/status/", ha_views.ha_status, name="hub_settings_ha_status"),
     path("apps/", apps_views.installed, name="hub_settings_apps"),
     path("apps/live/", apps_views.installed_live, name="hub_settings_apps_live"),
     path("apps/update-all/", apps_views.update_all, name="hub_settings_apps_update_all"),

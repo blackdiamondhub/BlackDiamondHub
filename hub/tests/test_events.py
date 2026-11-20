@@ -95,6 +95,52 @@ class HomeAssistantSourceTests(SimpleTestCase):
         with self.assertRaisesRegex(ConnectionError, "subscribe failed"):
             source._handle({"type": "result", "success": False, "error": {"code": "x"}})
 
+    def _ws(self, *replies):
+        ws = MagicMock()
+        ws.recv.side_effect = [json.dumps(r) for r in replies]
+        return ws
+
+    def _attempt(self, source, create):
+        with patch("websocket.create_connection", create):
+            try:
+                source._session()
+            except Exception as exc:
+                source._failed(exc)
+        return source.status
+
+    def test_status_follows_the_connection(self):
+        source = hub_events.HomeAssistantSource("ha", "http://ha", "token")
+        source.entities = {"light.a"}
+        down = MagicMock(side_effect=ConnectionRefusedError())
+        self.assertEqual(source.status, "connecting")
+        self.assertEqual(self._attempt(source, down), "unreachable")
+        with patch.object(source, "_read") as read:
+            ok = self._ws({"type": "auth_required"}, {"type": "auth_ok"})
+            read.side_effect = lambda ws: self.assertEqual(source.status, "connected")
+            self.assertEqual(self._attempt(source, MagicMock(return_value=ok)), "reconnecting")
+            read.assert_called_once()
+        # Home Assistant restarting: reconnecting for a while, then unreachable.
+        self.assertEqual(self._attempt(source, down), "reconnecting")
+        source._lost_at -= source.RECONNECTING + 1
+        self.assertEqual(self._attempt(source, down), "unreachable")
+        bad = self._ws({"type": "auth_required"}, {"type": "auth_invalid"})
+        self.assertEqual(self._attempt(source, MagicMock(return_value=bad)), "bad_token")
+
+    def test_status_without_token_or_subscribers(self):
+        source = hub_events.HomeAssistantSource("ha", "http://ha", "")
+        source.entities = {"light.a"}
+        self.assertEqual(self._attempt(source, MagicMock()), "no_token")
+        source.entities = set()
+        with patch("time.sleep"):
+            self.assertEqual(self._attempt(source, MagicMock()), "idle")
+
+    def test_instance_status(self):
+        source = hub_events.HomeAssistantSource("ha", "http://ha", "token")
+        source.status = "connected"
+        with patch.dict(hub_events._sources, {"ha": source}, clear=True):
+            self.assertEqual(hub_events.instance_status("ha"), "connected")
+            self.assertIsNone(hub_events.instance_status("cabin"))
+
 
 HOOKS = {"hook": {"type": "webhook", "secret_env": "TEST_HOOK_SECRET"}, "ha": {"type": "home_assistant"}}
 
