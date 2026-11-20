@@ -153,3 +153,46 @@ class AlertKeepOpenTest(SeleniumTestCase):
         self.show(10)  # a later end (another doorbell ring) refills the bar
         time.sleep(0.2)
         self.assertGreater(self.bar_scale(), 0.9)
+
+
+@tag("selenium")
+class AlertHoldTest(SeleniumTestCase):
+    """The alert's own iframe can hold it open (doorbell mic on), release it, or hang up."""
+    SHOWN = (By.CSS_SELECTOR, ".hub-alert.on")
+
+    def post_from_frame(self, cmd):
+        browser = self.browser
+        browser.switch_to.frame(browser.find_element(By.CSS_SELECTOR, ".hub-alert-frame iframe"))
+        browser.execute_script("parent.postMessage({bdhAlert: arguments[0]}, '*')", cmd)
+        browser.switch_to.default_content()
+
+    def open_alert(self, ttl):
+        browser = self.browser
+        browser.get(f"{self.live_server_url}/accounts/login/")
+        wait_for_paint(browser)
+        browser.execute_script(
+            "BDHAlerts.show({key: 'k', title: 'Door', embed_url: '/hub/api/alerts/sample/',"
+            " ttl: arguments[0]})", ttl)
+        WebDriverWait(browser, 5).until(EC.presence_of_element_located(self.SHOWN))
+
+    def test_hold_keeps_it_open_and_release_resumes_the_countdown(self):
+        self.open_alert(2)
+        self.post_from_frame("hold")
+        self.browser.execute_script(
+            "BDHAlerts.show({key: 'k', title: 'Door', embed_url: '/hub/api/alerts/sample/', ttl: 1})")
+        time.sleep(3)  # past both the ttl and a repeat's ttl
+        self.assertTrue(self.browser.find_elements(*self.SHOWN))
+        self.post_from_frame("release")
+        time.sleep(1)
+        self.assertTrue(self.browser.find_elements(*self.SHOWN))  # grace period, not instant close
+        self.assertGreater(self.browser.execute_script(
+            "return new DOMMatrix(getComputedStyle("
+            "document.querySelector('.hub-alert-bar span')).transform).a"), 0.9)
+
+    def test_hangup_closes_and_only_the_alert_frame_is_obeyed(self):
+        self.open_alert(30)
+        self.browser.execute_script("window.postMessage({bdhAlert: 'hangup'}, '*')")
+        time.sleep(0.5)
+        self.assertTrue(self.browser.find_elements(*self.SHOWN))
+        self.post_from_frame("hangup")
+        WebDriverWait(self.browser, 5).until(EC.invisibility_of_element_located(self.SHOWN))
