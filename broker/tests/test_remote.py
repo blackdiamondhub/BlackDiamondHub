@@ -10,7 +10,7 @@ from django.test import TestCase, override_settings
 
 from broker import remote
 from broker.tokens import token_for
-from hub import modes, status
+from hub import modes, provides, status
 
 from .base import make_install, manifest, reset_broker
 
@@ -317,3 +317,67 @@ class OriginTests(TestCase):
         self.assertEqual(remote.app_origin(9101, "[::1]:8000"), "http://[::1]:9101")
         self.assertIsNone(remote.page_url("cams", "//evil/"))
         self.assertEqual(remote.raw_url("cams", "javascript:x"), "")
+
+
+SOURCES = [
+    {"key": "cams", "title": "Mountain cams", "description": "Live views", "kind": "live"},
+    {"key": "Bad Key", "title": "Nope", "kind": "live"},
+    {"key": "long", "title": "x" * 33, "kind": "live"},
+    {"key": "wordy", "title": "Wordy", "description": "x" * 81, "kind": "live"},
+    {"key": "video", "title": "Video", "kind": "video"},
+    {"key": "untitled", "kind": "photos"},
+    "not a source",
+    {"key": "cams", "title": "Again", "kind": "photos"},
+    {"key": "shots", "title": "Lodge shots", "kind": "photos"},
+]
+
+
+@override_settings(HUB_PLUGINS=())
+class RemoteSaverTests(TestCase):
+    def setUp(self):
+        reset_broker()
+        cache.clear()
+        self.addCleanup(reset_broker)
+        self.addCleanup(cache.clear)
+
+    def install(self, sources=SOURCES):
+        return make_install(manifest=manifest(provides=["saver"], saver_sources=sources))
+
+    def test_bad_saver_sources_are_skipped_one_by_one(self):
+        self.install()
+        spec = remote.spec_for("cams")
+        self.assertEqual([(s.key, s.title, s.description, s.kind) for s in spec.saver_sources],
+                         [("cams", "Mountain cams", "Live views", "live"), ("shots", "Lodge shots", "", "photos")])
+        self.assertEqual([s["id"] for s in provides.saver_sources()], ["cams.cams", "cams.shots"])
+
+    def test_at_most_eight_saver_sources(self):
+        self.install([{"key": f"s{n}", "title": f"S{n}", "kind": "photos"} for n in range(10)])
+        self.assertEqual([s.key for s in remote.spec_for("cams").saver_sources], [f"s{n}" for n in range(8)])
+
+    def test_saver_images_go_through_the_app(self):
+        install = self.install()
+        app = FakeApp(install, {"provide": [
+            {"source": "cams", "id": "peak", "url": "/cam/peak.jpg", "label": "Peak", "caption": "",
+             "refresh_seconds": 30},
+            {"source": "cams", "id": "far", "url": "http://elsewhere/x.jpg", "label": "Far", "refresh_seconds": 30},
+            {"source": "cams", "id": "proto", "url": "//elsewhere/x.jpg", "label": "Proto", "refresh_seconds": 30},
+            {"source": "cams", "id": "nourl", "label": "No URL", "refresh_seconds": 30},
+            {"source": "cams", "id": "stale", "url": "/cam/stale.jpg", "label": "No refresh"},
+            {"source": "shots", "id": "s" * 200, "url": "/shots/1.jpg", "label": "L" * 200, "caption": "C" * 200},
+            {"source": "video", "id": "v", "url": "/v.jpg"},
+        ]})
+        with mock.patch("broker.remote.requests.request", side_effect=app):
+            images = provides.saver_images(["cams.cams", "cams.shots"])
+        self.assertEqual(images["cams.cams"], [{"id": "peak", "url": "/apps/cams/_raw/cam/peak.jpg", "label": "Peak",
+                                                "caption": "", "refresh_seconds": 30}])
+        shot = images["cams.shots"][0]
+        self.assertEqual(shot["url"], "/apps/cams/_raw/shots/1.jpg")
+        self.assertEqual((len(shot["id"]), len(shot["label"]), len(shot["caption"])), (120, 120, 120))
+        self.assertEqual(set(images), {"cams.cams", "cams.shots"})
+        self.assertEqual([b["capability"] for _m, _p, b in app.calls if b and b.get("hook") == "provide"], ["saver"])
+
+    def test_fix_saver_only_takes_app_paths(self):
+        value = [{"id": "a", "url": "/a.jpg"}, {"id": "b", "url": "https://x/b.jpg"}, {"id": "c", "url": "//x/c.jpg"},
+                 {"id": "d", "url": "\\\\x\\d.jpg"}, {"id": "e"}, "junk"]
+        self.assertEqual(remote._fix_saver("cams", value), [{"id": "a", "url": "/apps/cams/_raw/a.jpg"}])
+        self.assertEqual(remote._fix_saver("cams", {"not": "a list"}), [])

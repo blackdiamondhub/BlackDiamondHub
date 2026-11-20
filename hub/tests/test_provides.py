@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
-from bdh_sdk.provides import BACKGROUNDS, SEASON, STATS, WINTER, Background, SeasonHint, Stat
+from bdh_sdk.provides import LIVE, PHOTOS, SAVER, SEASON, STATS, WINTER, SaverImage, SaverSource, SeasonHint, Stat
 from hub import provides
 from hub.loader import PluginError, validate
 from hub.plugins import PluginSpec
@@ -35,8 +35,23 @@ def slow_stats():
 
 
 def cams():
-    return (Background("sunburst", "Sunburst", "http://cam/sunburst.jpg", refresh_seconds=30),
-            Background("empty", "No image", ""))
+    STATE.setdefault("called", []).append("cams")
+    return (SaverImage("live", "sunburst", "/cam/sunburst.jpg", label="Sunburst", refresh_seconds=30),
+            SaverImage("live", "stale", "/cam/stale.jpg", label="No refresh"),
+            SaverImage("shots", "s1", "/shots/1.jpg", label="Shot", caption="Day one"),
+            SaverImage("other", "x", "/x.jpg"))
+
+
+def gallery():
+    STATE.setdefault("called", []).append("gallery")
+    return [SaverImage("pics", "p1", "/p/1.jpg")]
+
+
+CAMS = PluginSpec(id="cams", app="cams", provides={SAVER: P + "cams"},
+                  saver_sources=(SaverSource("live", "Live cams", "From the hill", LIVE),
+                                 SaverSource("shots", "Shots", kind=PHOTOS)))
+GALLERY = PluginSpec(id="gallery", app="gallery", provides={SAVER: P + "gallery"},
+                     saver_sources=(SaverSource("pics", "Pictures", kind=PHOTOS),))
 
 
 def winter():
@@ -116,14 +131,31 @@ class ProvidesTests(SimpleTestCase):
             self.assertEqual(provides.stats(), {})
             self.assertEqual(provides.stat_catalogue(), [])
 
-    def test_backgrounds_and_season_hints(self):
-        plugins = (PluginSpec(id="cams", app="cams", provides={BACKGROUNDS: P + "cams"}),
-                   PluginSpec(id="lifts", app="lifts", provides={SEASON: P + "winter"}))
+    def test_saver_sources_are_declared_without_calling(self):
+        with override_settings(HUB_PLUGINS=(CAMS, GALLERY)):
+            self.assertEqual(provides.saver_sources(), [
+                {"id": "cams.live", "app": "cams", "app_label": "Cams", "key": "live", "title": "Live cams",
+                 "description": "From the hill", "kind": "live"},
+                {"id": "cams.shots", "app": "cams", "app_label": "Cams", "key": "shots", "title": "Shots",
+                 "description": "", "kind": "photos"},
+                {"id": "gallery.pics", "app": "gallery", "app_label": "Gallery", "key": "pics", "title": "Pictures",
+                 "description": "", "kind": "photos"},
+            ])
+        self.assertNotIn("called", STATE)
+
+    def test_saver_images_call_only_the_apps_asked_for(self):
+        with override_settings(HUB_PLUGINS=(CAMS, GALLERY)):
+            self.assertEqual(provides.saver_images(["cams.live"]), {"cams.live": [
+                {"id": "sunburst", "url": "/cam/sunburst.jpg", "label": "Sunburst", "caption": "",
+                 "refresh_seconds": 30}]})  # no refresh: not live; undeclared source: dropped
+            self.assertEqual(STATE["called"], ["cams"])
+            self.assertEqual(provides.saver_images([]), {})
+            cache.clear()
+            self.assertEqual(set(provides.saver_images()), {"cams.live", "cams.shots", "gallery.pics"})
+
+    def test_season_hints(self):
+        plugins = (PluginSpec(id="lifts", app="lifts", provides={SEASON: P + "winter"}),)
         with override_settings(HUB_PLUGINS=plugins):
-            self.assertEqual(provides.backgrounds(), [{
-                "id": "cams.sunburst", "label": "Sunburst", "url": "http://cam/sunburst.jpg",
-                "refresh_seconds": 30, "live": True, "app": "Cams",
-            }])
             self.assertEqual(provides.season_hints(), [])
             cache.clear()
             STATE["open"] = True
@@ -144,7 +176,7 @@ class ProvidesTests(SimpleTestCase):
         spec = PluginSpec(id="future", app="future", provides={"weather_alerts": P + "cams"})
         with override_settings(HUB_PLUGINS=(spec,)):
             validate([spec])
-            self.assertEqual(provides.providers(BACKGROUNDS), [])
+            self.assertEqual(provides.providers(SAVER), [])
 
 
 class ProvidesValidationTests(SimpleTestCase):

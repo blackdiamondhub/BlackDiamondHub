@@ -146,11 +146,19 @@ def settled(quiet=10, timeout=90):
 
 @pytest.fixture(scope="module")
 def saver():
-    """The screensaver API once the hub has the fixture's background (providers are gathered async)."""
+    """The screensaver API once it shows the fixture's cam (the site picks it; providers are gathered async)."""
     def with_cam():
         body = get("/display/api/saver/").json()
-        return body if body.get("cam") else None
+        return body if body.get("layers") else None
     return poll("the saver to list the probe cam", with_cam, timeout=90, interval=2)
+
+
+def probe_cam(saver):
+    """The probe's one live picture, as the saver API hands it out."""
+    layer, = saver["layers"]
+    assert (layer["id"], layer["kind"]) == (f"{APP_ID}.cam", "live"), layer
+    item, = layer["items"]
+    return item
 
 
 # --- (c) the hub shows the app --------------------------------------------------
@@ -204,9 +212,10 @@ def test_shell_page_shows_the_app():
 # --- (a) every image URL the hub hands out is an image --------------------------
 
 def test_saver_and_tile_images(saver):
-    assert saver["cam"]["name"] == CAM_NAME
-    assert saver["cam"]["url"].startswith(f"/apps/{APP_ID}/_raw/"), saver["cam"]
-    urls = [saver["cam"]["url"], ICON, *saver["stock"], *(p["url"] for p in saver["photos"])]
+    cam = probe_cam(saver)
+    assert cam["label"] == CAM_NAME
+    assert cam["url"].startswith(f"/apps/{APP_ID}/_raw/"), cam
+    urls = [cam["url"], ICON, *saver["stock"], *(p["url"] for p in saver["photos"])]
     assert_probe_cam(urls[0])
     for url in urls[1:]:
         assert_image(url)
@@ -226,7 +235,7 @@ def asleep():
 
 def test_sleeping_app_cam_image(saver, asleep):
     assert is_asleep()
-    url = saver["cam"]["url"]
+    url = probe_cam(saver)["url"]
     resp = get(url)
     assert resp.status_code != 404, f"{url}: 404 while the app sleeps"
     assert_probe_cam(url, resp)

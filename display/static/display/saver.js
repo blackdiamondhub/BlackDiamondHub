@@ -105,7 +105,7 @@
         root = document.createElement('div');
         root.className = 'bdh-saver';
         root.style.display = 'none';
-        root.innerHTML = '<div class="layer stock"></div><div class="layer photos"></div><div class="layer cam"></div><div class="shade"></div>'
+        root.innerHTML = '<div class="layer stock"></div><div class="layer photos"></div><div class="shade"></div>'
             + '<div class="info"><div class="clock"></div><div class="date"></div><div class="row"></div></div>'
             + '<div class="cam-name"></div><div class="caption"></div><div class="hint">Tap anywhere</div>';
         // Swallow the tap that wakes the display so it doesn't land on what's underneath.
@@ -120,6 +120,8 @@
         });
         root.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });
         document.body.appendChild(root);
+        els.set('stock', $('.layer.stock'));
+        els.set('photos', $('.layer.photos'));
     }
 
     // After the saver closes, eat the click that the same tap may still produce.
@@ -163,17 +165,27 @@
 
     // Nothing is shown until the settings arrive, so the wrong layer can't flash up first.
     let showing = null;
-    let camBroken = false;
-    // Photos and stock art each rotate through their own shuffled deck.
-    const decks = {photos: {order: [], key: '', pos: 0}, stock: {order: [], key: '', pos: 0}};
+    // A layer per source on screen: the built-in photos and stock art, plus one per app source.
+    const els = new Map();
+    const el = id => els.get(id) || null;
+    const appLayer = id => ((data && data.layers) || []).find(l => l.id === id) || null;
+    const kindOf = id => id === 'stock' || id === 'photos' ? id : ((appLayer(id) || {}).kind || '');
+    // Photos, stock art and app photo sources each rotate through their own shuffled deck.
+    const isDeck = id => kindOf(id) === 'stock' || kindOf(id) === 'photos';
+    const decks = {};
+    const deckOf = id => decks[id] || (decks[id] = {order: [], key: '', pos: 0});
     // Images that failed to load are skipped for a while, so one bad file can't leave the screen black.
     const broken = new Map();
     const BROKEN_MS = 10 * 60 * 1000;
     const isBroken = url => broken.has(url) && Date.now() - broken.get(url) < BROKEN_MS;
     function photoList() { return ((data && data.photos) || []).filter(p => !isBroken(p.url)); }
     function stockList() { return ((data && data.stock) || []).filter(u => !isBroken(u)).map(url => ({url})); }
-    const items = kind => kind === 'stock' ? stockList() : photoList();
-    const byUrl = url => photoList().find(p => p.url === url);
+    function items(id) {
+        if (id === 'stock') return stockList();
+        if (id === 'photos') return photoList();
+        const layer = appLayer(id);
+        return layer ? layer.items.filter(i => !isBroken(i.url)) : [];
+    }
     const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 
     function shuffle(urls, avoidFirst) {
@@ -188,9 +200,9 @@
     }
 
     // Reshuffles only when the set of images changes, so a refresh doesn't restart the cycle.
-    function syncOrder(kind) {
-        const deck = decks[kind];
-        const urls = items(kind).map(p => p.url);
+    function syncOrder(id) {
+        const deck = deckOf(id);
+        const urls = items(id).map(p => p.url);
         const key = urls.slice().sort().join('\n');
         if (key !== deck.key) {
             deck.key = key;
@@ -199,21 +211,25 @@
         }
     }
 
-    function currentFrame(kind = 'photos') {
-        const frames = $('.layer.' + kind).querySelectorAll('.frame');
+    function currentFrame(id) {
+        const layer = el(id);
+        const frames = layer ? layer.querySelectorAll('.frame') : [];
         return frames[frames.length - 1] || null;
     }
 
-    function clearFrames(kind, keep) {
-        $('.layer.' + kind).querySelectorAll('.frame').forEach(f => { if (f !== keep) f.remove(); });
+    function clearFrames(id, keep) {
+        const layer = el(id);
+        if (layer) layer.querySelectorAll('.frame').forEach(f => { if (f !== keep) f.remove(); });
     }
 
+    // Library photos and app photos carry a caption (a date or the app's own), shown top right.
     function showCaption() {
-        const frame = currentFrame();
-        const photo = frame && byUrl(frame.dataset.src);
-        const text = (photo && photo.caption) || '';
+        const captioned = !!showing && showing !== 'stock' && isDeck(showing);
+        const frame = captioned ? currentFrame(showing) : null;
+        const item = frame && items(showing).find(p => p.url === frame.dataset.src);
+        const text = (item && item.caption) || '';
         $('.caption').textContent = text;
-        $('.caption').classList.toggle('on', showing === 'photos' && !!text);
+        $('.caption').classList.toggle('on', captioned && !!text);
     }
 
     function rotateSeconds() {
@@ -255,15 +271,16 @@
         frame.style.animationName = '';
     }
 
-    // Brings in the next photo or stock painting, crossfading over the current one if it's on screen.
+    // Brings in the next picture of a deck, crossfading over the current one if it's on screen.
     // The stock layer keeps its drawn scene underneath, so it shows if no painting loads.
-    function nextFrame(kind, fade) {
-        const list = items(kind);
-        const layer = $('.layer.' + kind);
-        if (!list.length) { clearFrames(kind); showCaption(); return; }
-        syncOrder(kind);
-        const deck = decks[kind];
-        const current = currentFrame(kind);
+    function nextFrame(id, fade) {
+        const layer = el(id);
+        if (!layer) return;
+        const list = items(id);
+        if (!list.length) { clearFrames(id); showCaption(); return; }
+        syncOrder(id);
+        const deck = deckOf(id);
+        const current = currentFrame(id);
         if (deck.pos >= deck.order.length) {
             deck.order = shuffle(deck.order, current && current.dataset.src);
             deck.pos = 0;
@@ -281,6 +298,7 @@
         bg.className = 'bg';
         fg.className = 'fg';
         fg.onload = () => {
+            if (el(id) !== layer) return;
             // Close to the screen's shape: fill it. Otherwise (portraits) show it whole over a blurred copy.
             const ratio = (fg.naturalWidth / fg.naturalHeight) / (window.innerWidth / window.innerHeight);
             frame.classList.toggle('fill', ratio > 0.8 && ratio < 1.25);
@@ -288,10 +306,10 @@
             layer.append(frame);
             if (!fade) {
                 frame.classList.add('in');
-                clearFrames(kind, frame);
+                clearFrames(id, frame);
             } else {
                 requestAnimationFrame(() => requestAnimationFrame(() => frame.classList.add('in')));
-                setTimeout(() => clearFrames(kind, frame), 3200);
+                setTimeout(() => clearFrames(id, frame), 3200);
             }
             showCaption();
         };
@@ -305,39 +323,126 @@
         fg.src = url;
     }
 
-    const DECKS = ['photos', 'stock'];
+    /* ---------- live pictures (an app's cameras) ---------- */
+    // Per live source: which picture is up, its refresh timer, and whether it has never loaded.
+    const live = {};
+    const liveOf = id => live[id] || (live[id] = {pos: 0, timer: null, every: 0, broken: false});
+    const liveItems = id => (appLayer(id) || {items: []}).items;
+    function liveItem(id) {
+        const list = liveItems(id);
+        return list.length ? list[liveOf(id).pos % list.length] : null;
+    }
+    function dropLive(id) {
+        if (live[id]) clearInterval(live[id].timer);
+        delete live[id];
+    }
+
+    // The camera's name, from the picture actually on screen.
+    function showCamName() {
+        const layer = showing && kindOf(showing) === 'live' ? el(showing) : null;
+        const img = layer && layer.querySelector('img');
+        const label = (img && img.dataset.label) || '';
+        $('.cam-name').textContent = label;
+        $('.cam-name').classList.toggle('on', !!label);
+    }
+
+    // Live images change behind the same URL: refetch with a cache-buster, swap in once loaded.
+    // A failed fetch keeps the last frame up.
+    function loadLive(id, fresh) {
+        const item = liveItem(id);
+        const layer = el(id);
+        if (!item || !layer) return;
+        const st = liveOf(id);
+        const img = new Image();
+        img.alt = '';
+        img.dataset.src = item.url;
+        img.dataset.label = item.label || '';
+        img.onload = () => {
+            const now = liveItem(id);
+            if (el(id) === layer && now && now.url === item.url) {
+                layer.replaceChildren(img);
+                showCamName();
+            }
+            st.broken = false;
+        };
+        img.onerror = () => {
+            // Only fall back to another source if there's no earlier frame to keep showing.
+            if (!layer.firstChild && !st.broken && data) { st.broken = true; render(data); }
+        };
+        img.src = fresh ? item.url + (item.url.includes('?') ? '&' : '?') + 't=' + Date.now() : item.url;
+        refreshEvery(id, item);
+    }
+
+    // Only the picture on screen is refetched, every refresh_seconds (at least 10s).
+    function refreshEvery(id, item) {
+        const st = liveOf(id);
+        const every = item.refresh_seconds ? Math.max(10, item.refresh_seconds) * 1000 : 0;
+        if (every === st.every && (st.timer !== null || !every)) return;
+        clearInterval(st.timer);
+        st.timer = null;
+        st.every = every;
+        if (every) st.timer = setInterval(() => {
+            if (showing === id && root && root.classList.contains('on')) loadLive(id, true);
+        }, every);
+    }
+
+    // On to the source's next picture (unless one is picked); it swaps in once it has loaded.
+    function advanceLive(id) {
+        const layer = appLayer(id);
+        if (!layer || layer.pick || layer.items.length < 2) return;
+        const st = liveOf(id);
+        st.pos = (st.pos + 1) % layer.items.length;
+        loadLive(id, true);
+    }
+
+    // A layer per app source, under the shade and text; gone ones are dropped.
+    function syncLayers(list) {
+        const want = new Map(list.map(l => [l.id, l.kind]));
+        els.forEach((node, id) => {
+            if (id === 'stock' || id === 'photos' || want.get(id) === node.dataset.kind) return;
+            node.remove();
+            els.delete(id);
+            dropLive(id);
+            delete decks[id];
+        });
+        list.forEach(layer => {
+            let node = el(layer.id);
+            if (!node) {
+                node = document.createElement('div');
+                node.className = layer.kind === 'live' ? 'layer cam' : 'layer';
+                node.dataset.id = layer.id;
+                node.dataset.kind = layer.kind;
+                $('.shade').before(node);
+                els.set(layer.id, node);
+                if (layer.id === showing) node.classList.add('on');
+            }
+            if (layer.kind !== 'live') return;
+            const st = liveOf(layer.id);
+            if (st.pos >= layer.items.length) st.pos = 0;
+            const item = layer.items[st.pos];
+            const shown = node.querySelector('img');
+            if (!shown || shown.dataset.src !== item.url) loadLive(layer.id, false);
+            else refreshEvery(layer.id, item);
+        });
+    }
 
     function showLayer(name) {
         const was = showing;
         showing = name;
-        $('.layer.stock').classList.toggle('on', name === 'stock');
-        $('.layer.photos').classList.toggle('on', name === 'photos');
-        DECKS.forEach(kind => {
+        els.forEach((node, id) => node.classList.toggle('on', id === name));
+        els.forEach((node, id) => {
+            if (!isDeck(id)) return;
             // Swap in the next image once it's faded out, and restart the pan for the one coming back.
-            if (was === kind && name !== kind) setTimeout(() => nextFrame(kind, false), 3500);
-            if (was !== kind && name === kind) restartKenBurns(currentFrame(kind));
+            if (was === id && name !== id) setTimeout(() => nextFrame(id, false), 3500);
+            if (was !== id && name === id) restartKenBurns(currentFrame(id));
         });
-        $('.layer.cam').classList.toggle('on', name === 'cam');
-        $('.cam-name').classList.toggle('on', name === 'cam');
+        if (was && was !== name) {
+            // A camera coming back gets a fresh picture; one going away moves on to its next.
+            if (kindOf(name) === 'live') loadLive(name, true);
+            if (kindOf(was) === 'live') setTimeout(() => advanceLive(was), 3500);
+        }
+        showCamName();
         showCaption();
-    }
-
-    let camTimer = null, camEvery = 0;
-
-    // Live images change behind the same URL: refetch with a cache-buster, swap in once loaded.
-    function loadCam(url, fresh) {
-        const img = new Image();
-        img.alt = '';
-        img.dataset.src = url;
-        img.onload = () => {
-            if (data && data.cam && data.cam.url === url) $('.layer.cam').replaceChildren(img);
-            camBroken = false;
-        };
-        img.onerror = () => {
-            // Only fall back if there's no earlier frame to keep showing.
-            if (!$('.layer.cam').firstChild && !camBroken && data) { camBroken = true; render(data); }
-        };
-        img.src = fresh ? url + (url.includes('?') ? '&' : '?') + 't=' + Date.now() : url;
     }
 
     function render(d) {
@@ -350,34 +455,20 @@
         }
         $('.row').innerHTML = (d.stats || []).map(s =>
             `<div><b>${esc(s.time ? timeText(s.time) : s.value)}</b>${esc(s.label)}</div>`).join('');
-        const camLayer = $('.layer.cam');
-        if (d.cam && d.cam.url) {
-            $('.cam-name').textContent = d.cam.name || '';
-            const current = camLayer.querySelector('img');
-            if (!current || current.dataset.src !== d.cam.url) loadCam(d.cam.url, false);
-            const every = Math.max(10, d.cam.refresh_seconds || 0) * 1000;
-            if (!d.cam.refresh_seconds) { clearInterval(camTimer); camTimer = null; camEvery = 0; }
-            else if (every !== camEvery || camTimer === null) {
-                clearInterval(camTimer);
-                camEvery = every;
-                camTimer = setInterval(() => data && data.cam && loadCam(data.cam.url, true), every);
-            }
-        } else {
-            clearInterval(camTimer); camTimer = null; camEvery = 0;
-            camLayer.replaceChildren();
-        }
+        syncLayers(d.layers || []);
         const sources = d.sources || ['stock'];
-        // A cam still loading counts as there: its layer stays dark until the image arrives.
-        const empty = name => (name === 'cam' && (!(d.cam && d.cam.url) || camBroken))
-            || (name === 'photos' && !photoList().length);
+        // A live picture still loading counts as there: its layer stays dark until the image arrives.
+        const empty = id => kindOf(id) === 'live' ? !liveItems(id).length || liveOf(id).broken
+            : id !== 'stock' && !items(id).length;
         const target = sources.includes(showing) && !empty(showing) ? showing : (sources.find(s => !empty(s)) || 'stock');
-        DECKS.forEach(kind => {
+        els.forEach((node, id) => {
+            if (!isDeck(id)) return;
             // Load only what can be shown, so e.g. a stock painting can't flash up before the photos.
-            if (!sources.includes(kind) && kind !== target) { clearFrames(kind); return; }
-            const loaded = currentFrame(kind);
-            syncOrder(kind);
-            if (!items(kind).length) clearFrames(kind);
-            else if (!loaded || !items(kind).some(p => p.url === loaded.dataset.src)) nextFrame(kind, false);
+            if (!sources.includes(id) && id !== target) { clearFrames(id); return; }
+            const loaded = currentFrame(id);
+            syncOrder(id);
+            if (!items(id).length) clearFrames(id);
+            else if (!loaded || !items(id).some(p => p.url === loaded.dataset.src)) nextFrame(id, false);
         });
         showCaption();
         if (target !== showing) showLayer(target);
@@ -386,7 +477,7 @@
     function load() {
         // The settings page's Preview passes its unsaved values (the API only honours them for staff).
         const q = new URLSearchParams();
-        [['saver_season', 'season'], ['saver_source', 'source'], ['saver_cam', 'cam'],
+        [['saver_season', 'season'], ['saver_source', 'source'], ['saver_pick', 'pick'],
          ['saver_rotate', 'rotate'], ['saver_caption', 'caption']].forEach(([from, to]) => {
             if (params.has(from)) q.set(to, params.get(from));
         });
@@ -395,23 +486,28 @@
             .catch(() => { if (!data) render({season: 'winter', label: 'Winter', sources: ['stock'], stats: []}); });
     }
 
+    // Each "Change every": the next source in a Mix, else the next picture of the one on screen.
     function rotate() {
         const sources = (data && data.sources) || ['stock'];
         if (sources.length < 2) {
-            if (DECKS.includes(showing) && items(showing).length > 1) nextFrame(showing, true);
+            if (isDeck(showing) && items(showing).length > 1) nextFrame(showing, true);
+            else if (kindOf(showing) === 'live') advanceLive(showing);
             return;
         }
-        const next = sources[(sources.indexOf(showing) + 1) % sources.length];
-        if (next === 'cam' && !$('.layer.cam').firstChild) return;
-        if (next === 'photos' && !$('.layer.photos').firstChild) return;
-        showLayer(next);
+        // Skip sources with nothing loaded yet (or a camera that never loaded).
+        const at = sources.indexOf(showing);
+        for (let n = 1; n < sources.length; n++) {
+            const next = sources[(at + n + sources.length) % sources.length];
+            const node = el(next);
+            if (node && node.firstChild && !(kindOf(next) === 'live' && liveOf(next).broken)) { showLayer(next); return; }
+        }
     }
 
     // Has the layer about to be shown got its first image (or is it the drawn stock scene)?
     function ready() {
         if (!data) return false;
-        if (showing === 'cam') return !!$('.layer.cam').firstChild;
-        if (DECKS.includes(showing)) return !!currentFrame(showing) || (showing === 'stock' && !items('stock').length);
+        if (kindOf(showing) === 'live') return !!(el(showing) && el(showing).firstChild);
+        if (isDeck(showing)) return !!currentFrame(showing) || (showing === 'stock' && !items('stock').length);
         return true;
     }
 

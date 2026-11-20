@@ -1,6 +1,6 @@
-from bdh_sdk.provides import Background
+from bdh_sdk.provides import SaverImage
 from django.urls import reverse
 
 
-def backgrounds():
-    return [Background("probe", "Probe Cam", reverse("e2e_probe_bg"), refresh_seconds=60)]
+def saver():
+    return [SaverImage("cam", "probe", reverse("e2e_probe_bg"), label="Probe Cam", refresh_seconds=60)]

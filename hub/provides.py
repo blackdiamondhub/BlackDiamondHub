@@ -9,7 +9,10 @@ import logging
 from datetime import timezone
 from functools import partial
 
-from bdh_sdk.provides import BACKGROUNDS, CAPABILITIES, SEASON, STATS, Background, SeasonHint, Stat
+from bdh_sdk.hooks import saver_value
+from bdh_sdk.provides import (
+    CAPABILITIES, LIVE, MAX_SAVER_IMAGES, SAVER, SAVER_TEXT_MAX, SEASON, STATS, SeasonHint, Stat,
+)
 
 from .modes import plugins
 from .status import _converted, _gather
@@ -68,18 +71,33 @@ def _stats_value(allowed, result):
     return out
 
 
-def _backgrounds_value(result):
-    if _converted(result):
-        return result.value or []
-    out, seen = [], set()
-    for bg in list(result or ()):
-        if not isinstance(bg, Background):
-            raise TypeError(f"backgrounds provider returned {type(bg).__name__}")
-        if bg.id in seen or not bg.image_url:
+def _saver_value(sources, result):
+    if not _converted(result):
+        return saver_value(sources, result)
+    # A container app's reply is untrusted: check it again against what it declared.
+    kinds = {src.key: src.kind for src in sources}
+    out, seen, counts = [], set(), {}
+    for img in result.value or ():
+        if not isinstance(img, dict):
             continue
-        seen.add(bg.id)
-        out.append({"id": bg.id, "label": bg.label, "url": bg.image_url,
-                    "refresh_seconds": bg.refresh_seconds, "live": bg.live})
+        source, image_id, url = img.get("source"), img.get("id"), img.get("url")
+        kind = kinds.get(source)
+        if kind is None or not isinstance(image_id, str) or not image_id or len(image_id) > SAVER_TEXT_MAX \
+                or not isinstance(url, str) or not url:
+            continue
+        if (source, image_id) in seen or counts.get(source, 0) >= MAX_SAVER_IMAGES:
+            continue
+        item = {"source": source, "id": image_id, "url": url,
+                "label": str(img.get("label") or "")[:SAVER_TEXT_MAX],
+                "caption": str(img.get("caption") or "")[:SAVER_TEXT_MAX]}
+        if kind == LIVE:
+            refresh = img.get("refresh_seconds")
+            if isinstance(refresh, bool) or not isinstance(refresh, int) or refresh < 1:
+                continue
+            item["refresh_seconds"] = refresh
+        seen.add((source, image_id))
+        counts[source] = counts.get(source, 0) + 1
+        out.append(item)
     return out
 
 
@@ -129,11 +147,33 @@ def stats(plugin_ids=None, timeout=TIMEOUT):
     return out
 
 
-def backgrounds(timeout=TIMEOUT):
-    """Every provided background, ids qualified as ``"<plugin>.<id>"``."""
-    out = []
-    for spec, value in _run(BACKGROUNDS, providers(BACKGROUNDS), lambda s: _backgrounds_value, timeout):
-        out.extend({**bg, "id": f"{spec.id}.{bg['id']}", "app": app_label(spec)} for bg in value or ())
+def saver_sources():
+    """Every declared screen saver source, in plugin order, without calling providers.
+
+    ``[{"id": "<plugin>.<key>", "app", "app_label", "key", "title", "description", "kind"}]``
+    """
+    return [{"id": f"{s.id}.{src.key}", "app": s.id, "app_label": app_label(s), "key": src.key,
+             "title": src.title, "description": src.description, "kind": src.kind}
+            for s in providers(SAVER) for src in getattr(s, "saver_sources", None) or ()]
+
+
+def saver_images(source_ids=None, timeout=TIMEOUT):
+    """``{"<plugin>.<key>": [{"id", "url", "label", "caption"[, "refresh_seconds"]}]}``.
+
+    With ``source_ids``, only the apps offering those sources are called.
+    """
+    wanted = None if source_ids is None else set(source_ids)
+    specs = [s for s in providers(SAVER)
+             if wanted is None or any(f"{s.id}.{src.key}" in wanted for src in s.saver_sources or ())]
+    convert = lambda s: partial(_saver_value, tuple(s.saver_sources or ()))  # noqa: E731
+    out = {}
+    if not specs:
+        return out
+    for spec, value in _run(SAVER, specs, convert, timeout):
+        for img in value or ():
+            source = f"{spec.id}.{img['source']}"
+            if wanted is None or source in wanted:
+                out.setdefault(source, []).append({k: v for k, v in img.items() if k != "source"})
     return out
 
 

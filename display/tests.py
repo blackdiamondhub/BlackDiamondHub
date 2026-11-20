@@ -6,7 +6,8 @@ import tempfile
 from datetime import date, timedelta
 from unittest import mock
 
-from bdh_sdk.provides import BACKGROUNDS, SEASON, STATS, WINTER, Background, SeasonHint, Stat
+from bdh_sdk.provides import (LIVE, PHOTOS, SAVER, SEASON, STATS, WINTER, SaverImage, SaverSource, SeasonHint,
+                              Stat)
 from django.apps import apps as django_apps
 from django.conf import settings
 from django.core.cache import cache
@@ -20,6 +21,7 @@ from django.utils import timezone
 from PIL import Image
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.select import Select
 from selenium.webdriver.support.ui import WebDriverWait
 
 from hub.plugins import PluginSpec
@@ -141,9 +143,27 @@ def lift_stats():
     return [Stat("runs_open", "Runs open", value="112 of 138")]
 
 
+CALLED = []
+
+
 def webcams():
-    return [Background("peak", "Peak cam", "http://cam/peak.jpg", refresh_seconds=30),
-            Background("village", "Village cam", "http://cam/village.jpg")]
+    CALLED.append("webcams")
+    return [SaverImage("cams", "peak", "/cam/peak.jpg", label="Peak cam", refresh_seconds=30),
+            SaverImage("cams", "village", "/cam/village.jpg", label="Village cam", refresh_seconds=60)]
+
+
+def gallery():
+    CALLED.append("gallery")
+    return [SaverImage("shots", f"s{n}", f"/shots/{n}.jpg", label=f"Shot {n}", caption=f"Day {n}") for n in range(3)]
+
+
+def one_cam():
+    return [SaverImage("cam", "deck", "/static/android-chrome-512x512.png", label="Deck cam", refresh_seconds=60)]
+
+
+def two_cams():
+    return [SaverImage("cams", "a", "/static/android-chrome-512x512.png", label="Cam A", refresh_seconds=60),
+            SaverImage("cams", "b", "/static/android-chrome-192x192.png", label="Cam B", refresh_seconds=60)]
 
 
 def lifts_hint():
@@ -161,7 +181,14 @@ SNOW = PluginSpec(id="snow_report", app="snow_report", provides={STATS: P + "sno
                   stat_keys=(("temp_top", "Up top"), ("temp_village", "At the lodge"), ("snow_48h", "48h snow")))
 LIFTS = PluginSpec(id="lift_status", app="lift_status", provides={STATS: P + "lift_stats"},
                    stat_keys=(("runs_open", "Runs open"),))
-CAMS = PluginSpec(id="sunpeaks_webcams", app="sunpeaks_webcams", provides={BACKGROUNDS: P + "webcams"})
+CAMS = PluginSpec(id="sunpeaks_webcams", app="sunpeaks_webcams", provides={SAVER: P + "webcams"},
+                  saver_sources=(SaverSource("cams", "Mountain cams", "Live views from the hill", LIVE),))
+GALLERY = PluginSpec(id="gallery", app="gallery", provides={SAVER: P + "gallery"},
+                     saver_sources=(SaverSource("shots", "Lodge shots", "Photos of the lodge", PHOTOS),))
+HILL = PluginSpec(id="hillcams", app="hillcams", provides={SAVER: P + "two_cams"},
+                  saver_sources=(SaverSource("cams", "Hill cams", "Two cameras up the hill", LIVE),))
+DECK = PluginSpec(id="deckcam", app="deckcam", provides={SAVER: P + "one_cam"},
+                  saver_sources=(SaverSource("cam", "Deck cam", "The view from the deck", LIVE),))
 MOUNTAIN = BASE + (SNOW, LIFTS, CAMS)
 MOUNTAIN_SLOTS = ["snow_report.temp_top", "snow_report.temp_village", "snow_report.snow_48h", "lift_status.runs_open"]
 WEATHER = PluginSpec(id="weather", app="weather", provides={STATS: P + "weather_stats"},
@@ -195,18 +222,143 @@ class ViewTests(TestCase):
             for url in views.stock_art(season):
                 self.assertTrue(finders.find(url[len(settings.STATIC_URL):]), url)
 
-    def test_saver_api_cam(self):
-        AppSetting.objects.create(app_id="display", key="source_summer", value="mix")
-        body = self.client.get(reverse("display_saver_api"), {"season": "summer"}).json()
-        self.assertEqual(body["sources"], ["stock", "cam"])
-        self.assertEqual(body["cam"], {"name": "Peak cam", "url": "http://cam/peak.jpg",
-                                       "timestamp": None, "refresh_seconds": 30})
+    def api(self, season="summer", **params):
+        store.clear()
+        return self.client.get(reverse("display_saver_api"), {"season": season, **params}).json()
 
-    def test_saved_cam_picks_that_background(self):
+    def test_saver_api_live_source_rotates_or_shows_the_pick(self):
+        AppSetting.objects.create(app_id="display", key="source_summer", value="sunpeaks_webcams.cams")
+        body = self.api()
+        self.assertEqual(body["sources"], ["sunpeaks_webcams.cams"])
+        self.assertEqual(body["layers"], [{
+            "id": "sunpeaks_webcams.cams", "kind": "live", "title": "Mountain cams", "pick": None, "items": [
+                {"id": "peak", "url": "/cam/peak.jpg", "label": "Peak cam", "refresh_seconds": 30},
+                {"id": "village", "url": "/cam/village.jpg", "label": "Village cam", "refresh_seconds": 60}]}])
+        AppSetting.objects.create(app_id="display", key="saver_pick", value="sunpeaks_webcams.cams/village")
+        layer = self.api()["layers"][0]
+        self.assertEqual((layer["pick"], [i["id"] for i in layer["items"]]), ("village", ["village"]))
+        AppSetting.objects.filter(key="saver_pick").update(value="sunpeaks_webcams.cams/gone")
+        layer = self.api()["layers"][0]
+        self.assertEqual((layer["pick"], len(layer["items"])), (None, 2))  # a camera that's gone: rotate
+
+    def test_saver_api_photos_source_from_an_app(self):
+        with override_settings(HUB_PLUGINS=MOUNTAIN + (GALLERY,)):
+            AppSetting.objects.create(app_id="display", key="source_summer", value="gallery.shots")
+            body = self.api()
+            self.assertEqual(body["sources"], ["gallery.shots"])
+            layer = body["layers"][0]
+            self.assertEqual((layer["kind"], layer["title"]), ("photos", "Lodge shots"))
+            self.assertEqual(layer["items"][0], {"id": "s0", "url": "/shots/0.jpg", "label": "Shot 0", "caption": ""})
+            AppSetting.objects.create(app_id="display", key="photo_caption", value=True)
+            self.assertEqual([i["caption"] for i in self.api()["layers"][0]["items"]], ["Day 0", "Day 1", "Day 2"])
+
+    def test_saver_api_calls_only_the_apps_it_needs(self):
+        with override_settings(HUB_PLUGINS=MOUNTAIN + (GALLERY,)):
+            CALLED.clear()
+            self.assertEqual(self.api()["layers"], [])  # stock: no app is asked
+            self.assertEqual(CALLED, [])
+            AppSetting.objects.create(app_id="display", key="source_summer", value="gallery.shots")
+            self.api()
+            self.assertEqual(CALLED, ["gallery"])
+
+    def test_saver_api_mix_takes_turns_within_a_cap(self):
+        with override_settings(HUB_PLUGINS=MOUNTAIN + (GALLERY,)):
+            AppSetting.objects.create(app_id="display", key="source_summer", value="mix")
+            body = self.api()
+            self.assertEqual(body["sources"], ["stock", "sunpeaks_webcams.cams", "gallery.shots"])  # no photos yet
+            self.assertEqual([len(layer["items"]) for layer in body["layers"]], [2, 3])
+            with mock.patch("display.views.MIX_IMAGES", 3):
+                body = self.api()
+            self.assertEqual([[i["id"] for i in layer["items"]] for layer in body["layers"]],
+                             [["peak", "village"], ["s0"]])
+
+    def test_old_saved_sources_still_work(self):
         AppSetting.objects.create(app_id="display", key="source_summer", value="cam")
+        AppSetting.objects.create(app_id="display", key="source_fall", value="sunpeaks_webcams.backgrounds")
         AppSetting.objects.create(app_id="display", key="cam", value="sunpeaks_webcams.village")
-        body = self.client.get(reverse("display_saver_api"), {"season": "summer"}).json()
-        self.assertEqual(body["cam"]["url"], "http://cam/village.jpg")
+        for season in ("summer", "fall"):
+            body = self.api(season)
+            self.assertEqual(body["sources"], ["sunpeaks_webcams.cams"], season)
+            self.assertEqual([i["id"] for i in body["layers"][0]["items"]], ["village"])
+        self.assertEqual(catalog.resolve_pick(), "sunpeaks_webcams.cams/village")
+        self.client.force_login(self.staff)
+        page = self.client.get(reverse("display_settings"), {"season": "summer"})
+        self.assertRegex(page.content.decode(),
+                         r'value="sunpeaks_webcams.cams" data-kind="live"\s+data-count="2" data-available checked')
+        self.assertContains(page, '<option value="sunpeaks_webcams.cams/village" selected>Village cam</option>')
+        with override_settings(HUB_PLUGINS=BASE + (GALLERY,)):
+            self.assertEqual(self.api()["sources"], ["stock"])  # no live source left
+            self.assertEqual(catalog.resolve_pick(), "")
+
+    def test_unavailable_source_is_kept_and_falls_back(self):
+        AppSetting.objects.create(app_id="display", key="source_summer", value="ticker.cams")
+        body = self.api()
+        self.assertEqual((body["sources"], body["layers"]), (["stock"], []))
+        self.client.force_login(self.staff)
+        page = self.client.get(reverse("display_settings"), {"season": "summer"})
+        self.assertContains(page, "ticker.cams (unavailable)")
+        self.assertEqual(self.client.post(reverse("display_settings"), self.form()).status_code, 302)
+        self.assertEqual(store.saved("display")["source_summer"], "ticker.cams")
+
+    def test_saver_choices_in_order(self):
+        with override_settings(HUB_PLUGINS=MOUNTAIN + (GALLERY,)):
+            choices = catalog.saver_choices(["ticker.cams", "stock"])
+        self.assertEqual([(c["id"], c["kind"], c["available"]) for c in choices], [
+            ("stock", "stock", True), ("photos", "photos", True), ("sunpeaks_webcams.cams", "live", True),
+            ("gallery.shots", "photos", True), ("ticker.cams", "", False), ("mix", "mix", True)])
+        self.assertEqual(choices[2]["description"], "Live views from the hill")
+        self.assertEqual(choices[-1]["description"], "Paintings, photos, Mountain cams & Lodge shots")
+        with override_settings(HUB_PLUGINS=BASE):
+            self.assertEqual(catalog.saver_choices()[-1]["description"], "Paintings & photos")
+
+    def test_settings_shows_each_app_source(self):
+        with override_settings(HUB_PLUGINS=MOUNTAIN + (GALLERY,)):
+            self.client.force_login(self.staff)
+            page = self.client.get(reverse("display_settings"), {"season": "summer"})
+        html = page.content.decode()
+        order = [html.index(f'name="source_summer" value="{i}"')
+                 for i in ("stock", "photos", "sunpeaks_webcams.cams", "gallery.shots", "mix")]
+        self.assertEqual(order, sorted(order))
+        self.assertContains(page, "Mountain cams</b>")
+        self.assertContains(page, "<small>Live views from the hill</small>")
+        # The app badge on both app cards, in each season's list of sources.
+        self.assertContains(page, 'class="dsp-app" title="From the', count=2 * len(SEASONS))
+        # Only the live source with more than one camera gets a picker; only the chosen source's controls show.
+        self.assertContains(page, 'data-pick-for="sunpeaks_webcams.cams"', count=1)
+        self.assertNotContains(page, 'data-pick-for="gallery.shots"')
+        self.assertContains(page, '<div class="dsp-for" data-for-src="stock">')
+        self.assertContains(page, '<div class="dsp-for" data-for-src="sunpeaks_webcams.cams" hidden>')
+        self.assertContains(page, '<label class="dsp-line" id="dsp-rot-row">')
+        self.assertContains(page, 'id="dsp-caption-row" hidden>')
+
+    def test_settings_controls_for_a_picked_camera(self):
+        AppSetting.objects.create(app_id="display", key="source_summer", value="sunpeaks_webcams.cams")
+        AppSetting.objects.create(app_id="display", key="saver_pick", value="sunpeaks_webcams.cams/peak")
+        self.client.force_login(self.staff)
+        page = self.client.get(reverse("display_settings"), {"season": "summer"})
+        self.assertContains(page, '<div class="dsp-for" data-for-src="sunpeaks_webcams.cams">')
+        self.assertContains(page, 'id="dsp-rot-row" hidden>')  # one camera: nothing rotates
+        self.assertContains(page, "/cam/peak.jpg")  # the preview's pictures
+
+    def test_settings_rejects_unknown_sources_and_picks(self):
+        url = reverse("display_settings")
+        self.assertEqual(self.client.post(url, self.form(source_summer="ticker.cams")).status_code, 400)
+        self.assertEqual(self.client.post(url, self.form(source_summer="<b>")).status_code, 400)
+        for bad in ("gallery.shots/s1", "sunpeaks_webcams.cams", "ticker.cams/x"):
+            response = self.client.post(url, self.form(saver_pick=bad))
+            self.assertContains(response, "Pick a picture from the list", status_code=400)
+        self.client.post(url, self.form(source_summer="sunpeaks_webcams.cams", saver_pick="sunpeaks_webcams.cams/peak"))
+        saved = store.saved("display")
+        self.assertEqual((saved["source_summer"], saved["saver_pick"]),
+                         ("sunpeaks_webcams.cams", "sunpeaks_webcams.cams/peak"))
+
+    def test_preview_source_and_pick_are_staff_only(self):
+        preview = {"source": "sunpeaks_webcams.cams", "pick": "sunpeaks_webcams.cams/peak"}
+        self.assertEqual(self.api(**preview)["sources"], ["stock"])
+        self.client.force_login(self.staff)
+        body = self.api(**preview)
+        self.assertEqual([i["id"] for i in body["layers"][0]["items"]], ["peak"])
+        self.assertEqual(self.api(source="nope.cams")["sources"], ["stock"])
 
     def test_container_cam_url_may_wake_its_app(self):
         self.assertEqual(views._waking("/apps/cams/_raw/latest/peak.jpg"),
@@ -271,9 +423,10 @@ class ViewTests(TestCase):
             page = self.client.get(reverse("display_settings"))
         self.assertContains(page, '<optgroup label="Weather">')
         self.assertNotContains(page, 'name="cam"')
+        self.assertNotContains(page, 'data-pick-for="')
         self.assertNotContains(page, 'id="dsp-lifts"')
         self.assertContains(page, '<input type="hidden" name="winter_on_lifts" value="on">')
-        self.assertNotContains(page, 'value="mix"')
+        self.assertContains(page, "<small>Paintings &amp; photos</small>")  # Mix, with no app sources
         self.assertNotContains(page, "Lift")
         self.assertNotContains(page, "lifts open")
 
@@ -303,7 +456,7 @@ class ViewTests(TestCase):
             data[s["start_key"]] = s["start"]
             data[f"source_{s['id']}"] = s["source"]
             data.update({slot["key"]: slot["value"] for slot in s["slots"]})
-        data.update(idle_minutes="10", burn_in="on", winter_on_lifts="on", rotate_seconds="45", cam="", tab="fall",
+        data.update(idle_minutes="10", burn_in="on", winter_on_lifts="on", rotate_seconds="45", saver_pick="", tab="fall",
                     night="on", night_from="23:00", night_until="06:00", chime_volume="70",
                     home_bg="mountains", home_tiles="solid", home_dim="45")
         data.update(overrides)
@@ -1034,3 +1187,118 @@ class DisplaySettingsSeleniumTest(SeleniumTestCase):
         WebDriverWait(b, 5).until(lambda d: not viewer.is_displayed())
         b.find_element(By.CSS_SELECTOR, '[data-lib="mine"]').click()
         self.assertTrue(b.find_element(By.ID, "dsp-add").is_displayed())
+
+
+@tag("selenium")
+@override_settings(HUB_PLUGINS=BASE + (HILL,))
+class AppSaverSeleniumTest(SeleniumTestCase):
+    """An app's live source on the screen saver itself."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(store.clear)
+        AppSetting.objects.create(app_id="display", key="source_summer", value="hillcams.cams")
+        AppSetting.objects.create(app_id="display", key="rotate_seconds", value=15)
+        self.browser.get("about:blank")
+
+    def shown(self):
+        return self.browser.execute_script("""
+            const img = document.querySelector('.bdh-saver .layer.cam.on img');
+            return img && [img.dataset.src, document.querySelector('.bdh-saver .cam-name').textContent];
+        """)
+
+    def test_live_source_rotates_through_its_cameras(self):
+        self.browser.get(self.live_server_url + "/?saver=1&saver_season=summer")
+        WebDriverWait(self.browser, 20).until(lambda d: self.shown())
+        self.assertEqual(self.shown(), ["/static/android-chrome-512x512.png", "Cam A"])
+        WebDriverWait(self.browser, 40).until(lambda d: (self.shown() or [""])[0].endswith("192x192.png"))
+        self.assertEqual(self.shown()[1], "Cam B")
+
+    def test_picked_camera_stays(self):
+        AppSetting.objects.create(app_id="display", key="saver_pick", value="hillcams.cams/b")
+        self.browser.get(self.live_server_url + "/?saver=1&saver_season=summer")
+        WebDriverWait(self.browser, 20).until(lambda d: self.shown())
+        self.assertEqual(self.shown(), ["/static/android-chrome-192x192.png", "Cam B"])
+        self.assertEqual(len(self.browser.find_elements(By.CSS_SELECTOR, ".bdh-saver .layer.cam")), 1)
+
+
+@tag("selenium")
+@override_settings(HUB_PLUGINS=BASE + (HILL, DECK, GALLERY))
+class AppSourceSettingsSeleniumTest(SeleniumTestCase):
+    """Settings → Display with screen saver sources from apps."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(store.clear)
+        get_user_model().objects.create_superuser("testuser", "t@example.com", "testpassword")
+        login_via_browser(self.browser, self.live_server_url)
+        self.browser.get(self.live_server_url + reverse("display_settings") + "?season=summer")
+        WebDriverWait(self.browser, 20).until(lambda d: d.find_elements(By.CSS_SELECTOR, "#dsp-prev img"))
+
+    def pick(self, source):
+        self.browser.find_element(By.CSS_SELECTOR, f'input[name="source_summer"][value="{source}"]').click()
+
+    def visible(self, css):
+        return [e for e in self.browser.find_elements(By.CSS_SELECTOR, css) if e.is_displayed()]
+
+    def shows(self):
+        b = self.browser
+        return {"picker": bool(self.visible("[data-pick-for]")),
+                "rotate": b.find_element(By.ID, "dsp-rot-row").is_displayed(),
+                "caption": b.find_element(By.ID, "dsp-caption-row").is_displayed()}
+
+    def preview_src(self):
+        img = self.browser.find_elements(By.CSS_SELECTOR, "#dsp-prev img")
+        return img[0].get_attribute("src") if img else ""
+
+    def test_cards_in_order_with_the_apps_words(self):
+        cards = self.visible('.dsp-src[data-season="summer"] label[data-src]')
+        self.assertEqual([c.get_attribute("data-src") for c in cards],
+                         ["stock", "photos", "hillcams.cams", "deckcam.cam", "gallery.shots", "mix"])
+        self.assertIn("Hill cams", cards[2].text)
+        self.assertIn("Two cameras up the hill", cards[2].text)
+        self.assertIn("Paintings, photos, Hill cams, Deck cam & Lodge shots", cards[-1].text)
+
+    def test_controls_follow_the_chosen_source(self):
+        self.assertEqual(self.shows(), {"picker": False, "rotate": True, "caption": False})  # stock
+        self.pick("hillcams.cams")
+        self.assertEqual(self.shows(), {"picker": True, "rotate": True, "caption": False})
+        Select(self.browser.find_element(By.CSS_SELECTOR, '[data-pick-for="hillcams.cams"]')).select_by_visible_text(
+            "Cam B")
+        self.assertEqual(self.browser.find_element(By.ID, "dsp-pick").get_attribute("value"), "hillcams.cams/b")
+        self.assertEqual(self.shows(), {"picker": True, "rotate": False, "caption": False})  # one camera picked
+        WebDriverWait(self.browser, 5).until(lambda d: self.preview_src().endswith("192x192.png"))
+        self.pick("deckcam.cam")
+        self.assertEqual(self.shows(), {"picker": False, "rotate": False, "caption": False})  # a single camera
+        self.pick("gallery.shots")
+        self.assertEqual(self.shows(), {"picker": False, "rotate": True, "caption": True})
+        self.pick("mix")
+        self.assertEqual(self.shows(), {"picker": False, "rotate": True, "caption": True})
+
+    def overflow(self):
+        """Visible things in the screen saver card that stick out past its right edge."""
+        return self.browser.execute_script("""
+            const card = document.querySelector('.dsp-saver'), edge = card.getBoundingClientRect().right + 1;
+            return [...card.querySelectorAll('*')].filter(e => !e.closest('.dsp-prev') && e.getClientRects().length
+                && e.getBoundingClientRect().right > edge)
+                .map(e => e.tagName + (e.id ? '#' + e.id : '') + '.' + e.className + ' ' + (e.textContent || '').trim().slice(0, 30));
+        """)
+
+    def test_nothing_sticks_out_of_the_card(self):
+        self.addCleanup(self.browser.set_window_size, 1920, 1080)
+        for width in (1920, 1400, 1280, 1024, 800, 600):
+            self.browser.set_window_size(width, 1080)
+            for source in ("stock", "photos", "hillcams.cams", "deckcam.cam", "gallery.shots", "mix"):
+                self.pick(source)
+                with self.subTest(width=width, source=source):
+                    self.assertEqual(self.overflow(), [])
+
+    def test_preview_shows_the_live_picture(self):
+        self.assertIn("/display/stock/summer/", self.preview_src())
+        self.pick("hillcams.cams")
+        WebDriverWait(self.browser, 5).until(lambda d: self.preview_src().endswith("/static/android-chrome-512x512.png"))
+        self.assertEqual(self.browser.find_element(By.ID, "dsp-prev-tag").text, "Hill cams \u00b7 Cam A (rotating)")
+        WebDriverWait(self.browser, 5).until(lambda d: not d.find_element(By.ID, "dsp-prev-wake").is_displayed())
+        self.pick("deckcam.cam")
+        WebDriverWait(self.browser, 5).until(lambda d: "Deck cam" in d.find_element(By.ID, "dsp-prev-tag").text)
+

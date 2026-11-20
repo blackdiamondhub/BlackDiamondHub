@@ -7,12 +7,8 @@ APP = "display"
 SEASONS = (("winter", "Winter"), ("spring", "Spring"), ("summer", "Summer"), ("fall", "Fall"))
 SEASON_IDS = tuple(s for s, _ in SEASONS)
 
-SOURCES = (
-    ("stock", "Stock illustration"),
-    ("photos", "My photos"),
-    ("cam", "Live cam"),
-    ("mix", "Mix"),
-)
+# The screen saver's own sources; apps add theirs (``"<app>.<key>"``) before Mix.
+BUILTIN_SOURCES = ("stock", "photos", "mix")
 
 SLOTS = 4
 
@@ -58,7 +54,8 @@ def _settings():
         Setting("winter_on_lifts", "Let apps bring winter forward", BOOL, True,
                 "Otherwise use the dates below"),
         Setting("rotate_seconds", "Change every", INT, 30, minimum=15, maximum=90, unit="s"),
-        Setting("cam", "Live cam", help="Background id; empty picks the first", default=""),
+        Setting("saver_pick", "Screen saver picture", default="",
+                help="<source id>/<image id> for one live picture; empty rotates through them all"),
         Setting("home_bg", "Home background", CHOICE, "mountains", choices=HOME_BACKGROUNDS),
         Setting("home_tiles", "Home tiles", CHOICE, "solid", choices=HOME_TILES),
         Setting("home_dim", "Dim background", INT, 45, "Darkens the picture so tiles stay readable",
@@ -67,7 +64,8 @@ def _settings():
     for season, label in SEASONS:
         out.append(Setting(f"{season}_start", f"{label} starts", default=DEFAULT_STARTS[season],
                            help="Month and day, MM-DD"))
-        out.append(Setting(f"source_{season}", f"{label} background", CHOICE, "stock", choices=SOURCES))
+        out.append(Setting(f"source_{season}", f"{label} screen saver", default="stock",
+                           help="stock, photos, mix or an app's source id"))
         for n in range(1, SLOTS + 1):
             out.append(Setting(f"slot_{season}_{n}", f"{label} info slot {n}", default="",
                                help="Stat id; empty uses the site default"))
