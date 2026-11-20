@@ -1,5 +1,6 @@
 """Settings -> Apps: the installed list, the store, installing and managing."""
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -130,22 +131,77 @@ class AppsPageTests(SupervisorMixin, CatalogTestCase, TestCase):
         self.client.post(reverse("hub_settings_app_restart", args=["hello"]))
         self.assertTrue(any(r.url.path == "/apps/hello/restart" for r in self.sup.requests))
 
-    def test_update_that_widens_is_reviewed_first(self):
+    def widen(self, **kw):
+        """Install 1.0.0, then serve a 2.0.0 that also asks for ``media``."""
         self.install(perm=["alerts", "speakers"])
-        self.served = catalog_data(version("2.0.0", permissions=["alerts", "speakers", "media"], network="lan"),
+        self.served = catalog_data(version("2.0.0", permissions=["alerts", "speakers", "media"], network="lan",
+                                           changelog="Screen alerts", **kw),
                                    version(permissions=["alerts", "speakers"], network="lan"))
         catalog.refresh(force=True)
-        self.assertContains(self.client.get(reverse("hub_settings_apps")), "Update v2.0.0")
+
+    def test_update_that_widens_is_reviewed_first(self):
+        self.widen()
+        page = self.client.get(reverse("hub_settings_apps"))
+        self.assertContains(page, "Needs your approval")
+        self.assertContains(page, "Asks for: Upload media")
+        self.assertNotContains(page, "Update to v2.0.0")
+        self.assertNotContains(page, "Update all")
+        manage = self.client.get(reverse("hub_settings_app_manage", args=["hello"]))
+        self.assertContains(manage, 'id="review"')
+        self.assertContains(manage, "Review update to v2.0.0")
+        self.assertContains(manage, "Screen alerts")
+        self.assertContains(manage, 'Upload media<span class="new">NEW</span>')
+        self.assertContains(manage, "stays on v1.0.0")
         url = reverse("hub_settings_app_update", args=["hello"])
         response = self.client.post(url)
-        review = reverse("hub_settings_app_manage", args=["hello"]) + "?review=2.0.0"
-        self.assertRedirects(response, review, fetch_redirect_response=False)
+        self.assertRedirects(response, reverse("hub_settings_app_manage", args=["hello"]),
+                             fetch_redirect_response=False)
         self.assertEqual(AppInstall.objects.get().version, "1.0.0")
-        self.assertContains(self.client.get(review), "asks for more access")
         self.client.post(url, {"approve": "1"})
         record = AppInstall.objects.get()
         self.assertEqual(record.version, "2.0.0")
         self.assertIn("media", record.granted_permissions)
+        manage = self.client.get(reverse("hub_settings_app_manage", args=["hello"]))
+        self.assertNotContains(manage, 'id="review"')
+        self.assertContains(manage, "Updated to v2.0.0. Upload media is on.")
+
+    def test_approved_update_nudges_to_settings(self):
+        self.widen()
+        spec = SimpleNamespace(id="hello", tiles=[], icon="", settings=[])
+        with patch("hub_settings.apps_views._spec", return_value=spec), \
+                patch("hub_settings.apps_views._label", return_value="Hello"), \
+                patch("hub_settings.apps_views._icon", return_value=""), \
+                patch("hub_settings.apps_views._settings_url", return_value="/settings/hello/"):
+            self.client.post(reverse("hub_settings_app_update", args=["hello"]), {"approve": "1"})
+            manage = self.client.get(reverse("hub_settings_app_manage", args=["hello"]))
+        self.assertContains(manage, "Check this app's settings")
+
+    def test_review_shows_less_network_access(self):
+        self.install(perm=["alerts", "speakers"])
+        self.served = catalog_data(version("2.0.0", permissions=["alerts", "speakers", "media"], network="outbound"),
+                                   version(permissions=["alerts", "speakers"], network="lan"))
+        catalog.refresh(force=True)
+        manage = self.client.get(reverse("hub_settings_app_manage", args=["hello"]))
+        self.assertContains(manage, 'Internet access only<span class="less">LESS</span>')
+        self.assertContains(manage, "no longer needs local network")
+
+    def test_update_from_the_list(self):
+        self.install(perm=["alerts", "speakers"])
+        self.served = catalog_data(version("1.1.0", permissions=["alerts", "speakers"], network="lan"))
+        catalog.refresh(force=True)
+        page = self.client.get(reverse("hub_settings_apps"))
+        self.assertContains(page, "Update to v1.1.0")
+        self.assertContains(page, "Update all (1)")
+        self.assertNotContains(page, "Needs your approval")
+        response = self.client.post(reverse("hub_settings_app_update", args=["hello"]), {"next": "apps"})
+        self.assertRedirects(response, reverse("hub_settings_apps"), fetch_redirect_response=False)
+        self.assertEqual(AppInstall.objects.get().version, "1.1.0")
+
+    def test_update_all_names_apps_waiting_for_approval(self):
+        self.widen()
+        response = self.client.post(reverse("hub_settings_apps_update_all"), follow=True)
+        self.assertContains(response, "Nothing to update without your approval. Hello needs your approval first.")
+        self.assertEqual(AppInstall.objects.get().version, "1.0.0")
 
     def test_update_all(self):
         self.install(perm=["alerts", "speakers"])
