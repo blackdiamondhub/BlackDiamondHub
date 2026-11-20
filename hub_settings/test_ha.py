@@ -243,3 +243,54 @@ class ConnectionTestTests(HACase):
 
     def test_get_not_allowed(self):
         self.assertEqual(self.client.get(self.url).status_code, 405)
+
+
+class StatusTests(HACase):
+    def setUp(self):
+        super().setUp()
+        from . import ha_views
+
+        ha_views._probes.clear()
+        self.addCleanup(ha_views._probes.clear)
+        self.staff = get_user_model().objects.create_user("staff", password="pw", is_staff=True)
+        self.client.force_login(self.staff)
+        self.url = reverse("hub_settings_ha_status")
+
+    def status(self, live=None, **get):
+        with mock.patch("hub.events.instance_status", side_effect=lambda i: (live or {}).get(i)), \
+                mock.patch("requests.get", **get) as req:
+            resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()["instances"], req
+
+    def test_live_connection_wins(self):
+        self.add("home", default=True)
+        got, req = self.status({"home": "reconnecting"})
+        self.assertEqual(got, {"home": "reconnecting"})
+        req.assert_not_called()
+
+    def test_rest_probe_when_not_live(self):
+        self.add("home", url="http://home:8123", default=True)
+        self.add("cabin", url="http://cabin:8123", order=1)
+        self.add("bare", order=2, token=None)
+        replies = {"http://home:8123/api/config": 200, "http://cabin:8123/api/config": 401}
+        got, req = self.status({"home": "idle"},
+                               side_effect=lambda u, **kw: mock.Mock(status_code=replies[u]))
+        self.assertEqual(got, {"home": "connected", "cabin": "bad_token", "bare": "no_token"})
+        self.assertEqual(req.call_args.kwargs["headers"], {"Authorization": f"Bearer {TOKEN}"})
+        got, req = self.status(side_effect=AssertionError("cached"))
+        self.assertEqual(got["cabin"], "bad_token")
+
+    def test_unreachable(self):
+        self.add("home", default=True)
+        got, _ = self.status(side_effect=requests.ConnectionError())
+        self.assertEqual(got, {"home": "unreachable"})
+
+    def test_staff_get_only(self):
+        self.assertEqual(self.client.post(self.url).status_code, 405)
+        self.client.force_login(get_user_model().objects.create_user("guest", password="pw"))
+        self.assertNotEqual(self.client.get(self.url).status_code, 200)
+
+    def test_page_has_status_pill(self):
+        self.add("home", default=True)
+        self.assertContains(self.client.get(reverse("hub_settings_ha")), "data-status")

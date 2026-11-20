@@ -11,8 +11,16 @@
     .hst-ha-test .hst-reset.arm { color: var(--red); }
     .hst-card h3 .tag { margin-left: 8px; color: var(--acc2); letter-spacing: .08em; }
     .hst-card h3 code { color: var(--mut); font-size: 12px; letter-spacing: 0; text-transform: none; margin-left: 8px; }
+    .hst-card h3 { display: flex; align-items: center; }
+    .hst-card h3 .st { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; text-transform: none;
+                       letter-spacing: 0; font-size: 14px; font-weight: 600; color: var(--mut); }
+    .hst-card h3 .st i { width: 10px; height: 10px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+    .hst-card h3 .st.ok { color: var(--ok); }
+    .hst-card h3 .st.bad { color: var(--red); }
+    .hst-card h3 .st.chk i { box-shadow: none; opacity: .6; }
+    .hst-card h3 .st small { color: var(--mut); font-weight: 500; }
 </style>
-<form method="post" novalidate{% if has_errors %} data-dirty{% endif %} id="hst-ha" data-test-url="{% url 'hub_settings_ha_test' %}">
+<form method="post" novalidate{% if has_errors %} data-dirty{% endif %} id="hst-ha" data-test-url="{% url 'hub_settings_ha_test' %}" data-status-url="{% url 'hub_settings_ha_status' %}">
     {% csrf_token %}
     <div class="hst-head">
         <div>
@@ -29,7 +37,7 @@
 
     {% for c in cards %}
     <section class="hst-card" data-instance="{{ c.id }}">
-        <h3>{{ c.name|default:c.id }}<code>{{ c.id }}</code>{% if c.default %}<span class="tag">Default</span>{% endif %}</h3>
+        <h3>{{ c.name|default:c.id }}<code>{{ c.id }}</code>{% if c.default %}<span class="tag">Default</span>{% endif %}<span class="st chk" data-status role="status"><i></i>Checking…</span></h3>
         {% include 'hub_settings/_ha_fields.html' with p=c.id f=c %}
         <div class="hst-row">
             <label class="lbl" for="ha-{{ c.id }}-default">
@@ -86,6 +94,29 @@
     document.addEventListener('DOMContentLoaded', function () {
         var form = document.getElementById('hst-ha');
         var csrf = form.querySelector('input[name="csrfmiddlewaretoken"]').value;
+        var REASONS = { reconnecting: 'reconnecting…', unreachable: 'unreachable', bad_token: 'bad token', no_token: 'no token' };
+        function showStatus(states) {
+            form.querySelectorAll('[data-status]').forEach(function (el) {
+                var s = states[el.closest('[data-instance]').dataset.instance];
+                if (!s) return;
+                el.className = 'st ' + (s === 'connected' ? 'ok' : 'bad');
+                el.innerHTML = '<i></i>';
+                if (s === 'connected') { el.append('Connected'); return; }
+                el.append('Not connected ');
+                var why = document.createElement('small');
+                why.textContent = '· ' + (REASONS[s] || 'unreachable');
+                el.append(why);
+            });
+        }
+        function pollStatus() {
+            if (!form.querySelector('[data-status]')) return;
+            fetch(form.dataset.statusUrl, { credentials: 'same-origin' })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) { if (d) showStatus(d.instances); })
+                .catch(function () {})
+                .finally(function () { setTimeout(pollStatus, 10000); });
+        }
+        pollStatus();
         form.addEventListener('click', function (e) {
             var del = e.target.closest('[data-remove]');
             if (del && !del.classList.contains('arm')) {
