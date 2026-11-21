@@ -290,6 +290,24 @@ class ViewTests(TestCase):
             self.assertEqual(self.api()["sources"], ["stock"])  # no live source left
             self.assertEqual(catalog.resolve_pick(), "")
 
+    def test_saving_rotate_overrides_an_old_cam_pick(self):
+        # Sun Peaks bug: choosing "Rotate through all" with an old ``cam`` saved snapped
+        # back to that camera, because "" is the default and wasn't stored.
+        AppSetting.objects.create(app_id="display", key="source_summer", value="sunpeaks_webcams.cams")
+        AppSetting.objects.create(app_id="display", key="cam", value="sunpeaks_webcams.village")
+        self.client.force_login(self.staff)
+        url = reverse("display_settings")
+        for pick in ("", "sunpeaks_webcams.cams/peak", ""):
+            self.assertEqual(self.client.post(url, self.form(source_summer="sunpeaks_webcams.cams",
+                                                             saver_pick=pick)).status_code, 302, pick)
+            self.assertEqual(catalog.resolve_pick(), pick)
+            layer = self.api()["layers"][0]
+            self.assertEqual((layer["pick"], len(layer["items"])),
+                             (None, 2) if not pick else ("peak", 1), pick)
+            page = self.client.get(url, {"season": "summer"}).content.decode()
+            self.assertNotIn('value="sunpeaks_webcams.cams/village" selected', page)
+        self.assertFalse(AppSetting.objects.filter(app_id="display", key="cam").exists())
+
     def test_unavailable_source_is_kept_and_falls_back(self):
         AppSetting.objects.create(app_id="display", key="source_summer", value="ticker.cams")
         body = self.api()
