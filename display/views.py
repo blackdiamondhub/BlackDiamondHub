@@ -377,6 +377,16 @@ def _current(spec, saved):
     return {s.key: saved.get(s.key, store.fallback(spec.id, s)) for s in spec.settings if s.type != SECRET}
 
 
+def _save_pick(request, spec, pick):
+    """Always store the pick, even "" (rotate): ``_save`` skips defaults, and a missing
+    ``saver_pick`` would fall back to the retired ``cam`` setting. Then retire ``cam``."""
+    from hub_settings.models import AppSetting
+
+    AppSetting.objects.update_or_create(app_id=spec.id, key="saver_pick",
+                                        defaults={"value": pick, "updated_by": request.user})
+    AppSetting.objects.filter(app_id=spec.id, key="cam").delete()
+
+
 @staff_page
 @sensitive_post_parameters("connect_password")
 def settings_page(request):
@@ -390,6 +400,7 @@ def settings_page(request):
         _check_saver(values, errors, saved, sources)
         if not errors:
             _save(request, spec, saved, values)
+            _save_pick(request, spec, values["saver_pick"])
             tab = request.POST.get("tab")
             return saved_redirect(request, f"{request.path}?saved=1" + (f"&season={tab}" if tab in SEASON_IDS else ""))
         current, status = {**_current(spec, saved), **raw}, 400
