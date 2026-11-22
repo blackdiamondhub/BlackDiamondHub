@@ -30,7 +30,7 @@ from tests.selenium_helpers import SeleniumTestCase, login_via_browser
 from . import catalog, connect, views
 from hub_settings.models import AppSetting
 from .models import DisplayLoad, DisplaySample, Heartbeat, SaverPhoto, UploadLink
-from .options import DEFAULT_STARTS, SEASONS, STOCK_STYLES
+from .options import DEFAULT_STARTS, SEASONS, STOCK_EXTRAS, STOCK_STYLES
 from .schedule import is_night, parse_hhmm
 from .season import opening_day, parse_mmdd, resolve, winter_signal
 from .stats import collect, days_until_lifts
@@ -221,6 +221,9 @@ class ViewTests(TestCase):
         for season in ("winter", "spring", "summer", "fall"):
             for url in views.stock_art(season):
                 self.assertTrue(finders.find(url[len(settings.STATIC_URL):]), url)
+        winter = views.stock_art("winter")
+        self.assertEqual(len(winter), 9)
+        self.assertTrue(winter[-1].endswith("/display/stock/winter/apres_ski.webp"))
 
     def api(self, season="summer", **params):
         store.clear()
@@ -1193,7 +1196,8 @@ class DisplaySettingsSeleniumTest(SeleniumTestCase):
         b = self.browser
         b.find_element(By.CSS_SELECTOR, '[data-lib="stock"]').click()
         tiles = b.find_elements(By.CSS_SELECTOR, "#dsp-stock-grid .dsp-art")
-        self.assertEqual(len(tiles), len(STOCK_STYLES) * len(SEASONS))
+        extras = sum(len(STOCK_EXTRAS.get(s, ())) for s, _ in SEASONS)
+        self.assertEqual(len(tiles), len(STOCK_STYLES) * len(SEASONS) + extras)
         self.assertFalse(b.find_element(By.ID, "dsp-lib-grid").is_displayed())
         tiles[0].click()
         viewer = b.find_element(By.ID, "dsp-view")

@@ -27,7 +27,7 @@ from . import catalog, options
 from .library import photo_json, season_photos
 from .models import DisplayLoad, DisplaySample, Heartbeat, SaverPhoto, UploadLink
 from .photos import BadPhoto, add_photo
-from .options import APP, BUILTIN_SOURCES, SEASON_IDS, SEASONS, SLOTS, STOCK_STYLES, value
+from .options import APP, BUILTIN_SOURCES, SEASON_IDS, SEASONS, SLOTS, STOCK_EXTRAS, STOCK_STYLES, value
 from .schedule import is_night, lodge_minute, parse_hhmm, window
 from .season import by_date, lodge_today, opening_day, parse_mmdd, resolve, winter_signal
 from .stats import collect
@@ -38,7 +38,8 @@ log = logging.getLogger(__name__)
 
 
 def stock_art(season):
-    return [static(f"display/stock/{season}/{style}.webp") for style in STOCK_STYLES]
+    names = (*STOCK_STYLES, *STOCK_EXTRAS.get(season, ()))
+    return [static(f"display/stock/{season}/{name}.webp") for name in names]
 
 
 def season_info(today):
