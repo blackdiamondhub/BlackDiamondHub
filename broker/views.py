@@ -11,7 +11,7 @@ from django.urls import NoReverseMatch, reverse
 from django.utils.encoding import escape_uri_path, iri_to_uri
 from django.views.decorators.csrf import csrf_exempt
 
-from . import lifecycle, remote, rpc as ops, visitor
+from . import lifecycle, remote, rpc as ops, starting, visitor
 from .models import AppInstall, AuditEntry
 from .ratelimit import limiter
 from .tokens import authenticate, bearer
@@ -121,7 +121,11 @@ def _spec(app_id):
 def _starting(request, app_id):
     """An installed app whose manifest isn't in yet (it's starting or updating):
     a page that reloads itself, so a wall display isn't stranded on a 404."""
-    resp = render(request, "broker/starting.html", {"app_id": app_id, "retry": STARTING_RETRY}, status=503)
+    from .proxy import display_name
+
+    install = AppInstall.objects.filter(app_id=app_id).first()
+    name = display_name(install) if install else app_id
+    resp = HttpResponse(starting.page(name, STARTING_RETRY), status=503)
     resp["Retry-After"] = str(STARTING_RETRY)
     return resp
 

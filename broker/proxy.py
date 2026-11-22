@@ -13,7 +13,6 @@ is (from the hub's session cookie) with the app's token. Responses may only
 set the app's own cookies and may only be framed by the hub.
 """
 import asyncio
-import html
 import logging
 from http.cookies import SimpleCookie
 
@@ -24,7 +23,7 @@ from django.conf import settings
 from django.http.request import validate_host
 from django.utils.encoding import escape_uri_path, iri_to_uri
 
-from . import conf, lifecycle, push, remote
+from . import conf, lifecycle, push, remote, starting
 
 log = logging.getLogger(__name__)
 
@@ -44,11 +43,7 @@ WS_HANDSHAKE = frozenset({"host", "origin", "sec-websocket-key", "sec-websocket-
 # Tests swap in an httpx.MockTransport.
 transport = None
 
-STARTING_PAGE = """<!doctype html><html><head><meta charset="utf-8">
-<meta http-equiv="refresh" content="3"><title>Starting…</title>
-<style>body{{font-family:sans-serif;background:#0d1117;color:#c9d1d9;display:flex;
-align-items:center;justify-content:center;height:100vh;margin:0}}</style></head>
-<body><p>{name} is starting…</p></body></html>"""
+STARTING_RETRY = 3
 
 
 def _is_broker_path(path):
@@ -241,8 +236,9 @@ async def _starting(scope, receive, send, install):
         await receive()  # websocket.connect
         await send({"type": "websocket.close", "code": 1013})
         return
-    page = STARTING_PAGE.format(name=html.escape(display_name(install))).encode()
-    await _plain(send, 503, page, b"text/html; charset=utf-8", [(b"retry-after", b"3")])
+    body = starting.page(display_name(install), STARTING_RETRY).encode()
+    await _plain(send, 503, body, b"text/html; charset=utf-8",
+                 [(b"retry-after", str(STARTING_RETRY).encode())])
 
 
 async def _http(scope, receive, send, install):
