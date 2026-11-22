@@ -1196,7 +1196,7 @@ class DisplaySettingsSeleniumTest(SeleniumTestCase):
         b = self.browser
         b.find_element(By.CSS_SELECTOR, '[data-lib="stock"]').click()
         tiles = b.find_elements(By.CSS_SELECTOR, "#dsp-stock-grid .dsp-art")
-        extras = sum(len(STOCK_EXTRAS.get(s["id"], ())) for s in SEASONS)
+        extras = sum(len(STOCK_EXTRAS.get(s, ())) for s, _ in SEASONS)
         self.assertEqual(len(tiles), len(STOCK_STYLES) * len(SEASONS) + extras)
         self.assertFalse(b.find_element(By.ID, "dsp-lib-grid").is_displayed())
         tiles[0].click()
