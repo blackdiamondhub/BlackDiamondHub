@@ -3,6 +3,7 @@ and keeping apps running from the proxy."""
 import asyncio
 import io
 import json
+import os
 import tempfile
 import time
 from unittest.mock import patch
@@ -165,6 +166,20 @@ class CatalogTests(CatalogTestCase):
         self.assertEqual(self.fetches[-1].headers["if-none-match"], '"v1"')
         catalog.reset()  # a restart reads the disk copy
         self.assertEqual(catalog.get(refresh_stale=False)["apps"]["hello"]["name"], "Hello")
+
+    def test_picks_up_a_newer_copy_another_process_saved(self):
+        # The web process must see a refresh done elsewhere (catalog_refresh, a
+        # shell) without waiting out MAX_AGE or a restart.
+        catalog.refresh()
+        self.assertEqual(catalog.get_cached()[0]["apps"]["hello"]["versions"][0]["version"], "1.0.0")
+        path = catalog._paths()[0]
+        path.write_text(json.dumps(catalog_data(version("2.0.0"))), encoding="utf-8")
+        later = catalog._cache["disk_mtime"] + 5
+        os.utime(path, (later, later))
+        data, thread = catalog.get_cached()
+        self.assertIsNone(thread)
+        self.assertEqual(data["apps"]["hello"]["versions"][0]["version"], "2.0.0")
+        self.assertEqual(len(self.fetches), 1)
 
     def test_failure_keeps_the_last_good_copy(self):
         catalog.refresh()

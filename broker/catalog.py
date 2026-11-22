@@ -35,7 +35,7 @@ DEFAULT_URL = "https://raw.githubusercontent.com/blackdiamondlodge/bdh-app-catal
 transport = None
 
 _lock = threading.Lock()
-_cache = {"data": None, "etag": "", "fetched": 0.0, "dir": None}
+_cache = {"data": None, "etag": "", "fetched": 0.0, "dir": None, "disk_mtime": 0.0}
 
 
 class CatalogError(Exception):
@@ -132,17 +132,35 @@ def _touch_disk():
         pass
 
 
+def _disk_mtime():
+    try:
+        return _paths()[0].stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def _ensure_loaded():
-    """Fill the in-memory copy from disk (once per cache dir)."""
+    """Fill the in-memory copy from disk (once per cache dir), and again whenever
+    another process (the supervisor sync, ``catalog_refresh``) saved a newer copy.
+
+    Compares against the disk mtime this process last saw, not ``fetched``: that
+    one is backdated on failures (retry backoff) and must not trigger a reload."""
     root = str(cache_dir())
     if _cache["dir"] != root:
         data, etag, fetched = _load_disk()
-        _cache.update(data=data, etag=etag, fetched=fetched, dir=root)
+        _cache.update(data=data, etag=etag, fetched=fetched, dir=root, disk_mtime=fetched)
+        return
+    mtime = _disk_mtime()
+    if mtime > _cache["disk_mtime"]:
+        data, etag, fetched = _load_disk()
+        _cache["disk_mtime"] = mtime
+        if data is not None:
+            _cache.update(data=data, etag=etag, fetched=fetched)
 
 
 def reset():
     with _lock:
-        _cache.update(data=None, etag="", fetched=0.0, dir=None)
+        _cache.update(data=None, etag="", fetched=0.0, dir=None, disk_mtime=0.0)
         _background["thread"] = None
 
 
@@ -165,6 +183,7 @@ def refresh(force=False):
         if resp.status_code == 304 and _cache["data"] is not None:
             _cache["fetched"] = time.time()
             _touch_disk()
+            _cache["disk_mtime"] = _disk_mtime()
             return "unchanged"
         if resp.status_code != 200:
             _cache["fetched"] = time.time() - MAX_AGE + 300
@@ -182,7 +201,7 @@ def refresh(force=False):
             raise
         etag = resp.headers.get("etag", "")
         _save_disk(raw, etag)
-        _cache.update(data=data, etag=etag, fetched=time.time())
+        _cache.update(data=data, etag=etag, fetched=time.time(), disk_mtime=_disk_mtime())
         return "updated"
 
 
