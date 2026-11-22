@@ -178,8 +178,10 @@ class AppProxyTests(ProxyTestCase):
         self.upstream.error = httpx.ConnectError("refused")
         status, headers, body = response(run(proxy.app_proxy, scope(self.port)))
         self.assertEqual(status, 503)
-        self.assertIn(b"Cameras is starting", body)
-        self.assertNotIn(b"cams is starting", body)
+        self.assertIn(b"Cameras is waking up", body)
+        self.assertNotIn(b"cams is waking up", body)
+        self.assertIn(b'class="bdh-ring"', body)
+        self.assertIn(b'<div class="bdh-mark"><svg', body)
         self.upstream.error = httpx.ReadTimeout("slow")
         self.assertEqual(response(run(proxy.app_proxy, scope(self.port)))[0], 502)
 

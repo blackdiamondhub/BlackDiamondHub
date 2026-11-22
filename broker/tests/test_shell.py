@@ -43,6 +43,8 @@ class ShellPageTests(TestCase):
                 self.assertEqual(resp.status_code, 503, url)
                 self.assertEqual(resp["Retry-After"], "5")
                 self.assertContains(resp, '<meta http-equiv="refresh" content="5">', status_code=503)
+                self.assertContains(resp, 'class="bdh-ring"', status_code=503)
+                self.assertContains(resp, "cams is waking up", status_code=503)
             self.assertEqual(self.client.get("/apps/cams/_raw/static/x.png").status_code, 404)
 
     def test_stale_manifest_keeps_the_page_up(self):
