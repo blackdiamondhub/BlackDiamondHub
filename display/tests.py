@@ -224,6 +224,9 @@ class ViewTests(TestCase):
         winter = views.stock_art("winter")
         self.assertEqual(len(winter), 12)
         self.assertTrue(winter[-1].endswith("/display/stock/winter/family_fireside.webp"))
+        summer = views.stock_art("summer")
+        self.assertEqual(len(summer), 9)
+        self.assertTrue(summer[-1].endswith("/display/stock/summer/lake_kids.webp"))
 
     def api(self, season="summer", **params):
         store.clear()
