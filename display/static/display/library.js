@@ -95,10 +95,17 @@
         tile.replaceChildren();
         tile.classList.toggle('off', !photo.enabled);
         if (fresh) tile.classList.add('new');
-        const img = el('img');
+        tile.dataset.id = photo.id;
+        const img = el('img', 'dsp-zoom');
         img.src = photo.thumb;
         img.alt = photo.name || 'Photo';
         img.loading = 'lazy';
+        img.addEventListener('click', () => {
+            const ids = [...grid.querySelectorAll('.dsp-ph[data-id]')].map(t => t.dataset.id);
+            const mine = ids.map(id => known.get(Number(id))).filter(Boolean)
+                .map(p => ({ url: p.image, season: p.tag }));
+            view(mine, ids.indexOf(String(photo.id)));
+        });
         const tog = el('span', 'hst-tog');
         const box = el('input');
         box.type = 'checkbox';
@@ -311,7 +318,7 @@
             img.alt = '';
             img.loading = 'lazy';
             b.append(img);
-            b.addEventListener('click', () => view(i));
+            b.addEventListener('click', () => view(paintings, i));
             stockGrid.append(b);
         });
     }
@@ -330,22 +337,27 @@
     const viewImg = document.getElementById('dsp-view-img');
     const viewTag = document.getElementById('dsp-view-tag');
     let at = 0;
+    let shown = paintings;
 
-    function view(i) {
-        at = (i + paintings.length) % paintings.length;
-        viewImg.src = paintings[at].url;
-        viewTag.textContent = paintings[at].season;
+    // Full-size viewer for either list: the built-in paintings or your photos.
+    function view(list, i) {
+        if (!list.length) return;
+        shown = list;
+        at = (i + list.length) % list.length;
+        viewImg.src = list[at].url;
+        viewTag.textContent = list[at].season;
+        viewer.querySelectorAll('[data-step]').forEach(b => { b.hidden = list.length < 2; });
         if (!viewer.open) viewer.showModal();
     }
 
     viewer.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', e => {
         e.stopPropagation();
-        view(at + Number(b.dataset.step));
+        view(shown, at + Number(b.dataset.step));
     }));
     viewer.querySelector('[data-close]').addEventListener('click', () => viewer.close());
     viewer.addEventListener('click', e => { if (e.target === viewer || e.target === viewImg) viewer.close(); });
     viewer.addEventListener('keydown', e => {
-        if (e.key === 'ArrowLeft') view(at - 1);
-        if (e.key === 'ArrowRight') view(at + 1);
+        if (e.key === 'ArrowLeft') view(shown, at - 1);
+        if (e.key === 'ArrowRight') view(shown, at + 1);
     });
 })();
