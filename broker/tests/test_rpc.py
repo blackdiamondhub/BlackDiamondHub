@@ -158,6 +158,15 @@ class AlertTests(RpcTestCase):
         self.assertEqual(alert.embed_url, "/apps/cams/_bare/cameras/popup/front")
         self.assertEqual(alert.sound, "/apps/cams/_raw/static/ding.mp3")
 
+    def test_push_keeps_admins_only(self):
+        with mock.patch("bdh_sdk.alerts.push") as push:
+            self.ok("alerts.push", {"app": "cams", "key": "door", "title": "Door",
+                                    "embed_url": "/cameras/popup/front", "admins_only": True})
+        self.assertTrue(push.call_args.args[0].admins_only)
+        self.refused("alerts.push", {"app": "cams", "key": "door", "title": "Door",
+                                     "embed_url": "/cameras/popup/front", "admins_only": "yes"},
+                     code="invalid", status=400)
+
     def test_push_invalid(self):
         self.refused("alerts.push", {"app": "cams", "key": "", "title": "Door"}, code="invalid", status=400)
 
