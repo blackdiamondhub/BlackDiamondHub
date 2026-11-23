@@ -19,7 +19,10 @@ async def _run(app, scope, body=b""):
     sent = []
 
     async def receive():
-        return inbox.pop(0) if inbox else {"type": "http.disconnect"}
+        if inbox:
+            return inbox.pop(0)
+        return {"type": "websocket.disconnect", "code": 1000} if scope["type"] == "websocket" \
+            else {"type": "http.disconnect"}
 
     async def send(message):
         sent.append(message)
@@ -199,6 +202,74 @@ class AppProxyTests(ProxyTestCase):
         self.assertEqual(sent, [{"type": "websocket.close", "code": 4403}])
         sent = run(proxy.app_proxy, scope(self.port, "/_bdh/x", kind="websocket"))
         self.assertEqual(sent[-1]["type"], "websocket.close")
+
+    def fake_ws_connect(self, error=None):
+        calls = []
+
+        class Upstream:
+            subprotocol = None
+
+            async def send(self, data):
+                pass
+
+            async def close(self):
+                pass
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        async def connect(url, headers, subprotocols):
+            calls.append((url, dict(headers)))
+            if error:
+                raise error
+            return Upstream()
+
+        old = proxy._ws_connect
+        proxy._ws_connect = connect
+        self.addCleanup(setattr, proxy, "_ws_connect", old)
+        return calls
+
+    def test_websocket_signed_as_the_visitor(self):
+        calls = self.fake_ws_connect()
+        session = self.hub_cookie(is_staff=True)
+        sent = run(proxy.app_proxy, scope(self.port, "/cams/live", query=b"src=a", kind="websocket", headers=[
+            ("host", "hub.local:9100"), ("origin", "http://hub.local:9100"), ("cookie", f"sessionid={session}")]))
+        self.assertEqual(sent[0]["type"], "websocket.accept")
+        url, headers = calls[0]
+        self.assertEqual(url, "ws://127.0.0.1:9201/cams/live?src=a")
+        self.assertEqual(headers["origin"], "http://hub.local:9100")
+        ident = verify(token_for(self.install), "GET", "/cams/live?src=a", headers)
+        self.assertEqual((ident["u"], ident["staff"]), ("stephen", True))
+
+    def test_websocket_without_origin_is_anonymous(self):
+        # A native client (the kiosk's talk button) sends no Origin: proxied, but as nobody.
+        calls = self.fake_ws_connect()
+        session = self.hub_cookie(is_staff=True)
+        sent = run(proxy.app_proxy, scope(self.port, "/api/talk", query=b"src=t", kind="websocket", headers=[
+            ("host", "hub.local:9100"), ("cookie", f"sessionid={session}; bdh_cams_session=s1")]))
+        self.assertEqual(sent[0]["type"], "websocket.accept")
+        _url, headers = calls[0]
+        self.assertNotIn("origin", headers)
+        self.assertNotIn("cookie", headers)
+        ident = verify(token_for(self.install), "GET", "/api/talk?src=t", headers)
+        self.assertNotIn("u", ident)
+
+    def test_websocket_refused_by_the_app(self):
+        from broker import lifecycle
+
+        class Refused(Exception):
+            status_code = 403
+
+        self.fake_ws_connect(Refused("server rejected WebSocket connection: HTTP 403"))
+        lifecycle._running_until[self.install.app_id] = 1e12
+        self.addCleanup(lifecycle._running_until.pop, self.install.app_id, None)
+        sent = run(proxy.app_proxy, scope(self.port, "/cams/live", kind="websocket", headers=[
+            ("host", "hub.local:9100"), ("origin", "http://hub.local:9100")]))
+        self.assertEqual(sent[-1], {"type": "websocket.close", "code": 4403})
+        self.assertIn(self.install.app_id, lifecycle._running_until, "a refusal isn't the app being down")
 
 
 class HelperTests(TestCase):

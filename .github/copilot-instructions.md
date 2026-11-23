@@ -57,7 +57,7 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
   - Requires `DJANGO_SECRET_KEY` in `.env`; `DJANGO_DEBUG` defaults to off (set `DJANGO_DEBUG=true` in a local `.env` for development).
   - `/healthz` (DB check, exempt from ALLOWED_HOSTS) backs the image's Docker `HEALTHCHECK`.
   - Rollback: images are also tagged `:sha-<commit>`; pin `image:` in compose to a previous sha and `docker compose up -d`. Watchtower does not roll back on its own, and an image rollback does not undo migrations (restore from `./backups` if needed).
-- **bdh-supervisor** — Runs the container apps and their companions. The cameras app's go2rtc (`ghcr.io/blackdiamondlodge/go2rtc-nack`, upstream + NACK fix) is a companion: API on 11900+slot, WebRTC on 8555, advertising `BDH_GO2RTC_CANDIDATES` (this host's LAN IP:8555, from `.env`)
+- **bdh-supervisor** — Runs the container apps and their companions. The cameras app's go2rtc (`ghcr.io/blackdiamondlodge/go2rtc-nack`, upstream + NACK fix) is a companion: API on 127.0.0.1:11900+slot (loopback only; browsers never reach it, the cameras app checks each visitor and proxies the signalling websocket), WebRTC media on 8555, advertising `BDH_GO2RTC_CANDIDATES` (this host's LAN IP:8555, from `.env`)
 - **watchtower** (`containrrr/watchtower`) — Auto-updates the Django and bdh-supervisor containers from GHCR
 
 ## UniFi Protect Integration API
@@ -71,7 +71,7 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
   - `POST /v1/cameras/{id}/ptz/goto/{slot}` — Move to preset (slots 0-4, 204 on success, 404 if preset doesn't exist)
   - `POST /v1/cameras/{id}/ptz/patrol/start/{slot}` — Start patrol
   - `POST /v1/cameras/{id}/ptz/patrol/stop` — Stop patrol
-- **go2rtc**: Proxies RTSPS streams to browser via WebRTC/MSE. `video-stream.js` web component (set src/mode/background as JS properties, NOT HTML attributes). Docker image: `ghcr.io/blackdiamondlodge/go2rtc-nack` (upstream `alexxit/go2rtc` source + a patch so the WebRTC sender answers NACKs)
+- **go2rtc**: Proxies RTSPS streams to browser via WebRTC/MSE. The browser loads `video-stream.js` and opens `/api/ws` through the cameras app (`cameras/api/ws`, which checks `policy.can_view` and relays to go2rtc on loopback); `video-stream.js` web component (set src/mode/background as JS properties, NOT HTML attributes). Docker image: `ghcr.io/blackdiamondlodge/go2rtc-nack` (upstream `alexxit/go2rtc` source + a patch so the WebRTC sender answers NACKs)
 
 ## CI/CD
 
