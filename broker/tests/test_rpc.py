@@ -341,6 +341,30 @@ class SpeakerTests(RpcTestCase):
         self.assertEqual(announce.call_args.args[:3], ("hi", ["a"], 0.5))
 
 
+class DisplaysStatusTests(RpcTestCase):
+    def test_needs_grant_and_leaks_no_page_details(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from display.models import Heartbeat
+
+        Heartbeat.objects.create(ip="192.168.1.99", last_seen=timezone.now() - timedelta(seconds=90),
+                                 path="/secret/page?token=x", user_agent="Mozilla/5.0 X11")
+        self.refused("displays.status")
+        self.app.granted_permissions = self.app.requested_permissions = [g.DISPLAYS_READ]
+        self.app.save()
+        result = self.ok("displays.status")
+        self.assertEqual(set(result), {"ready_since", "now", "clients"})
+        [client] = result["clients"]
+        self.assertEqual(set(client), {"ip", "last_seen", "age_seconds"})
+        self.assertEqual(client["ip"], "192.168.1.99")
+        self.assertGreaterEqual(client["age_seconds"], 90)
+        self.assertNotIn("secret", json.dumps(result))
+        self.assertNotIn("Mozilla", json.dumps(result))
+        self.assertLessEqual(result["ready_since"], result["now"])
+
+
 class EventOpTests(RpcTestCase):
     def test_publish_own_namespace_and_grants(self):
         with mock.patch("broker.events_bridge.publish") as pub:

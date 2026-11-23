@@ -553,6 +553,27 @@ def hub_brand(install, grants, payload):
     return branding.brand()
 
 
+def displays_status(install, grants, payload):
+    """Last heartbeat per client IP. Only IPs and times: no paths or user agents."""
+    from django.utils import timezone
+
+    from display.apps import DisplayConfig
+    from display.models import Heartbeat
+
+    _require(grants, g.DISPLAYS_READ)
+    now = timezone.now()
+    ready = DisplayConfig.ready_since or now
+    return {
+        "ready_since": ready.isoformat(),
+        "now": now.isoformat(),
+        "clients": [
+            {"ip": ip, "last_seen": seen.isoformat(),
+             "age_seconds": max(0, int((now - seen).total_seconds()))}
+            for ip, seen in Heartbeat.objects.order_by("ip").values_list("ip", "last_seen")
+        ],
+    }
+
+
 OPS = {
     "settings.get": settings_get,
     "state.get": state_get,
@@ -581,6 +602,7 @@ OPS = {
     "speakers.announce": speakers_announce,
     "speakers.tts": speakers_tts,
     "hub.brand": hub_brand,
+    "displays.status": displays_status,
     "shares.missing": shares_missing,
     "shares.put_blob": shares_put_blob,
     "shares.publish": shares_publish,
