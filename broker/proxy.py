@@ -287,23 +287,41 @@ def _ws_connect(url, headers, subprotocols):
                                   open_timeout=5, max_size=MAX_BODY)
 
 
+def _refused_status(exc):
+    """The HTTP status an app refused a websocket handshake with, if it did."""
+    response = getattr(exc, "response", None)  # websockets >= 13: InvalidStatus
+    status = getattr(response, "status_code", None) or getattr(exc, "status_code", None)
+    return status if isinstance(status, int) and 400 <= status < 500 else None
+
+
 async def _websocket(scope, receive, send, install):
     headers = _headers(scope)
     message = await receive()
     if message["type"] != "websocket.connect":
         return
     host = _header(headers, "host")
-    if _header(headers, "origin") != remote.app_origin(scope["server"][1], host):
+    origin = _header(headers, "origin")
+    if origin and origin != remote.app_origin(scope["server"][1], host):
         await send({"type": "websocket.close", "code": 4403})
         return
+    if not origin:
+        # Browsers always send Origin on a websocket; without one it's a native
+        # client (the kiosk's talk button). Proxy it, but as an anonymous visitor.
+        headers = [(k, v) for k, v in headers if k != "cookie"]
     out = [(k, v) for k, v in await _request_headers(scope, headers, install, "GET")
            if k not in WS_HANDSHAKE]
-    out.append(("origin", _header(headers, "origin")))
+    if origin:
+        out.append(("origin", origin))
     url = "ws" + install.upstream.rstrip("/")[len("http"):] + signed_path(scope)
     subprotocols = list(scope.get("subprotocols") or ())
     try:
         upstream = await _ws_connect(url, out, subprotocols)
     except Exception as exc:
+        if _refused_status(exc):
+            # The app answered and closed the handshake (e.g. a guest asking for
+            # something they may not see): pass the refusal on, the app is up.
+            await send({"type": "websocket.close", "code": 4403})
+            return
         log.info("%s websocket refused: %s", install.app_id, exc)
         lifecycle.forget(install.app_id)
         await send({"type": "websocket.close", "code": 1013})
