@@ -222,8 +222,8 @@ class ViewTests(TestCase):
             for url in views.stock_art(season):
                 self.assertTrue(finders.find(url[len(settings.STATIC_URL):]), url)
         winter = views.stock_art("winter")
-        self.assertEqual(len(winter), 10)
-        self.assertTrue(winter[-1].endswith("/display/stock/winter/paws_piste_pinot.webp"))
+        self.assertEqual(len(winter), 12)
+        self.assertTrue(winter[-1].endswith("/display/stock/winter/family_fireside.webp"))
 
     def api(self, season="summer", **params):
         store.clear()
