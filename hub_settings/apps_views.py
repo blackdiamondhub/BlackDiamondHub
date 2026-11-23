@@ -40,6 +40,7 @@ PERMISSIONS = (
     ("speakers", "fa-volume-high", "Announce on speakers", ""),
     ("alerts", "fa-bell", "Show alerts on the hub", ""),
     ("media", "fa-photo-film", "Upload media", ""),
+    ("displays.read", "fa-display", "See which screens are checking in", ""),
     ("events.subscribe:", "fa-tower-broadcast", "Listen to hub events", None),
     ("events.publish:", "fa-paper-plane", "Send hub events", None),
 )
