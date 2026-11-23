@@ -233,7 +233,7 @@ def alerts_push(install, grants, payload):
     _require(grants, g.ALERTS)
     _own(install, payload)
     fields = {k: payload[k] for k in ("app", "key", "title", "embed_url", "body", "ttl", "wake",
-                                      "sound", "speak", "resound") if k in payload}
+                                      "sound", "speak", "resound", "admins_only") if k in payload}
     # The app's paths are on its own origin: show them through the hub.
     if isinstance(fields.get("embed_url"), str) and fields["embed_url"].startswith("/"):
         fields["embed_url"] = page_url(install.app_id, "/_bare" + fields["embed_url"]) or fields["embed_url"]

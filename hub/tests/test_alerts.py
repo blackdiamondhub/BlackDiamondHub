@@ -8,9 +8,11 @@ from unittest import mock
 from asgiref.sync import async_to_sync
 from bdh_sdk import ha
 from bdh_sdk.alerts import Alert, dismiss, push
+from channels.db import database_sync_to_async
 from channels.testing import WebsocketCommunicator
+from django.conf import settings
 from django.contrib.auth.models import User
-from django.test import SimpleTestCase, TestCase, tag
+from django.test import Client, SimpleTestCase, TestCase, TransactionTestCase, tag
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -53,6 +55,7 @@ class AlertSocketTests(SimpleTestCase):
                 "type": "alert", "app": "cameras", "key": "doorbell:front", "title": "Front door",
                 "body": "Someone is at the door", "embed_url": "/cameras/popup/front/",
                 "ttl": 45, "wake": True, "sound": None, "speak": "", "resound": False,
+                "admins_only": False,
             })
 
     def test_dismiss_reaches_connected_screens(self):
@@ -71,6 +74,67 @@ class AlertSocketTests(SimpleTestCase):
         with mock.patch("hub.alerts.asyncio.run_coroutine_threadsafe") as send:
             push(doorbell())
         send.assert_not_called()
+
+
+class AdminsOnlyAlertTests(TransactionTestCase):
+    """A guest screen (not signed in, or signed in without staff) never gets an
+    admins_only alert; an admin screen does until it signs out."""
+
+    def setUp(self):
+        import BlackDiamondHub.asgi as asgi
+
+        self.application = importlib.reload(asgi).application
+        self.addCleanup(setattr, alerts, "_loop", None)
+        self.clients = []
+
+    def signed_in(self, user):
+        """Headers for a screen signed in as ``user`` (log in outside the event loop)."""
+        client = Client()
+        client.force_login(user)
+        self.clients.append(client)
+        cookie = f"{settings.SESSION_COOKIE_NAME}={client.session.session_key}"
+        return [*HEADERS, (b"cookie", cookie.encode())]
+
+    def screen(self, headers=HEADERS):
+        return WebsocketCommunicator(self.application, "/ws/hub/alerts/", headers=headers)
+
+    def test_only_signed_in_admins_get_admins_only_alerts(self):
+        admin = self.signed_in(User.objects.create_user("owner", is_staff=True))
+        member = self.signed_in(User.objects.create_user("member"))
+
+        async def run():
+            guest, plain, owner = self.screen(), self.screen(member), self.screen(admin)
+            for comm in (guest, plain, owner):
+                self.assertTrue((await comm.connect())[0])
+            await asyncio.to_thread(push, doorbell(key="doorbell:hidden", admins_only=True))
+            await asyncio.to_thread(push, doorbell(key="doorbell:front"))
+            got = {name: await comm.receive_json_from(timeout=2)
+                   for name, comm in (("guest", guest), ("plain", plain), ("owner", owner))}
+            got["owner2"] = await owner.receive_json_from(timeout=2)
+            for comm in (guest, plain, owner):
+                self.assertTrue(await comm.receive_nothing(timeout=0.2))
+                await comm.disconnect()
+            return got
+
+        got = async_to_sync(run)()
+        self.assertEqual(got["guest"]["key"], "doorbell:front")
+        self.assertEqual(got["plain"]["key"], "doorbell:front")
+        self.assertEqual([got["owner"]["key"], got["owner2"]["key"]],
+                         ["doorbell:hidden", "doorbell:front"])
+
+    def test_a_screen_that_signed_out_is_a_guest(self):
+        admin = self.signed_in(User.objects.create_user("owner", is_staff=True))
+
+        async def run():
+            owner = self.screen(admin)
+            self.assertTrue((await owner.connect())[0])
+            await database_sync_to_async(self.clients[-1].logout)()
+            await asyncio.to_thread(push, doorbell(key="doorbell:hidden", admins_only=True))
+            nothing = await owner.receive_nothing(timeout=0.5)
+            await owner.disconnect()
+            return nothing
+
+        self.assertTrue(async_to_sync(run)())
 
 
 class AlertTestHookTests(TestCase):

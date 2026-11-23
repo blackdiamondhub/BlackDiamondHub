@@ -9,10 +9,17 @@ Every hub page opens ``ws/hub/alerts/`` and joins :data:`GROUP`. Apps call
 until the server loop next wakes. :func:`send` always hands the send to the
 loop the consumers run on, which it learns when a screen connects. With no
 screen connected there is nobody to show the alert to, so it is dropped.
+
+An ``admins_only`` alert only goes to screens signed in as an admin right
+now: the session is re-read for each one, so a screen that signed out (or
+whose session expired) since connecting is treated as a guest.
 """
 import asyncio
 import logging
+from importlib import import_module
+from types import SimpleNamespace
 
+from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from channels.layers import get_channel_layer
 
@@ -38,7 +45,22 @@ class AlertConsumer(AsyncJsonWebsocketConsumer):
             await self.channel_layer.group_discard(GROUP, self.channel_name)
 
     async def hub_alert(self, event):
-        await self.send_json({"type": "alert", **event["alert"]})
+        alert = event["alert"]
+        if alert.get("admins_only") and not await self._signed_in_admin():
+            return
+        await self.send_json({"type": "alert", **alert})
+
+    @database_sync_to_async
+    def _signed_in_admin(self):
+        from django.conf import settings
+        from django.contrib.auth import get_user
+
+        key = getattr(self.scope.get("session"), "session_key", None)
+        if not key:
+            return False
+        session = import_module(settings.SESSION_ENGINE).SessionStore(session_key=key)
+        user = get_user(SimpleNamespace(session=session))
+        return bool(user.is_authenticated and user.is_active and user.is_staff)
 
     async def hub_dismiss(self, event):
         await self.send_json({"type": "dismiss", "app": event["app"], "key": event["key"]})

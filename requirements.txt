@@ -99,4 +99,4 @@ icalendar==7.3.0
 recurring-ical-events==3.8.2
 x-wr-timezone==2.0.1
 # Hub plugin contract; apps in their own repos depend on it too.
-bdh-sdk @ https://github.com/blackdiamondlodge/bdh-sdk/releases/download/v0.39.0/bdh_sdk-0.39.0-py3-none-any.whl#sha256=d5bbc85e7b28509d147e45100e5c913b08551e10eee3b6d44fcc3e51bd197d1d
+bdh-sdk @ https://github.com/blackdiamondlodge/bdh-sdk/releases/download/v0.41.0/bdh_sdk-0.41.0-py3-none-any.whl#sha256=22b697f29e2b87e0df2652f5ea687b1a1171e1bf205a29b26b4e0c3dafdf769d
