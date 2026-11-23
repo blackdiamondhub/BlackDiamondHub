@@ -77,9 +77,11 @@ op at start; unsupported or denied = recovery disabled, **never** fall back to t
 
 - **Unknown never acts.** After any dependency outage (broker, console, hub not ready),
   re-enter a 300 s observation grace.
-- **Site circuit breaker:** if ≥ 2 enrolled screens (or all, if fewer) lose H within the same
-  window while their L is up → treat as a shared hub/ingress failure: alert, no destructive
-  action. Hub additionally probes its own configured kiosk origin; failure → hold. (Limitation:
+- **Site circuit breaker** (only with ≥ 2 enrolled screens): if ≥ 2 screens lose H within the
+  same window while their L is up → treat as a shared hub/ingress failure: alert, no destructive
+  action. With a single enrolled screen, hub-wide failures are covered by H=Unknown (broker
+  unreachable, or within 300 s of hub `ready_since`) plus the caps.
+  Hub additionally probes its own configured kiosk origin; failure → hold. (Limitation:
   can't prove kiosk-side DNS; stated in UI.)
 - Recoveries are **serialized** across screens (one at a time).
 - Grace 120 s before the first step. Escalation resets after 600 s **continuously known-healthy**.
