@@ -1194,6 +1194,18 @@ class DisplaySettingsSeleniumTest(SeleniumTestCase):
         b.execute_script(f"{scrollers}.forEach(e => e.scrollTop = e.scrollHeight)")
         WebDriverWait(b, 5).until(lambda d: "on" not in d.find_element(*hint).get_attribute("class").split())
 
+    def test_my_photos_open_in_the_viewer(self):
+        SaverPhoto.objects.create(image=self.GOOD, thumb=self.GOOD)
+        self.open()
+        b = self.browser
+        b.find_element(By.CSS_SELECTOR, "#dsp-lib-grid .dsp-ph[data-id] img").click()
+        viewer = b.find_element(By.ID, "dsp-view")
+        WebDriverWait(b, 5).until(lambda d: viewer.is_displayed())
+        self.assertTrue(b.find_element(By.ID, "dsp-view-img").get_attribute("src").endswith(self.GOOD))
+        self.assertFalse(b.find_element(By.CSS_SELECTOR, "#dsp-view .dsp-step.next").is_displayed())
+        b.find_element(By.CSS_SELECTOR, "#dsp-view [data-close]").click()
+        WebDriverWait(b, 5).until(lambda d: not viewer.is_displayed())
+
     def test_built_in_paintings_tab_and_viewer(self):
         self.open()
         b = self.browser
