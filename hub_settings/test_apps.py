@@ -82,6 +82,42 @@ class AppsPageTests(SupervisorMixin, CatalogTestCase, TestCase):
         self.assertEqual((record.granted_permissions, record.approved_network), (["alerts"], "lan"))
         self.assertEqual(jobs.get("hello")["state"], jobs.DONE)
 
+    def test_store_install_grants_the_local_network_it_shows(self):
+        # The sheet lists local network as required; without allow_lan the
+        # supervisor quietly runs the app on outbound and it can't reach the LAN.
+        self.install(perm=["alerts"])
+        self.assertTrue(AppInstall.objects.get().allow_lan)
+        self.assertTrue(self.sup.apps["hello"]["allow_lan"])
+        AppInstall.objects.all().delete()
+        self.sup.apps.clear()
+        self.served = catalog_data(version(permissions=["alerts"], network="outbound"))
+        catalog.refresh(force=True)
+        self.install(perm=["alerts"])
+        self.assertFalse(AppInstall.objects.get().allow_lan)
+        self.assertFalse(self.sup.apps["hello"]["allow_lan"])
+
+    def test_approved_update_to_local_network_grants_it(self):
+        self.served = catalog_data(version(permissions=["alerts"], network="outbound"))
+        catalog.refresh(force=True)
+        self.install(perm=["alerts"])
+        self.served = catalog_data(version("2.0.0", permissions=["alerts"], network="lan"),
+                                   version(permissions=["alerts"], network="outbound"))
+        catalog.refresh(force=True)
+        url = reverse("hub_settings_app_update", args=["hello"])
+        self.client.post(url)
+        self.assertFalse(AppInstall.objects.get().allow_lan)
+        self.client.post(url, {"approve": "1"})
+        record = AppInstall.objects.get()
+        self.assertEqual((record.version, record.approved_network, record.allow_lan), ("2.0.0", "lan", True))
+        self.assertTrue(self.sup.apps["hello"]["allow_lan"])
+
+    def test_approved_update_without_new_network_keeps_lan_off(self):
+        self.install(perm=["alerts", "speakers"])
+        AppInstall.objects.update(allow_lan=False)  # e.g. installed with app_install --no-allow-lan
+        self.widen()
+        self.client.post(reverse("hub_settings_app_update", args=["hello"]), {"approve": "1"})
+        self.assertFalse(AppInstall.objects.get().allow_lan)
+
     def test_installed_and_manage_pages(self):
         self.install(perm=["alerts", "speakers"])
         page = self.client.get(reverse("hub_settings_apps"))

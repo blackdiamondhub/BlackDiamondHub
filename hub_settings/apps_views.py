@@ -310,7 +310,9 @@ def store_app(request, app_id):
             return redirect("hub_settings_store_app", app_id)
         chosen = [p for p in request.POST.getlist("perm") if p in want["permissions"]]
         try:
-            services.install(app_id, entry["version"], permissions=chosen, wait=False)
+            # The sheet shows local network as required, so installing is the admin's LAN grant.
+            services.install(app_id, entry["version"], permissions=chosen,
+                             allow_lan=want["network"] == "lan", wait=False)
         except (catalog.CatalogError, services.ServiceError, supervisor.SupervisorError) as exc:
             messages.error(request, f"Couldn't install: {exc}")
             return redirect("hub_settings_store_app", app_id)
@@ -486,9 +488,10 @@ def manage_restart(request, app_id):
     return _back(app_id)
 
 
-def _update(app_id, version, approve):
+def _update(app_id, version, approve, grant_lan=False):
     record = AppInstall.objects.get(app_id=app_id)
-    services.upgrade(record, services._entry(app_id, version), approve=approve)
+    services.upgrade(record, services._entry(app_id, version), approve=approve,
+                     allow_lan=True if grant_lan else None)
 
 
 @staff_page
@@ -506,7 +509,8 @@ def manage_update(request, app_id):
         return _back(app_id)  # the app page opens with the review card
     info = {"version": entry["version"], "approved": bool(extra),
             "added": [describe(p)["title"] for p in extra.get("permissions", ())]}
-    if not jobs.start(app_id, "Updating", _update, app_id, entry["version"], bool(extra), info=info):
+    grant_lan = extra.get("network") == "lan"
+    if not jobs.start(app_id, "Updating", _update, app_id, entry["version"], bool(extra), grant_lan, info=info):
         messages.info(request, "Something is already running for this app.")
     elif to_list:
         messages.success(request, f"Updating {_app_name(record)} to v{entry['version']}.")

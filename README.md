@@ -151,6 +151,11 @@ python manage.py app_status                          # the hub's and the supervi
 python manage.py app_uninstall <id> [--purge]        # --purge deletes the app's data
 ```
 
+The supervisor runs an app that asks for `lan` on internet-only networking
+unless the hub also sets `allow_lan`. The command line needs `--allow-lan`;
+installing from Settings → Apps → Store, or approving an update that newly asks
+for the local network, grants it, because the admin has just been shown it.
+
 #### Release channels
 
 An app version is a **beta** when its version is a PEP 440 pre-release
