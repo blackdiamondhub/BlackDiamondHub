@@ -29,7 +29,10 @@ HOME_TILES = (
 # Built-in art, the same at every site: static/display/stock/<season>/<style>.webp.
 STOCK_STYLES = ("monet", "vangogh", "ukiyoe", "harris", "bierstadt", "klimt", "hopper", "hokusai_wave")
 # One-off paintings that belong to a single season, shown after the styles.
-STOCK_EXTRAS = {"winter": ("apres_chic", "paws_piste_pinot", "family_art_deco", "family_fireside")}
+STOCK_EXTRAS = {
+    "winter": ("apres_chic", "paws_piste_pinot", "family_art_deco", "family_fireside"),
+    "summer": ("lake_kids",),
+}
 
 # Info-strip stats a slot shows until it's set. A site picks its own per season
 # in site.toml: [apps.display] slots_<season> = ["<app>.<key>", ...].
