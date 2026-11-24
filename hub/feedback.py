@@ -1,20 +1,15 @@
 """The feedback pill and modal in the top bar, and where they send messages.
 
-Feedback is handled by one of:
+Feedback is handled by the ``feedback`` container app (bdh-app-feedback). The
+hub posts messages to it (adding the page and the stay in progress, which the
+app can't see) and shows the unread count the app keeps in its app state.
 
-- the built-in ``feedback`` app (in this repo), unless the site turns it off
-  with ``feedback = false`` under ``[features]`` in its site.toml; or
-- the ``feedback`` container app (bdh-app-feedback). The hub posts messages to
-  it (adding the page and the stay in progress, which the app can't see) and
-  shows the unread count the app keeps in its app state.
-
-With neither, the pill, the menu item and the inbox link are hidden.
+Without the app installed and enabled, the pill, the menu item and the inbox
+link are hidden.
 """
 import logging
-from pathlib import Path
 from urllib.parse import urlsplit
 
-from django.apps import apps
 from django.conf import settings
 from django.http import JsonResponse
 from django.urls import reverse
@@ -34,15 +29,6 @@ UNREAD_KEY = "unread_count"
 # Identity flag that tells the app a message comes from the hub's submit
 # endpoint. The proxy builds visitor identities itself, so visitors can't set it.
 SUBMIT_FLAG = "feedback_submit"
-
-
-def builtin_enabled():
-    """The hub's own ``feedback`` app is installed and the site hasn't turned it off."""
-    if not settings.HUB_FEATURES.get("feedback", True) or not apps.is_installed("feedback"):
-        return False
-    # An app wheel installed under the same name (app CI runs it in-process) isn't the built-in.
-    path = Path(apps.get_app_config("feedback").path).resolve()
-    return Path(settings.BASE_DIR).resolve() in path.parents
 
 
 def container_enabled():
@@ -72,40 +58,23 @@ def _app_unread():
     return count if isinstance(count, int) and not isinstance(count, bool) and count > 0 else 0
 
 
-def _builtin_unread():
-    from feedback.models import Feedback
-
-    return Feedback.objects.filter(is_read=False).count()
-
-
-def unread_count(user, container):
-    if not _is_staff(user):
-        return 0
-    return _app_unread() if container else _builtin_unread()
+def unread_count(user):
+    return _app_unread() if _is_staff(user) else 0
 
 
 def context(request):
     """``hub_feedback``: the URLs the top bar uses and the unread count, or
-    None when there's nowhere to send feedback."""
-    container = container_enabled()
-    if container:
-        from broker.remote import page_url
-
-        urls = {
-            "submit_url": reverse("hub_feedback_submit"),
-            "count_url": reverse("hub_feedback_unread"),
-            "inbox_url": page_url(APP_ID, APP_INBOX_PATH),
-        }
-    elif builtin_enabled():
-        urls = {
-            "submit_url": reverse("submit_feedback"),
-            "count_url": reverse("get_unread_feedback_count"),
-            "inbox_url": reverse("view_feedback"),
-        }
-    else:
+    None when the feedback app isn't installed."""
+    if not container_enabled():
         return {"hub_feedback": None}
-    user = getattr(request, "user", None)
-    return {"hub_feedback": {**urls, "unread": unread_count(user, container)}}
+    from broker.remote import page_url
+
+    return {"hub_feedback": {
+        "submit_url": reverse("hub_feedback_submit"),
+        "count_url": reverse("hub_feedback_unread"),
+        "inbox_url": page_url(APP_ID, APP_INBOX_PATH),
+        "unread": unread_count(getattr(request, "user", None)),
+    }}
 
 
 def stay_label(request):
@@ -180,4 +149,4 @@ def submit(request):
 
 def unread(request):
     """The badge count for the top bar (0 for anyone but staff)."""
-    return JsonResponse({"unread_feedback_count": _app_unread() if _is_staff(request.user) else 0})
+    return JsonResponse({"unread_feedback_count": unread_count(request.user)})

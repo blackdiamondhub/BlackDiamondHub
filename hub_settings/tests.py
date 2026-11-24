@@ -60,7 +60,7 @@ class SettingsPageTests(TestCase):
         self.client.force_login(self.staff)
         response = self.client.get(reverse("hub_settings_apps"))
         self.assertContains(response, 'href="/settings/app/demo/"')
-        self.assertContains(response, "Feedback")
+        self.assertContains(response, "Display")
 
     def test_settings_opens_on_general(self):
         self.client.force_login(self.staff)
@@ -68,7 +68,7 @@ class SettingsPageTests(TestCase):
 
     def test_unknown_app_is_404(self):
         self.client.force_login(self.staff)
-        self.assertEqual(self.client.get("/settings/app/feedback/").status_code, 404)
+        self.assertEqual(self.client.get("/settings/app/nope/").status_code, 404)
 
     def test_unchanged_defaults_are_not_saved(self):
         self.client.force_login(self.staff)

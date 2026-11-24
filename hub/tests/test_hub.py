@@ -260,7 +260,8 @@ class HomepageRegistryTests(TestCase):
         self.assertNotRegex(home, r'<nav class="navbar[^"]* is-owner')
         self.assertNotIn('class="hub-menu-fb"', home)
         self.client.force_login(User.objects.create_user("owner", is_staff=True))
-        app = self.client.get("/settings/location/").content.decode()
+        with patch("hub.feedback.container_enabled", return_value=True):
+            app = self.client.get("/settings/location/").content.decode()
         self.assertRegex(app, r'<nav class="navbar[^"]* is-owner')
         self.assertNotRegex(app, r'<nav class="navbar[^"]* is-home')
         self.assertIn('class="hub-menu-fb"', app)

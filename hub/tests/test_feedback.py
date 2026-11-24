@@ -1,60 +1,54 @@
+import importlib
 from unittest import mock
 
-from django.contrib.auth.models import User
-from django.test import TestCase, override_settings
-from django.urls import reverse
+from django.apps import apps
+from django.contrib.auth.models import Permission, User
+from django.contrib.contenttypes.models import ContentType
+from django.db import connection
+from django.db.migrations.recorder import MigrationRecorder
+from django.test import TestCase, TransactionTestCase
 
 from broker import remote
-from feedback.models import Feedback
 from hub import feedback
 from hub_settings.state import DatabaseStateBackend
 
-
-def features(**flags):
-    from django.conf import settings
-
-    return override_settings(HUB_FEATURES={**settings.HUB_FEATURES, **flags})
+MARKERS = ('id="feedback-button"', 'id="feedback-modal"', 'class="hub-menu-fb"', 'id="inbox-link"')
 
 
 class TopBarTests(TestCase):
-    """The pill, menu items and modal show only when feedback has somewhere to go."""
+    """The pill, menu items and modal show only when the feedback container app is installed."""
 
     def setUp(self):
         self.staff = User.objects.create_user("owner", password="pw", is_staff=True)
 
-    def test_builtin_app_drives_the_top_bar(self):
-        Feedback.objects.create(message="hi")
+    def test_hidden_without_the_app(self):
         self.client.force_login(self.staff)
         page = self.client.get("/").content.decode()
-        self.assertIn('id="feedback-button"', page)
-        self.assertIn(f'action="{reverse("submit_feedback")}"', page)
-        self.assertIn(f'href="{reverse("view_feedback")}" role="menuitem" id="inbox-link"', page)
-        self.assertIn('title="Unread feedback">1<', page)
-
-    @features(feedback=False)
-    def test_site_can_turn_it_off(self):
-        self.client.force_login(self.staff)
-        page = self.client.get("/").content.decode()
-        for marker in ('id="feedback-button"', 'id="feedback-modal"', 'class="hub-menu-fb"', 'id="inbox-link"'):
+        for marker in MARKERS:
             self.assertNotIn(marker, page)
         self.assertIn('id="user-menu"', page)
+        self.assertIsNone(feedback.context(mock.Mock(user=self.staff))["hub_feedback"])
 
-    @features(feedback=False)
-    def test_container_app_takes_over(self):
+    def test_container_app_drives_the_top_bar(self):
         DatabaseStateBackend().set("feedback", "unread_count", 3)
         self.client.force_login(self.staff)
         with mock.patch.object(feedback, "container_enabled", return_value=True):
             page = self.client.get("/").content.decode()
+        self.assertIn('id="feedback-button"', page)
         self.assertIn('action="/hub/api/feedback/submit/"', page)
-        self.assertIn(f'href="{remote.page_url("feedback", "/feedback/")}" role="menuitem"', page)
+        self.assertIn(f'href="{remote.page_url("feedback", "/feedback/")}" role="menuitem" id="inbox-link"', page)
         self.assertIn('title="Unread feedback">3<', page)
 
     def test_guests_see_the_pill_but_no_count(self):
-        Feedback.objects.create(message="hi")
-        page = self.client.get("/").content.decode()
+        DatabaseStateBackend().set("feedback", "unread_count", 3)
+        with mock.patch.object(feedback, "container_enabled", return_value=True):
+            page = self.client.get("/").content.decode()
         self.assertIn('id="feedback-button"', page)
         self.assertNotIn("Unread feedback", page)
 
+    def test_lookup_failure_hides_it(self):
+        with mock.patch("broker.remote.spec_for", side_effect=RuntimeError("db down")):
+            self.assertFalse(feedback.container_enabled())
 
 @mock.patch.object(feedback, "container_enabled", return_value=True)
 class ContainerSubmitTests(TestCase):
@@ -114,15 +108,37 @@ class UnreadTests(TestCase):
             self.assertEqual(self.client.get("/hub/api/feedback/unread/").json()["unread_feedback_count"], 0)
 
 
-class SiteConfigTests(TestCase):
-    def test_only_mercer_island_turns_the_builtin_off(self):
-        import tomllib
-        from pathlib import Path
+class BuiltinRemovedTests(TransactionTestCase):
+    """hub's 0001 migration clears out what the old built-in feedback app left behind."""
 
-        from django.conf import settings
+    migration = importlib.import_module("hub.migrations.0001_drop_builtin_feedback")
 
-        root = Path(settings.BASE_DIR) / "sites"
-        mi = tomllib.loads((root / "mercerisland" / "site.toml").read_text(encoding="utf-8"))
-        sp = tomllib.loads((root / "sunpeaks" / "site.toml").read_text(encoding="utf-8"))
-        self.assertIs(mi["features"]["feedback"], False)
-        self.assertNotIn("feedback", sp.get("features", {}))
+    def leftovers(self):
+        ct = ContentType.objects.create(app_label="feedback", model="feedback")
+        Permission.objects.create(content_type=ct, codename="view_feedback", name="Can view feedback")
+        MigrationRecorder(connection).record_applied("feedback", "0004_feedback_stay")
+        with connection.cursor() as cursor:
+            cursor.execute("CREATE TABLE feedback_feedback (id integer PRIMARY KEY, message text)")
+            cursor.execute("INSERT INTO feedback_feedback (id, message) VALUES (1, 'old')")
+
+    def run_migration(self):
+        with connection.schema_editor() as editor:
+            self.migration.drop_builtin_feedback(apps, editor)
+
+    def test_drops_the_table_and_its_records(self):
+        self.assertFalse(apps.is_installed("feedback"))
+        self.leftovers()
+        self.run_migration()
+        self.run_migration()  # idempotent
+        self.assertNotIn("feedback_feedback", connection.introspection.table_names())
+        self.assertFalse(MigrationRecorder.Migration.objects.filter(app="feedback").exists())
+        self.assertFalse(ContentType.objects.filter(app_label="feedback").exists())
+        self.assertFalse(Permission.objects.filter(content_type__app_label="feedback").exists())
+
+    def test_leaves_an_in_process_feedback_app_alone(self):
+        self.leftovers()
+        with mock.patch.object(self.migration.global_apps, "is_installed", return_value=True):
+            self.run_migration()
+        self.assertIn("feedback_feedback", connection.introspection.table_names())
+        self.assertTrue(MigrationRecorder.Migration.objects.filter(app="feedback").exists())
+        self.run_migration()

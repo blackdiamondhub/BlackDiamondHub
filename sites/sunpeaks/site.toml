@@ -90,3 +90,6 @@ runtime = "container"  # bdh-app-calendar image under bdh-supervisor
 
 [apps.timers]
 runtime = "container"  # bdh-app-timers image under bdh-supervisor
+
+[apps.feedback]
+runtime = "container"  # bdh-app-feedback image under bdh-supervisor
