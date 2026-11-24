@@ -1,15 +1,15 @@
 {
   "supervisor": {
-    "image": "ghcr.io/blackdiamondhub/bdh-supervisor@sha256:c7ca59c19a4cbb4a45a2029b57572cfad659f3f48d1087955009372ec7e5844a",
+    "image": "ghcr.io/blackdiamondhub/bdh-supervisor@sha256:b6069358d554c093b3c823a62d384a04bc7a688c8f4ab32796e3a0632c0386d8",
     "tracks": "ghcr.io/blackdiamondhub/bdh-supervisor:latest"
   },
   "runtime": {
-    "image": "ghcr.io/blackdiamondhub/bdh-app-runtime@sha256:b39872c681ad09ed80a447b589a44ceebeb88b5a08a81139c32e914d48c6affb",
+    "image": "ghcr.io/blackdiamondhub/bdh-app-runtime@sha256:c86db0228c7a9a70868ddfcd1e77cbec0ac1d7e1a337bd0c4e6990fc751c3d44",
     "tracks": "ghcr.io/blackdiamondhub/bdh-app-runtime:hub-api-2"
   },
   "sdk": {
     "repo": "blackdiamondhub/bdh-sdk",
-    "commit": "2433197af2f195ba41d7eba61905bda9437131dc",
+    "commit": "0ee11f72f8752d6afd81eb636fd1950c1bf09a00",
     "tracks": "v0"
   }
 }
