@@ -3,7 +3,7 @@
 #
 #   jobs:
 #     stack-e2e:
-#       uses: blackdiamondlodge/BlackDiamondHub/.github/workflows/stack-e2e.yml@<commit sha>
+#       uses: blackdiamondhub/BlackDiamondHub/.github/workflows/stack-e2e.yml@<commit sha>
 #       with:
 #         supervisor_image: bdh-supervisor:candidate
 #         images_artifact: candidate-images
@@ -111,7 +111,7 @@ jobs:
       if: inputs.hub_ref != ''
       uses: actions/checkout@v7
       with:
-        repository: blackdiamondlodge/BlackDiamondHub
+        repository: ${{ job.workflow_repository }}
         ref: ${{ inputs.hub_ref }}
         path: .hub
 

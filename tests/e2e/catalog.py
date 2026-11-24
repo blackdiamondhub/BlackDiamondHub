@@ -40,7 +40,7 @@ def main(out, url_prefix, base, *apps):
         app_json, image, wheel, name = apps[i:i + 4]
         config = json.loads(Path(app_json).read_text())
         app = catalog["apps"].setdefault(config["id"], {
-            "name": name, "description": "stack-e2e", "repo": "blackdiamondlodge/BlackDiamondHub",
+            "name": name, "description": "stack-e2e", "repo": "blackdiamondhub/BlackDiamondHub",
             "versions": [],
         })
         app["versions"].append(entry(config, image, base, wheel, url_prefix, now))

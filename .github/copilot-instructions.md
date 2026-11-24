@@ -9,7 +9,7 @@ BlackDiamondHub is a Django-based home automation and management hub for a vacat
 - **hub_settings** — Staff-only Settings page at /settings/ (avatar menu → Settings): a Lodge section (Home layout, Apps list with versions) plus one page per app that declares `PluginSpec.settings`. Saved values live in `AppSetting` rows and override the environment; `store.lookup` is registered with bdh-sdk's `set_store` and cached for 30 s (cleared on save/delete)
 Installed from their own repos via `sites/sunpeaks/apps.txt`:
 
-- **wifi** (`blackdiamondlodge/bdh-app-wifi`) — WiFi QR code generator with password display
+- **wifi** (`blackdiamondhub/bdh-app-wifi`) — WiFi QR code generator with password display
 - **sunpeaks_webcams** (`bdh-app-sunpeaks-webcams`) — Sun Peaks resort webcam viewer
 - **lift_status** (`bdh-app-lift-status`) — Sun Peaks lift and trail status
 - **snow_report** (`bdh-app-snow-report`) — Mountain Conditions: seasonal snow/weather report + Open-Meteo forecast
@@ -42,7 +42,7 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
 1. **Code changes** go through feature branches → PRs → merge to `main`
 2. **GitHub Actions** (`docker-publish.yml`) triggers on push to `main`:
    - Builds the Docker image from the Dockerfile
-   - Pushes to GHCR: `ghcr.io/blackdiamondlodge/blackdiamondhub/blackdiamondhub:latest`
+   - Pushes to GHCR: `ghcr.io/blackdiamondhub/blackdiamondhub/blackdiamondhub:latest`
 3. **Watchtower** on production polls GHCR every 300s, pulls new images, and recreates the `BlackDiamondHub` and `bdh-supervisor` containers automatically
    - Watchtower runs in label mode (`WATCHTOWER_LABEL_ENABLE=true`) and only updates containers labelled `com.centurylinklabs.watchtower.enable=true`: `BlackDiamondHub` and `bdh-supervisor`. App containers (`bdh-app-*`, one digest-pinned image per app) and their companions (e.g. the cameras app's go2rtc) are managed only by the supervisor
 
@@ -57,7 +57,7 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
   - Requires `DJANGO_SECRET_KEY` in `.env`; `DJANGO_DEBUG` defaults to off (set `DJANGO_DEBUG=true` in a local `.env` for development).
   - `/healthz` (DB check, exempt from ALLOWED_HOSTS) backs the image's Docker `HEALTHCHECK`.
   - Rollback: images are also tagged `:sha-<commit>`; pin `image:` in compose to a previous sha and `docker compose up -d`. Watchtower does not roll back on its own, and an image rollback does not undo migrations (restore from `./backups` if needed).
-- **bdh-supervisor** — Runs the container apps and their companions. The cameras app's go2rtc (`ghcr.io/blackdiamondlodge/go2rtc-nack`, upstream + NACK fix) is a companion: API on 127.0.0.1:11900+slot (loopback only; browsers never reach it, the cameras app checks each visitor and proxies the signalling websocket), WebRTC media on 8555, advertising `BDH_GO2RTC_CANDIDATES` (this host's LAN IP:8555, from `.env`)
+- **bdh-supervisor** — Runs the container apps and their companions. The cameras app's go2rtc (`ghcr.io/blackdiamondhub/go2rtc-nack`, upstream + NACK fix) is a companion: API on 127.0.0.1:11900+slot (loopback only; browsers never reach it, the cameras app checks each visitor and proxies the signalling websocket), WebRTC media on 8555, advertising `BDH_GO2RTC_CANDIDATES` (this host's LAN IP:8555, from `.env`)
 - **watchtower** (`containrrr/watchtower`) — Auto-updates the Django and bdh-supervisor containers from GHCR
 
 ## UniFi Protect Integration API
@@ -71,7 +71,7 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
   - `POST /v1/cameras/{id}/ptz/goto/{slot}` — Move to preset (slots 0-4, 204 on success, 404 if preset doesn't exist)
   - `POST /v1/cameras/{id}/ptz/patrol/start/{slot}` — Start patrol
   - `POST /v1/cameras/{id}/ptz/patrol/stop` — Stop patrol
-- **go2rtc**: Proxies RTSPS streams to browser via WebRTC/MSE. The browser loads `video-stream.js` and opens `/api/ws` through the cameras app (`cameras/api/ws`, which checks `policy.can_view` and relays to go2rtc on loopback); `video-stream.js` web component (set src/mode/background as JS properties, NOT HTML attributes). Docker image: `ghcr.io/blackdiamondlodge/go2rtc-nack` (upstream `alexxit/go2rtc` source + a patch so the WebRTC sender answers NACKs)
+- **go2rtc**: Proxies RTSPS streams to browser via WebRTC/MSE. The browser loads `video-stream.js` and opens `/api/ws` through the cameras app (`cameras/api/ws`, which checks `policy.can_view` and relays to go2rtc on loopback); `video-stream.js` web component (set src/mode/background as JS properties, NOT HTML attributes). Docker image: `ghcr.io/blackdiamondhub/go2rtc-nack` (upstream `alexxit/go2rtc` source + a patch so the WebRTC sender answers NACKs)
 
 ## CI/CD
 
@@ -80,7 +80,7 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
   - Test jobs run on `ubuntu-22.04` with a PostgreSQL service container
   - Selenium tests use headless Chrome with shared helpers in `tests/selenium_helpers.py`
 - **Docker publish workflow** (`docker-publish.yml`): Runs on push to `main`
-  - Builds Docker image and pushes to GHCR (`ghcr.io/blackdiamondlodge/blackdiamondhub/blackdiamondhub:latest` and `:sha-<commit>`)
+  - Builds Docker image and pushes to GHCR (`ghcr.io/blackdiamondhub/blackdiamondhub/blackdiamondhub:latest` and `:sha-<commit>`)
   - Watchtower on production auto-pulls the new image (see Deployment section)
 
 ## Branch & Git Workflow
@@ -181,6 +181,6 @@ Homepage hooks (optional, dotted paths in the spec, conventionally in `<app>/hom
 
 ### SDK, per-site apps and acceptance smoke test
 
-- The contract (`PluginSpec`, `Tile`, `Status`, `Shortcut`, modes, sections) lives in **`bdh-sdk`** (github.com/blackdiamondlodge/bdh-sdk), pinned in `requirements.txt` by GitHub release wheel URL. `hub/plugins.py` only re-exports it — change the contract in bdh-sdk, release it, then bump the pin. bdh-sdk also provides `bdh_sdk.settings.app_setting(app_id, key, legacy=...)` (reads a value saved on the Settings page, then `BDH_<ID>_<KEY>`, then legacy env names, then Django settings). Apps that want editable settings list `Setting(key, label, type=BOOL/INT/STR/CHOICE/TIME, ...)` in `PluginSpec.settings` (types from `bdh_sdk.plugins`) and read them with `app_setting`, the Home Assistant client `bdh_sdk.ha` and the reusable app CI workflow `app-ci.yml`.
-- Apps from their own repos (`blackdiamondlodge/bdh-app-<id>`) are installed per site from `sites/<site>/apps.txt` (hashed wheel URLs, `pip install --require-hashes --no-deps`); the image is built with `--build-arg HUB_SITE=<site>` and tagged `:<site>` (`:sunpeaks` and `:latest` today). An app's third-party deps must be in the hub's `requirements.txt`. When an app is extracted, remove it from `HUB_PLUGINS` in the same PR that adds it to the site's `apps.txt`. Hub CI installs `sites/sunpeaks/apps.txt` and runs `hub_smoke` before the unit tests; the app's CI (bdh-sdk `app-ci.yml`) deletes any in-tree copy from the hub checkout so it can be tested before the hub drops it.
+- The contract (`PluginSpec`, `Tile`, `Status`, `Shortcut`, modes, sections) lives in **`bdh-sdk`** (github.com/blackdiamondhub/bdh-sdk), pinned in `requirements.txt` by GitHub release wheel URL. `hub/plugins.py` only re-exports it — change the contract in bdh-sdk, release it, then bump the pin. bdh-sdk also provides `bdh_sdk.settings.app_setting(app_id, key, legacy=...)` (reads a value saved on the Settings page, then `BDH_<ID>_<KEY>`, then legacy env names, then Django settings). Apps that want editable settings list `Setting(key, label, type=BOOL/INT/STR/CHOICE/TIME, ...)` in `PluginSpec.settings` (types from `bdh_sdk.plugins`) and read them with `app_setting`, the Home Assistant client `bdh_sdk.ha` and the reusable app CI workflow `app-ci.yml`.
+- Apps from their own repos (`blackdiamondhub/bdh-app-<id>`) are installed per site from `sites/<site>/apps.txt` (hashed wheel URLs, `pip install --require-hashes --no-deps`); the image is built with `--build-arg HUB_SITE=<site>` and tagged `:<site>` (`:sunpeaks` and `:latest` today). An app's third-party deps must be in the hub's `requirements.txt`. When an app is extracted, remove it from `HUB_PLUGINS` in the same PR that adds it to the site's `apps.txt`. Hub CI installs `sites/sunpeaks/apps.txt` and runs `hub_smoke` before the unit tests; the app's CI (bdh-sdk `app-ci.yml`) deletes any in-tree copy from the hub checkout so it can be tested before the hub drops it.
 - `python manage.py hub_smoke [--app <id>]` is the acceptance check: hook paths import, tile icons resolve via static finders, and every tile page renders (<500) for a signed-in superuser against a throwaway test DB. The reusable app CI runs it after installing the app's wheel next to the hub.

@@ -35,7 +35,7 @@ here=$PWD
 sdk=$(cd "${BDH_SDK:?set BDH_SDK to a bdh-sdk checkout}" && pwd)
 work=$here/tests/e2e/.work
 registry=localhost:5000
-prefix=$registry/blackdiamondlodge/
+prefix=$registry/blackdiamondhub/
 eval "$(python3 tests/e2e/lock.py resolve ${HEADS:+--heads} | sed 's/^/lock_/')"
 extra=${EXTRA_APP_DIR:+$(cd "$EXTRA_APP_DIR" && pwd)}
 runtime=${RUNTIME_IMAGE:-}
@@ -197,6 +197,7 @@ docker run -d --name bdh-e2e-supervisor --network host \
     -e BDH_CATALOG_URL="$catalog_url" \
     -e BDH_IMAGE_PREFIX="$prefix" \
     -e BDH_ATTESTATION=off -e BDH_ALLOW_HTTP=1 \
+    -e BDH_GO2RTC_IMAGE=ghcr.io/blackdiamondhub/go2rtc-nack:latest \
     -e BDH_SUPERVISOR_IMAGE="$supervisor_image" "${supervisor_env[@]}" \
     "$supervisor_image" >/dev/null
 supervisor_up() {

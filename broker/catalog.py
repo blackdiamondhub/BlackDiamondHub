@@ -1,4 +1,4 @@
-"""The app catalog (blackdiamondlodge/bdh-app-catalog): what can be installed.
+"""The app catalog (blackdiamondhub/bdh-app-catalog): what can be installed.
 
 Fetched with ``If-None-Match`` and cached on disk (``BDH_CATALOG_CACHE_DIR``),
 refreshed when it is over an hour old and on demand (``catalog_refresh``).
@@ -29,7 +29,7 @@ SCHEMA = 1
 MAX_AGE = 3600.0
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 MAX_BYTES = 4 * 1024 * 1024
-DEFAULT_URL = "https://raw.githubusercontent.com/blackdiamondlodge/bdh-app-catalog/main/catalog.json"
+DEFAULT_URL = "https://raw.githubusercontent.com/blackdiamondhub/bdh-app-catalog/main/catalog.json"
 
 # Tests swap in an httpx.MockTransport.
 transport = None
