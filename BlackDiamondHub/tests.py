@@ -1,4 +1,5 @@
 from dataclasses import replace
+from unittest import mock
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -7,7 +8,10 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import TestCase, Client, override_settings, tag
 from django.urls import reverse
-from feedback.models import Feedback
+
+from broker import remote
+from hub import feedback as hub_feedback
+from hub_settings.state import DatabaseStateBackend
 from hub.plugins import Tile
 from tests.selenium_helpers import (
     SeleniumTestCase, click_until, login_via_browser, type_into, wait_for_paint,
@@ -285,6 +289,20 @@ class FeedbackModalTest(SeleniumTestCase):
         User.objects.create_user(username='testuser', password='testpassword', is_staff=True)
         self.browser.get('about:blank')
         self.browser.delete_all_cookies()
+        # The feedback container app is "installed"; it counts what it receives.
+        self.sent = []
+        patches = [
+            mock.patch.object(hub_feedback, 'container_enabled', return_value=True),
+            mock.patch.object(remote, 'post_form', side_effect=self.receive),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def receive(self, app_id, path, data, identity=None):
+        self.sent.append(data)
+        DatabaseStateBackend().set('feedback', 'unread_count', len(self.sent))
+        return mock.Mock(status_code=200)
 
     def test_feedback_modal_submission_and_unread_count(self):
         browser = self.browser
@@ -313,9 +331,7 @@ class FeedbackModalTest(SeleniumTestCase):
         wait.until(EC.visibility_of_element_located((By.ID, 'feedback-success')))
         self.assertIn('Thank you for your feedback!',
                       browser.find_element(By.ID, 'feedback-success').text)
-        feedback = Feedback.objects.get()
-        self.assertEqual(feedback.message, message)
-        self.assertFalse(feedback.is_read)
+        self.assertEqual([d['message'] for d in self.sent], [message])
 
         # The modal closes itself 2s after a successful send.
         wait.until(EC.invisibility_of_element_located((By.ID, 'feedback-modal')))

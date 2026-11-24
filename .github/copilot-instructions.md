@@ -6,7 +6,6 @@ BlackDiamondHub is a Django-based home automation and management hub for a vacat
 
 ## Django Apps
 
-- **feedback** — Guest feedback (navbar modal, message only; records the page and the stay in progress) and a staff-only two-pane inbox at /feedback/ (views use staff_page/staff_api)
 - **hub_settings** — Staff-only Settings page at /settings/ (avatar menu → Settings): a Lodge section (Home layout, Apps list with versions) plus one page per app that declares `PluginSpec.settings`. Saved values live in `AppSetting` rows and override the environment; `store.lookup` is registered with bdh-sdk's `set_store` and cached for 30 s (cleared on save/delete)
 Installed from their own repos via `sites/sunpeaks/apps.txt`:
 
@@ -21,6 +20,7 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
 - **speakers** (`bdh-app-speakers`, was `sonos_control`) — Sonos + Home Assistant media_player control (container app; settings under `[apps.speakers]` / `BDH_SPEAKERS_*` only)
 - **stays** (`bdh-app-stays`) — no pages; its `stay` hook reads `sensor.bdl_stay_current` from the Stays AppDaemon app to put the homepage in guest (or owner-visit) mode, and its `card` hook provides the lodge card (`BDH_STAYS_ENTITY` and friends, see its README)
 - **inventory** (`bdh-app-inventory`) — kitchen inventory with item photos and QR code labels at `/inventory/` (sign-in, no homepage tile). Its tests use pyzbar, so keep `pyzbar`/`libzbar0` in the hub requirements and CI
+- **feedback** (`bdh-app-feedback`, container app) — guest feedback inbox. The top bar's Feedback pill/modal, inbox link and unread badge come from `hub/feedback.py` and appear only when this app is installed and enabled (the hub has no built-in feedback app any more; `hub/migrations/0001_drop_builtin_feedback.py` dropped its old table)
 
 ## Tech Stack
 

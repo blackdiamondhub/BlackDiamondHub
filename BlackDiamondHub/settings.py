@@ -97,7 +97,6 @@ INSTALLED_APPS = [
 # their own repos are discovered through the "blackdiamondhub.plugins" entry
 # point group.
 HUB_PLUGINS = load_plugins([
-    'feedback.plugin.spec',
     'hub_settings.plugin.spec',
     'display.plugin.spec',
 ], exclude=HUB_CONTAINER_APPS)

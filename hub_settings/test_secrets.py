@@ -123,11 +123,11 @@ class CryptoTests(VaultCase):
         self.assertIsNone(sdk_secrets.get("pw", app="cams"))
 
     def test_not_in_repr_or_appdata_export(self):
-        vault.set_secret("feedback", "pw", VALUE)
+        vault.set_secret("display", "pw", VALUE)
         row = AppSecret.objects.get()
         self.assertNotIn(VALUE, repr(row) + str(row))
         out = StringIO()
-        appdata.export_rows("feedback", out)
+        appdata.export_rows("display", out)
         self.assertNotIn("appsecret", out.getvalue().lower())
         self.assertNotIn(VALUE, out.getvalue())
         out = StringIO()
