@@ -14,7 +14,7 @@ keep a manual "Recover now" for that).
 
 ## 2. Shape
 
-Repo `blackdiamondlodge/bdh-app-unifi-screens`, container app:
+Repo `blackdiamondhub/bdh-app-unifi-screens`, container app:
 
 - `lifecycle="always"` (as timers uses), `network: lan` (LAN approval at install).
 - Permissions: `displays.read` (new, §4), `alerts`, optional `ha.call:notify.*`.

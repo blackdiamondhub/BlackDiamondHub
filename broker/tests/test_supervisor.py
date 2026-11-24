@@ -24,7 +24,7 @@ SUPERVISOR = {"BDH_SUPERVISOR_SOCKET": "/run/test.sock", "BDH_SUPERVISOR_TOKEN":
 
 
 def version(v="1.0.0", **kw):
-    out = {"version": v, "kind": "image", "image": f"ghcr.io/blackdiamondlodge/bdh-app-hello@sha256:{'0' * 64}",
+    out = {"version": v, "kind": "image", "image": f"ghcr.io/blackdiamondhub/bdh-app-hello@sha256:{'0' * 64}",
            "wheel_url": f"https://x/app-{v}.whl", "sha256": "0" * 64, "hub_api": 2, "requires_sdk": "", "permissions": ["alerts"], "network": "none", "lifecycle": "on_demand",
            "memory_mb": 128, "companions": [], "provides": [], "changelog": ""}
     out.update(kw)

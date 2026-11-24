@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Set up (or update) a hub server from this checkout. Safe to re-run.
 #
-#   git clone https://github.com/blackdiamondlodge/BlackDiamondHub.git
+#   git clone https://github.com/blackdiamondhub/BlackDiamondHub.git
 #   cd BlackDiamondHub && sudo deploy/bootstrap.sh
 #
 # What it does:

@@ -133,10 +133,10 @@ Set `HUB_EVENTS=off` to start no sources.
 ### Container apps
 
 Apps built for hub API 2 run in their own containers, managed by
-[bdh-supervisor](https://github.com/blackdiamondlodge/bdh-supervisor) (a
+[bdh-supervisor](https://github.com/blackdiamondhub/bdh-supervisor) (a
 compose service; the hub reaches it through `BDH_SUPERVISOR_SOCKET` with
 `BDH_SUPERVISOR_TOKEN`). They are installed from the
-[app catalog](https://github.com/blackdiamondlodge/bdh-app-catalog)
+[app catalog](https://github.com/blackdiamondhub/bdh-app-catalog)
 (`BDH_CATALOG_URL`, cached under `media/.catalog` and refreshed hourly), and
 the hub proxies each one on its own port (9100 + n), starting it on the first
 request and keeping it awake while it is used.
@@ -178,7 +178,7 @@ newer than it.
 
 The Feedback pill and modal in the top bar, and the owner menu's inbox link
 and unread badge, come from `hub/feedback.py`. They use the
-[feedback container app](https://github.com/blackdiamondlodge/bdh-app-feedback)
+[feedback container app](https://github.com/blackdiamondhub/bdh-app-feedback)
 when it is installed and enabled: the hub posts each message to the app
 (adding the page and the stay in progress), the inbox is the app's own page,
 and the badge shows the unread count the app keeps in its app state. Without
@@ -279,7 +279,7 @@ bdh-supervisor, Watchtower) against a PostgreSQL server elsewhere on the LAN.
 2. Server:
 
     ```sh
-    git clone https://github.com/blackdiamondlodge/BlackDiamondHub.git
+    git clone https://github.com/blackdiamondhub/BlackDiamondHub.git
     cd BlackDiamondHub && sudo deploy/bootstrap.sh
     ```
 

@@ -4,7 +4,7 @@ services:
   djangoapp:
     # One image per site (see sites/ in the README): HUB_IMAGE_TAG=mercerisland for
     # Mercer Island; unset means :latest, the Sun Peaks image.
-    image: ghcr.io/blackdiamondlodge/blackdiamondhub/blackdiamondhub:${HUB_IMAGE_TAG:-latest}
+    image: ghcr.io/blackdiamondhub/blackdiamondhub/blackdiamondhub:${HUB_IMAGE_TAG:-latest}
     container_name: BlackDiamondHub
     labels:
       # Watchtower updates only labelled containers (WATCHTOWER_LABEL_ENABLE).
@@ -72,12 +72,12 @@ services:
     restart: unless-stopped
 
   bdh-supervisor:
-    # Runs container apps (https://github.com/blackdiamondlodge/bdh-supervisor).
+    # Runs container apps (https://github.com/blackdiamondhub/bdh-supervisor).
     # The only container with the Docker socket besides watchtower; it creates
     # the bdh-gateway container, bdh-* networks and the bdh-app-* containers and
     # volumes itself (don't add those here or to watchtower). The cameras app's
     # go2rtc runs as one of its companions, not as a service here.
-    image: ghcr.io/blackdiamondlodge/bdh-supervisor:latest
+    image: ghcr.io/blackdiamondhub/bdh-supervisor:latest
     container_name: bdh-supervisor
     labels:
       # Watchtower updates only labelled containers (WATCHTOWER_LABEL_ENABLE).
@@ -90,7 +90,7 @@ services:
       # WebRTC address(es) the cameras go2rtc companion advertises to browsers
       # (this host's LAN IP:8555; bootstrap.sh fills it in).
       BDH_GO2RTC_CANDIDATES: ${BDH_GO2RTC_CANDIDATES:-}
-      BDH_CATALOG_URL: ${BDH_CATALOG_URL:-https://raw.githubusercontent.com/blackdiamondlodge/bdh-app-catalog/main/catalog.json}
+      BDH_CATALOG_URL: ${BDH_CATALOG_URL:-https://raw.githubusercontent.com/blackdiamondhub/bdh-app-catalog/main/catalog.json}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - bdh-supervisor-socket:/run/bdh-supervisor
