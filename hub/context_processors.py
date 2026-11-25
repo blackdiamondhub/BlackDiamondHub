@@ -98,3 +98,9 @@ def nav_title(request):
         return {"hub_nav_title": ""}
     exact = next((t for t in best.tiles if _tile_url(t) == path), None)
     return {"hub_nav_title": (exact or best.tiles[0]).title}
+
+
+def clock(request):
+    from .clock import utc_offset_minutes
+
+    return {"hub_utc_offset": utc_offset_minutes()}

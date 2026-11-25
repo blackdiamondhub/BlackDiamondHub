@@ -130,7 +130,7 @@
 <script>
     (function () {
         function theme() {
-            var h = new Date().getHours();
+            var h = window.bdhClock.hours();
             document.body.classList.toggle('theme-night', h >= 18 || h < 6);
         }
         theme();

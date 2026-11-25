@@ -558,7 +558,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .map(s => { const n = document.createElement('span'); n.textContent = s.selectedOptions[0].textContent; return n; }));
     }
     const clock = document.getElementById('dsp-prev-clock');
-    const tick = () => { clock.textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
+    const tick = () => { clock.textContent = window.bdhClock.format(null, [], { hour: 'numeric', minute: '2-digit' }); };
     tick();
     setInterval(tick, 30000);
     document.querySelectorAll('.dsp-slots select').forEach(s => s.addEventListener('change', paintStrip));

@@ -4,6 +4,7 @@ from . import feedback, remote, views
 
 urlpatterns = [
     path("status/", views.home_status, name="hub_status"),
+    path("clock/", views.clock, name="hub_clock"),
     path("shortcut/<slug:plugin>/<slug:shortcut>/", views.run_shortcut, name="hub_shortcut"),
     path("action/<slug:plugin>/", views.run_action, name="hub_action"),
     path("units/", views.set_units, name="hub_units"),

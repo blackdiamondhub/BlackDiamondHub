@@ -436,6 +436,31 @@
             body:has(.navbar:not(.is-home) .navbar-extras) .content-wrapper { margin-top: 118px; }
         }
     </style>
+    <script>
+        // The hub's local time, whatever time zone rules the browser has (hub/clock.py).
+        // shift(d) is a Date whose UTC fields are the hub's wall clock at d.
+        window.bdhClock = (function () {
+            var offset = {{ hub_utc_offset|default:0 }};
+            var shift = function (d) { return new Date((d == null ? Date.now() : +new Date(d)) + offset * 60000); };
+            var clock = {
+                shift: shift,
+                offset: function () { return offset; },
+                hours: function (d) { return shift(d).getUTCHours(); },
+                format: function (d, locale, opts) {
+                    return new Intl.DateTimeFormat(locale || [], Object.assign({}, opts, { timeZone: 'UTC' })).format(shift(d));
+                },
+                refresh: function () {
+                    return fetch('{% url "hub_clock" %}', { cache: 'no-store' })
+                        .then(function (r) { return r.ok ? r.json() : null; })
+                        .then(function (j) { if (j && typeof j.offset === 'number') offset = j.offset; })
+                        .catch(function () {});
+                }
+            };
+            // Kiosk pages stay open for days; follow DST changes.
+            setInterval(clock.refresh, 60 * 60 * 1000);
+            return clock;
+        })();
+    </script>
     {% block extra_head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">

@@ -39,6 +39,14 @@ def home_data(mode, timeout=status.TIMEOUT):
 
 @never_cache
 @require_GET
+def clock(request):
+    from .clock import utc_offset_minutes
+
+    return JsonResponse({"offset": utc_offset_minutes()})
+
+
+@never_cache
+@require_GET
 def home_status(request):
     mode = resolve_mode(request)
     return JsonResponse({"mode": mode, "card": status.lodge_card(mode), **home_data(mode)})

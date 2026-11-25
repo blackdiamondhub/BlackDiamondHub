@@ -99,7 +99,8 @@
     let night = cfg.night || null;
     const $ = sel => root.querySelector(sel);
     const esc = s => String(s).replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[ch]);
-    const timeText = iso => new Date(iso).toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'});
+    const hubClock = window.bdhClock || {format: (d, locale, opts) => new Date(d == null ? Date.now() : d).toLocaleString(locale, opts)};
+    const timeText = iso => hubClock.format(iso, 'en-US', {hour: 'numeric', minute: '2-digit'});
 
     function build() {
         root = document.createElement('div');
@@ -132,10 +133,9 @@
     }
 
     function tick() {
-        const now = new Date();
-        const [hm, ampm] = now.toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'}).split(' ');
+        const [hm, ampm] = hubClock.format(null, 'en-US', {hour: 'numeric', minute: '2-digit'}).split(' ');
         $('.clock').innerHTML = `${esc(hm)}<small>${esc(ampm || '')}</small>`;
-        $('.date').textContent = now.toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric'});
+        $('.date').textContent = hubClock.format(null, 'en-US', {weekday: 'long', month: 'long', day: 'numeric'});
     }
 
     // Burn-in: the clock and label creep slowly and continuously (each move is a 120s linear transition).
