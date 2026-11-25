@@ -1171,10 +1171,10 @@
 <script>
     (function () {
         function tick() {
-            var now = new Date();
-            var h = now.getHours();
+            var c = window.bdhClock;
+            var h = c.hours();
             document.body.classList.toggle('theme-night', h >= 18 || h < 6);
-            var parts = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).split(' ');
+            var parts = c.format(null, [], { hour: 'numeric', minute: '2-digit' }).split(' ');
             var clock = document.getElementById('hub-clock');
             clock.textContent = parts[0];
             if (parts[1]) {
@@ -1183,7 +1183,7 @@
                 clock.appendChild(ampm);
             }
             document.getElementById('hub-date').textContent =
-                now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+                c.format(null, [], { weekday: 'short', month: 'short', day: 'numeric' });
         }
         tick();
         setInterval(tick, 15000);
