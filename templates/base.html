@@ -447,9 +447,13 @@
             ['pointerdown', 'keydown', 'wheel'].forEach(function (t) {
                 addEventListener(t, function () { touched = Date.now(); }, { capture: true, passive: true });
             });
+            // A pop-up (e.g. the doorbell camera) must never be reloaded away; it
+            // closes on its own within 10 minutes (hub/static/hub/alerts.js).
+            var alertOpen = function () { return !!(window.BDHAlerts && BDHAlerts.isOpen && BDHAlerts.isOpen()); };
             var reloadWhenIdle = function (next) {
                 var tries = 0;
                 (function wait() {
+                    if (alertOpen()) { setTimeout(wait, 15000); return; }
                     // A minute without touches, so a guest mid-tap isn't interrupted.
                     if (Date.now() - touched < 60000 && ++tries < 240) { setTimeout(wait, 15000); return; }
                     try {
@@ -463,6 +467,8 @@
             var clock = {
                 shift: shift,
                 offset: function () { return offset; },
+                // Whether an update reload would go ahead now (tests pass a later `now`).
+                canReload: function (now) { return !alertOpen() && (now || Date.now()) - touched >= 60000; },
                 hours: function (d) { return shift(d).getUTCHours(); },
                 format: function (d, locale, opts) {
                     return new Intl.DateTimeFormat(locale || [], Object.assign({}, opts, { timeZone: 'UTC' })).format(shift(d));

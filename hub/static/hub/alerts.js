@@ -186,6 +186,7 @@
         else if (cmd === 'hangup') close();
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
-    window.BDHAlerts = {show, close, keepOpen};
+    // isOpen: base.html holds an update reload while a pop-up is showing.
+    window.BDHAlerts = {show, close, keepOpen, isOpen: () => !!current};
     connect();
 })();

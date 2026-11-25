@@ -223,6 +223,23 @@ class AlertKeepOpenTest(SeleniumTestCase):
 
 
 @tag("selenium")
+class AlertBlocksUpdateReloadTest(SeleniumTestCase):
+    """A hub update must not reload the display away from a pop-up (doorbell, 2026-11-25)."""
+
+    def test_update_reload_waits_for_the_alert_to_close(self):
+        browser = self.browser
+        browser.get(f"{self.live_server_url}/accounts/login/")
+        wait_for_paint(browser)
+        idle = "return bdhClock.canReload(Date.now() + 120000)"
+        self.assertTrue(browser.execute_script(idle))
+        browser.execute_script(
+            "BDHAlerts.show({key: 'k', title: 'Door', embed_url: '/hub/api/alerts/sample/', ttl: 60})")
+        self.assertFalse(browser.execute_script(idle))
+        browser.execute_script("BDHAlerts.close()")
+        self.assertTrue(browser.execute_script(idle))
+
+
+@tag("selenium")
 class AlertHoldTest(SeleniumTestCase):
     """The alert's own iframe can hold it open (doorbell mic on), release it, or hang up."""
     SHOWN = (By.CSS_SELECTOR, ".hub-alert.on")
