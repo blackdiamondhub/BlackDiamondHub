@@ -134,6 +134,7 @@ def _catalog(mode=None):
                 "subtitle": tile.subtitle,
                 "url": url,
                 "icon": tile.icon,
+                "icon_on": getattr(tile, "icon_on", ""),
                 "order": tile.order,
             })
     for items in grouped.values():

@@ -59,8 +59,10 @@ class Command(BaseCommand):
                     except Exception as exc:  # noqa: BLE001
                         problems.append(f"{spec.id}: {name} {path!r}: {exc!r}")
             for tile in spec.tiles:
-                if not finders.find(tile.icon):
-                    problems.append(f"{spec.id}: icon {tile.icon!r} not found")
+                for attr in ("icon", "icon_on"):
+                    path = getattr(tile, attr, "")
+                    if (path or attr == "icon") and not finders.find(path):
+                        problems.append(f"{spec.id}: {attr} {path!r} not found")
 
         problems += self._render(selected)
         for spec in selected:

@@ -380,6 +380,7 @@ class RemoteTile:
     subtitle: str = ""
     order: int = 100
     modes: frozenset = ALL_MODES
+    icon_on: str = ""
 
 
 @dataclass(frozen=True)
@@ -452,7 +453,8 @@ def _tiles(app_id, manifest):
         tiles.append(RemoteTile(
             title=str(t["title"]), url_name=str(t.get("url_name") or t["url"]), url=url,
             icon=static_url(app_id, t.get("icon")), section=t["section"],
-            subtitle=str(t.get("subtitle") or ""), order=int(t.get("order") or 100), modes=modes))
+            subtitle=str(t.get("subtitle") or ""), order=int(t.get("order") or 100), modes=modes,
+            icon_on=static_url(app_id, t.get("icon_on")) if t.get("icon_on") else ""))
     return tuple(tiles)
 
 
