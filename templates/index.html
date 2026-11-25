@@ -473,7 +473,7 @@
             {% else %}
             <a class="hub-cell hub-tile hub-tile-{{ tile.size }}" href="{{ tile.url }}" data-plugin="{{ tile.plugin }}">
                 <span class="hub-tile-in">
-                    <img src="{{ tile.icon|tile_icon }}" alt="">
+                    <img src="{{ tile.icon|tile_icon }}" alt=""{% if tile.icon_on %} data-icon="{{ tile.icon|tile_icon }}" data-icon-on="{{ tile.icon_on|tile_icon }}"{% endif %}>
                     <span class="hub-tile-txt">
                         <span class="hub-tile-title">{{ tile.title }}</span>
                         <span class="hub-tile-sub" data-subtitle="{{ tile.subtitle }}">{{ tile.subtitle }}</span>
@@ -781,6 +781,16 @@
 
         narrow.addEventListener('change', function () { applyStatus(lastStatus); });
 
+        // Tiles with an "on" icon (e.g. animated flames) show it while the
+        // app's status level is "on". Only touch src when it changes, so an
+        // animation doesn't restart on every poll.
+        function swapIcon(tile, s) {
+            var img = tile.querySelector('img[data-icon-on]');
+            if (!img) return;
+            var want = img.getAttribute(s && s.level === 'on' ? 'data-icon-on' : 'data-icon');
+            if (img.getAttribute('src') !== want) img.setAttribute('src', want);
+        }
+
         function applyStatus(status) {
             lastStatus = status;
             document.querySelectorAll('.hub-tile[data-plugin]').forEach(function (tile) {
@@ -788,6 +798,7 @@
                 var s = status[tile.getAttribute('data-plugin')];
                 renderRows(tile, s);
                 renderReadings(tile, s);
+                swapIcon(tile, s);
                 sub.className = 'hub-tile-sub';
                 if (s) {
                     statusText(sub, s);

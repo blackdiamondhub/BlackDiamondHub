@@ -180,6 +180,35 @@ class LandingPageTileFitTest(SeleniumTestCase):
 
 
 @tag('selenium')
+class TileIconOnTest(SeleniumTestCase):
+    """A tile with an "on" icon shows it only while its app's status is on."""
+
+    OFF, ON = "android-chrome-192x192.png", "favicon-32x32.png"
+
+    def _src(self, level):
+        tile = remote.RemoteTile(title="Fireplace", url_name="fp", url="/settings/", icon=self.OFF,
+                                 section="lodge", icon_on=self.ON)
+        plugins = tuple(replace(spec, tiles=(tile,)) if spec.id == "settings" else spec
+                        for spec in settings.HUB_PLUGINS)
+        data = {"status": {"settings": {"text": "x", "level": level, "stale": False, "updated": 0}},
+                "shortcuts": [], "grouped": False, "refreshing": False}
+        with override_settings(HUB_PLUGINS=plugins), \
+                mock.patch("BlackDiamondHub.views.home_data", return_value=data):
+            self.browser.get(self.live_server_url)
+            img = WebDriverWait(self.browser, 20).until(EC.presence_of_element_located(
+                (By.CSS_SELECTOR, '.hub-tile[data-plugin="settings"] img')))
+            return img.get_attribute("src")
+
+    def test_on_icon_while_on(self):
+        self.assertTrue(self._src("on").endswith("/" + self.ON))
+
+    def test_normal_icon_otherwise(self):
+        for level in ("info", "warn"):
+            with self.subTest(level=level):
+                self.assertTrue(self._src(level).endswith("/" + self.OFF))
+
+
+@tag('selenium')
 class UnitToggleTest(SeleniumTestCase):
     TOGGLE = (By.CLASS_NAME, 'toggle-button')
 

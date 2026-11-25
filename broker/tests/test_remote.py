@@ -71,7 +71,18 @@ class RemoteSpecTests(TestCase):
         tile = next(t for t in lodge if t["plugin"] == "cams")
         self.assertEqual(tile["id"], "cams:cameras:index")
         self.assertEqual(tile["url"], "/apps/cams/cameras/")
+        self.assertEqual(tile["icon_on"], "")
         self.assertFalse(any("evil" in t["url"] for t in lodge))
+
+    def test_tile_icon_on_from_manifest(self):
+        m = manifest()
+        m["tiles"][0]["icon_on"] = "cams/icon-on.svg"
+        self.install.manifest = m
+        self.install.save()
+        remote.installs_changed()
+        self.assertEqual(self.spec().tiles[0].icon_on, "/apps/cams/_raw/static/cams/icon-on.svg")
+        tile = next(t for t in modes._catalog("guest")["lodge"] if t["plugin"] == "cams")
+        self.assertEqual(tile["icon_on"], "/apps/cams/_raw/static/cams/icon-on.svg")
 
     def test_disabled_app_disappears(self):
         self.assertIsNotNone(self.spec())
