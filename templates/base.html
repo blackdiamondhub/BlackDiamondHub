@@ -439,8 +439,26 @@
     <script>
         // The hub's local time, whatever time zone rules the browser has (hub/clock.py).
         // shift(d) is a Date whose UTC fields are the hub's wall clock at d.
+        // Also reloads the page after a hub or app update, once the screen is idle.
         window.bdhClock = (function () {
             var offset = {{ hub_utc_offset|default:0 }};
+            var build = '{{ hub_build|default:"" }}';
+            var touched = Date.now();
+            ['pointerdown', 'keydown', 'wheel'].forEach(function (t) {
+                addEventListener(t, function () { touched = Date.now(); }, { capture: true, passive: true });
+            });
+            var reloadWhenIdle = function (next) {
+                var tries = 0;
+                (function wait() {
+                    // A minute without touches, so a guest mid-tap isn't interrupted.
+                    if (Date.now() - touched < 60000 && ++tries < 240) { setTimeout(wait, 15000); return; }
+                    try {
+                        if (sessionStorage.getItem('bdh-reloaded-for') === next) return;
+                        sessionStorage.setItem('bdh-reloaded-for', next);
+                    } catch (e) {}
+                    location.reload();
+                })();
+            };
             var shift = function (d) { return new Date((d == null ? Date.now() : +new Date(d)) + offset * 60000); };
             var clock = {
                 shift: shift,
@@ -452,12 +470,19 @@
                 refresh: function () {
                     return fetch('{% url "hub_clock" %}', { cache: 'no-store' })
                         .then(function (r) { return r.ok ? r.json() : null; })
-                        .then(function (j) { if (j && typeof j.offset === 'number') offset = j.offset; })
+                        .then(function (j) {
+                            if (!j) return;
+                            if (typeof j.offset === 'number') offset = j.offset;
+                            if (build && j.build && j.build !== build && window.top === window) {
+                                build = j.build;
+                                reloadWhenIdle(j.build);
+                            }
+                        })
                         .catch(function () {});
                 }
             };
-            // Kiosk pages stay open for days; follow DST changes.
-            setInterval(clock.refresh, 60 * 60 * 1000);
+            // Kiosk pages stay open for days: follow DST changes and updates.
+            setInterval(clock.refresh, 5 * 60 * 1000);
             return clock;
         })();
     </script>

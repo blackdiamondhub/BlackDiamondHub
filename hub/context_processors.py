@@ -101,6 +101,6 @@ def nav_title(request):
 
 
 def clock(request):
-    from .clock import utc_offset_minutes
+    from .clock import build_id, utc_offset_minutes
 
-    return {"hub_utc_offset": utc_offset_minutes()}
+    return {"hub_utc_offset": utc_offset_minutes(), "hub_build": build_id()}
