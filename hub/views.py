@@ -40,9 +40,9 @@ def home_data(mode, timeout=status.TIMEOUT):
 @never_cache
 @require_GET
 def clock(request):
-    from .clock import utc_offset_minutes
+    from .clock import build_id, utc_offset_minutes
 
-    return JsonResponse({"offset": utc_offset_minutes()})
+    return JsonResponse({"offset": utc_offset_minutes(), "build": build_id()})
 
 
 @never_cache

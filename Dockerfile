@@ -37,6 +37,10 @@ RUN . /app/.venv/bin/activate && sh docker/install_apps.sh "${HUB_SITE}"
 
 COPY . /app/
 
+# Git commit of this image; pages reload when it changes (hub/clock.py).
+ARG HUB_BUILD=
+ENV HUB_BUILD=${HUB_BUILD}
+
 # Collect static files for WhiteNoise. The key is only needed to import settings.
 RUN . /app/.venv/bin/activate && \
     DJANGO_SECRET_KEY=collectstatic-only python manage.py collectstatic --noinput

@@ -67,6 +67,8 @@ jobs:
           push: true
           # GHCR intermittently rejects pushes that include attestation manifests.
           provenance: false
-          build-args: HUB_SITE=${{ matrix.site }}
+          build-args: |
+            HUB_SITE=${{ matrix.site }}
+            HUB_BUILD=${{ github.sha }}
           tags: |
             ${{ env.TAGS }}
