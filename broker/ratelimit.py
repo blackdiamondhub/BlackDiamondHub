@@ -14,6 +14,7 @@ SLOW = {
     "secrets.get": (2.0, 20.0),
     "secrets.set": (0.5, 5.0),
     "secrets.delete": (0.5, 5.0),
+    "tools.open": (1.0, 10.0),
 }
 
 

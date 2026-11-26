@@ -99,7 +99,7 @@ def _summary(op, payload):
         name = payload.get("name")
         return json.dumps({"name": name if isinstance(name, str) else None})[:500]
     keys = ("domain", "service", "entity_id", "key", "topic", "patterns", "filename", "message",
-            "provider", "name", "mime", "main", "expected_revision")
+            "provider", "name", "mime", "main", "expected_revision", "kind")
     return json.dumps({k: payload[k] for k in keys if k in payload}, default=str)[:500]
 
 

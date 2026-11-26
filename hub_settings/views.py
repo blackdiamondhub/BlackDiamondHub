@@ -522,12 +522,47 @@ def _save_units(request):
         status.forget_units()
 
 
+def _save_assistant(request):
+    """The assistant's dashboard control and allowed apps (``hub.tools``)."""
+    from hub.tools import ASSISTANT_APPS, DASHBOARD_CONTROL
+
+    if not request.POST.get("assistant_form"):
+        return
+    on = bool(request.POST.get(DASHBOARD_CONTROL))
+    if on != _assistant_control():
+        AppSetting.objects.update_or_create(
+            app_id="hub", key=DASHBOARD_CONTROL, defaults={"value": on, "updated_by": request.user})
+    pickable = {a["id"] for a in _assistant_apps() if not a["out"]}
+    chosen = sorted(set(request.POST.getlist(ASSISTANT_APPS)) & pickable)
+    # Untouched, the default (scenes and fireplace) stays the default.
+    if chosen != sorted(a["id"] for a in _assistant_apps() if a["on"]):
+        AppSetting.objects.update_or_create(
+            app_id="hub", key=ASSISTANT_APPS, defaults={"value": chosen, "updated_by": request.user})
+
+
+def _assistant_control():
+    from hub import tools
+
+    return tools.dashboard_control()
+
+
+def _assistant_apps():
+    from hub import quick, tools
+    from hub.modes import plugins
+
+    chosen = tools.chosen_apps()
+    return sorted(({"id": s.id, "label": quick.app_label(s), "out": not tools.opted_in(s),
+                    "on": s.id in chosen and tools.opted_in(s)} for s in plugins()),
+                  key=lambda a: a["label"].lower())
+
+
 @staff_page
 def location_settings(request):
     saved = AppSetting.objects.filter(app_id=LOCATION_APP, key=LOCATION_KEY).first()
     error = ""
     if request.method == "POST":
         _save_units(request)
+        _save_assistant(request)
         value, error = _parse_location(request.POST)
         if value is not None:
             AppSetting.objects.update_or_create(
@@ -554,4 +589,5 @@ def location_settings(request):
                    from_site=saved is None and request.method != "POST" and bool(current["timezone"]),
                    zones=sorted(_zones() | ({current["timezone"]} if current.get("timezone") else set())),
                    just_saved=request.GET.get("saved") == "1", status=400 if error else 200,
-                   unit_choices=UNIT_CHOICES, hub_units=request.POST.get("units") or units.system())
+                   unit_choices=UNIT_CHOICES, hub_units=request.POST.get("units") or units.system(),
+                   assistant_control=_assistant_control(), assistant_apps=_assistant_apps())

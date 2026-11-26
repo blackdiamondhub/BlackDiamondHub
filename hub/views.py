@@ -5,6 +5,7 @@ import logging
 import os
 
 from bdh_sdk import units
+from bdh_sdk.grants import HUB_TOPICS
 from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
@@ -17,6 +18,7 @@ from hub_settings.models import AppSetting
 
 from . import status
 from .modes import resolve_mode
+from .plugins import OWNER
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +110,16 @@ Apps show live video or other content here.</small></div></body></html>"""
 
 
 @never_cache
+@require_GET
+@staff_member_required
+def tools_list(request):
+    """The assistant tools an owner session would get (for testing; an MCP server later)."""
+    from . import tools
+
+    return JsonResponse({"mode": OWNER, "tools": tools.listing(OWNER)})
+
+
+@never_cache
 @staff_member_required
 def alert_test(request):
     """Pushes a sample alert to every screen. ``?embed=/path/`` shows that page instead; ``?sound=`` picks the chime
@@ -168,7 +180,7 @@ def event_hook(request, source, topic):
     from bdh_sdk import events
 
     conf = settings.HUB_EVENT_SOURCES.get(source)
-    if not conf or conf["type"] != "webhook":
+    if not conf or conf["type"] != "webhook" or source in HUB_TOPICS:
         raise Http404
     secret = os.environ.get(conf["secret_env"], "")
     given = request.headers.get("X-Hub-Secret", "")

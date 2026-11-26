@@ -28,6 +28,7 @@ import threading
 import time
 
 from bdh_sdk import events
+from bdh_sdk.grants import HUB_TOPICS
 
 log = logging.getLogger(__name__)
 
@@ -66,8 +67,8 @@ def start(sources):
 
 
 def reserved_names():
-    """Source names that aren't Home Assistant instances (e.g. webhooks)."""
-    return {name for name, conf in _config.items() if conf["type"] != "home_assistant"}
+    """Source names that aren't Home Assistant instances (e.g. webhooks), and the hub's own topics."""
+    return {name for name, conf in _config.items() if conf["type"] != "home_assistant"} | set(HUB_TOPICS)
 
 
 def sync_instances(delay=0):

@@ -8,6 +8,7 @@ urlpatterns = [
     path("shortcut/<slug:plugin>/<slug:shortcut>/", views.run_shortcut, name="hub_shortcut"),
     path("action/<slug:plugin>/", views.run_action, name="hub_action"),
     path("units/", views.set_units, name="hub_units"),
+    path("tools/", views.tools_list, name="hub_tools"),
     path("alerts/test/", views.alert_test, name="hub_alert_test"),
     path("alerts/sample/", views.alert_sample, name="hub_alert_sample"),
     path("tts/", views.tts, name="hub_tts"),

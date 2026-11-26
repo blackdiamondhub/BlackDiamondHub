@@ -42,6 +42,7 @@ PERMISSIONS = (
     ("media", "fa-photo-film", "Upload media", ""),
     ("displays.read", "fa-display", "See which screens are checking in", ""),
     ("stays.read", "fa-suitcase-rolling", "See who is staying at the lodge", ""),
+    ("tools", "fa-robot", "Use other apps' assistant tools", ""),
     ("events.subscribe:", "fa-tower-broadcast", "Listen to hub events", None),
     ("events.publish:", "fa-paper-plane", "Send hub events", None),
 )
