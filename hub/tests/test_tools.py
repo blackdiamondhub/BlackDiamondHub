@@ -143,6 +143,12 @@ class GatewayTestCase(TestCase):
         STATE.clear()
         reset_broker()
         self.addCleanup(reset_broker)
+        self.allow("lights", "alarm", "heat", LONG_ID, "stays")
+
+    def allow(self, *app_ids):
+        AppSetting.objects.update_or_create(app_id="hub", key="assistant_apps", defaults={"value": list(app_ids)})
+        hub_store.clear()
+        cache.clear()
 
     def start_stay(self, owner=False):
         now = datetime.now(LODGE_TZ)
@@ -251,6 +257,114 @@ class DashboardControlTests(GatewayTestCase):
     def test_on_by_default(self):
         self.assertTrue(tools.dashboard_control())
         self.assertIn("heat__set_temp", self.names(DASHBOARD))
+
+
+def scenes_shortcuts():
+    return [Shortcut(id="relax", title="Relax", icon="fa-solid fa-couch", modes=ALL_MODES)]
+
+
+def scenes_run_shortcut(shortcut_id):
+    STATE.setdefault("ran", []).append(shortcut_id)
+
+
+OPTED_OUT = PLUGINS + (
+    PluginSpec(id="vault", app="vault", tiles=(_tile("Vault"),), assistant=False,
+               status="hub.tests.test_tools.lights_status", run_action="hub.tests.test_tools.lights_run_action",
+               shortcuts="hub.tests.test_tools.lights_shortcuts",
+               run_shortcut="hub.tests.test_tools.lights_run_shortcut"),
+)
+
+
+class AllowlistTests(GatewayTestCase):
+    def test_only_allowlisted_apps_contribute(self):
+        self.allow("heat")
+        for mode in (OWNER, GUEST, DASHBOARD):
+            names = self.names(mode)
+            self.assertIn("heat__get_temp", names)
+            self.assertFalse([n for n in names if n.startswith(("lights__", "alarm__", LONG_ID[:20]))], mode)
+
+    def test_guessed_names_of_other_apps_are_refused(self):
+        self.allow("heat")
+        session = self.session()
+        for name in ("lights__shortcut__movie", "lights__action____all_off", tool_name(LONG_ID, LONG_TOOL)):
+            answer = tools.call(session, name, {})
+            self.assertFalse(answer["ok"], name)
+        self.assertNotIn("ran", STATE)
+        self.assertNotIn("acted", STATE)
+        self.assertNotIn("calls", STATE)
+
+    def test_dropped_while_listed_is_refused_at_run_time(self):
+        session = self.session()
+        entry = tools.catalog(DASHBOARD)["lights__shortcut__movie"]
+        self.allow("heat")
+        self.assertFalse(tools._run(entry, {}, DASHBOARD, 5)["ok"])
+        self.assertNotIn("ran", STATE)
+        answer = tools.call(session, "heat__get_temp", {"room": "den"})
+        self.assertTrue(answer["ok"], answer)
+
+    def test_owner_list_is_filtered_too(self):
+        self.allow("heat")
+        self.client.force_login(User.objects.create_user("owner", password="pw", is_staff=True))
+        names = {t["name"] for t in self.client.get("/hub/api/tools/").json()["tools"]}
+        self.assertIn("heat__unlock", names)
+        self.assertNotIn("lights__shortcut__lock_up", names)
+        self.assertNotIn("alarm__action__house__arm", names)
+
+    def test_hub_status_only_describes_allowlisted_apps(self):
+        self.allow("heat")
+        result = tools.call(self.session(), "hub__status", {})["result"]
+        self.assertNotIn("Lights", [a["app"] for a in result["apps"]])
+        self.allow("lights")
+        result = tools.call(self.session(), "hub__status", {})["result"]
+        self.assertIn("Lights", [a["app"] for a in result["apps"]])
+
+    def test_empty_allowlist_leaves_only_hub_status(self):
+        self.allow()
+        self.assertEqual(self.names(OWNER), {"hub__status"})
+
+    def test_default_is_scenes_and_fireplace(self):
+        AppSetting.objects.filter(key="assistant_apps").delete()
+        hub_store.clear()
+        self.assertEqual(tools.chosen_apps(), {"scenes", "fireplace"})
+        scenes = PluginSpec(id="scenes", app="scenes", shortcuts="hub.tests.test_tools.scenes_shortcuts",
+                            run_shortcut="hub.tests.test_tools.scenes_run_shortcut")
+        with override_settings(HUB_PLUGINS=PLUGINS + (scenes,)):
+            self.assertEqual([s.id for s in tools.usable_specs()], ["scenes"])
+            self.assertEqual(self.names(GUEST), {"hub__status", "scenes__shortcut__relax"})
+
+
+@override_settings(HUB_PLUGINS=OPTED_OUT)
+class OptOutTests(GatewayTestCase):
+    def setUp(self):
+        super().setUp()
+        self.allow("lights", "heat", "vault")
+
+    def test_opted_out_app_offers_nothing_even_when_allowlisted(self):
+        for mode in (OWNER, GUEST, DASHBOARD):
+            names = self.names(mode)
+            self.assertIn("lights__shortcut__movie", names)
+            self.assertFalse([n for n in names if n.startswith("vault")], mode)
+        self.assertFalse(tools.call(self.session(), "vault__shortcut__movie", {})["ok"])
+        self.assertNotIn("ran", STATE)
+
+    def test_owner_list_and_hub_status_leave_it_out(self):
+        self.client.force_login(User.objects.create_user("owner", password="pw", is_staff=True))
+        names = {t["name"] for t in self.client.get("/hub/api/tools/").json()["tools"]}
+        self.assertFalse([n for n in names if n.startswith("vault")])
+        result = tools.call(self.session(), "hub__status", {})["result"]
+        self.assertEqual(sorted(a["app"] for a in result["apps"]), ["Lights"])
+
+    def test_container_app_manifest_opt_out(self):
+        from broker import remote
+
+        reply = manifest(id="cams", hooks=["shortcuts", "run_shortcut", "tools", "run_tool"], assistant=False)
+        spec = remote.spec_from_manifest(make_install("cams", manifest=reply), reply)
+        self.assertFalse(spec.assistant)
+        self.assertIsNone(spec.tools)
+        self.assertIsNone(spec.run_tool)
+        self.assertFalse(tools.opted_in(spec))
+        legacy = manifest(id="cams2")
+        self.assertTrue(remote.spec_from_manifest(make_install("cams2", manifest=legacy), legacy).assistant)
 
 
 class SessionTests(GatewayTestCase):
@@ -477,6 +591,23 @@ class GeneralSettingsTests(TestCase):
         self.addCleanup(hub_store.clear)
         self.client.force_login(User.objects.create_user("owner", password="pw", is_staff=True,
                                                          is_superuser=True))
+
+    def test_allowlist_picker(self):
+        url = "/settings/location/"
+        with override_settings(HUB_PLUGINS=OPTED_OUT):
+            page = self.client.get(url).content.decode()
+            self.assertIn('name="assistant_apps" value="lights"', page)
+            self.assertRegex(page, r'value="vault"[^>]*disabled')
+            # Untouched, the default stays the default.
+            self.client.post(url, {"assistant_form": "1", "assistant_dashboard_control": "on"})
+            self.assertFalse(AppSetting.objects.filter(key="assistant_apps").exists())
+            self.client.post(url, {"assistant_form": "1", "assistant_dashboard_control": "on",
+                                   "assistant_apps": ["lights", "vault", "nope"]})
+            hub_store.clear()
+            self.assertEqual(tools.chosen_apps(), {"lights"})
+            self.client.post(url, {"assistant_form": "1", "assistant_dashboard_control": "on"})
+            hub_store.clear()
+            self.assertEqual(tools.chosen_apps(), set())
 
     def test_toggle_saves_the_setting(self):
         url = "/settings/location/"

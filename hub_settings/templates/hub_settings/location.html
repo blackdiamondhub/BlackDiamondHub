@@ -109,6 +109,19 @@
                 </span>
             </div>
         </div>
+        <div class="hst-row multi" role="group" aria-labelledby="assistant-apps">
+            <div class="lbl" id="assistant-apps">
+                <b>Apps the assistant can use</b>
+                <small>Their tools, quick actions and buttons, and their status when asked. Apps that opt out of the assistant can't be picked.</small>
+            </div>
+            <div class="hst-picks">
+                {% for a in assistant_apps %}
+                <label class="hst-pick"><input type="checkbox" name="assistant_apps" value="{{ a.id }}"{% if a.on %} checked{% endif %}{% if a.out %} disabled{% endif %}> {{ a.label }}{% if a.out %} <small>(opted out)</small>{% endif %}</label>
+                {% empty %}
+                <span class="hst-none">No apps installed.</span>
+                {% endfor %}
+            </div>
+        </div>
     </section>
 </form>
 {{ zones|json_script:"loc-zones" }}

@@ -122,7 +122,9 @@ class RemoteSpecTests(TestCase):
 
     def test_tools_list_and_run_through_the_gateway(self):
         from hub import tools
+        from hub_settings.models import AppSetting
 
+        AppSetting.objects.create(app_id="hub", key="assistant_apps", value=["cams"])
         self.install.manifest = manifest(hooks=["tools", "run_tool"])
         self.install.save()
         remote.installs_changed()

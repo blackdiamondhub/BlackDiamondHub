@@ -14,6 +14,10 @@ call. Every list and call is filtered to what that mode may do:
   so the homepage's own checks apply;
 * ``hub__status``, a read-only summary of the homepage.
 
+Only apps in the ``assistant_apps`` hub setting (default: scenes and fireplace)
+contribute tools or show up in ``hub__status``, and never an app with
+``PluginSpec.assistant=False``; this holds for every consumer, owner too.
+
 With the ``assistant_dashboard_control`` hub setting off, DASHBOARD sessions
 only get read-only tools. Each open and call is published, by the hub, as
 ``assistant/<sid>/open`` and ``assistant/<sid>/call`` (apps may not publish
@@ -51,6 +55,8 @@ MAX_RESULT = 16 * 1024
 AUDIT_RESULT = 300
 MAX_DISPLAY = 64
 DASHBOARD_CONTROL = "assistant_dashboard_control"
+ASSISTANT_APPS = "assistant_apps"
+DEFAULT_APPS = ("scenes", "fireplace")
 STATUS_TOOL = "hub__status"
 
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="hub-tool")
@@ -106,6 +112,26 @@ def dashboard_control():
     return app_setting("hub", DASHBOARD_CONTROL, True) is not False
 
 
+def opted_in(spec):
+    return getattr(spec, "assistant", True) is not False
+
+
+def chosen_apps():
+    """The app ids the admin lets the assistant use (saved, else the default)."""
+    value = app_setting("hub", ASSISTANT_APPS, None)
+    if isinstance(value, str):
+        value = [v.strip() for v in value.split(",")]
+    if not isinstance(value, (list, tuple)):
+        value = DEFAULT_APPS
+    return {v for v in value if isinstance(v, str) and v}
+
+
+def usable_specs():
+    """The installed apps the assistant may use: allowlisted and not opted out."""
+    chosen = chosen_apps()
+    return [s for s in plugins() if s.id in chosen and opted_in(s)]
+
+
 def _tools_value(result):
     """An app's tools hook result as ``tool_dict``s, bad ones dropped."""
     if status._converted(result):
@@ -151,7 +177,7 @@ def catalog(mode, timeout=LIST_TIMEOUT):
 
     An entry is what ``tools.list`` shows plus ``target``, what it runs.
     """
-    specs = plugins()
+    specs = usable_specs()
     labels = {s.id: quick.app_label(s) for s in specs}
     bar = quick.prefs()
     tooled = [s for s in specs if getattr(s, "tools", None) and getattr(s, "run_tool", None) and _app_shows(s, mode)]
@@ -208,9 +234,11 @@ def listing(mode, timeout=LIST_TIMEOUT):
 def home_summary(mode):
     """A compact, model-friendly view of the homepage in ``mode``."""
     data = status.home_data(mode)
-    labels = {s.id: quick.app_label(s) for s in plugins()}
+    labels = {s.id: quick.app_label(s) for s in usable_specs()}
     apps = []
     for plugin_id, st in sorted(data["status"].items()):
+        if plugin_id not in labels:
+            continue
         item = {"app": labels.get(plugin_id, plugin_id), "status": st.get("text") or ""}
         if st.get("readings"):
             item["readings"] = [f"{r['label']}: {r['value']}{r['unit'] or ''}" for r in st["readings"]]
@@ -221,7 +249,9 @@ def home_summary(mode):
             item["stale"] = True
         apps.append(item)
     out = {"mode": mode, "apps": apps}
-    card = status.lodge_card(mode)
+    # The lodge card is the hub's own header (place, weather): kept unless its app opted out.
+    card_spec = next((s for s in plugins() if s.card), None)
+    card = status.lodge_card(mode) if card_spec is not None and opted_in(card_spec) else None
     if card:
         out["lodge"] = {k: card[k] for k in ("title", "detail") if card.get(k)}
         out["lodge"]["readings"] = [f"{r['label']}: {r['value']}{r['unit'] or ''}" for r in card["readings"]]
@@ -287,6 +317,9 @@ def call(session, name, args, timeout=CALL_TIMEOUT):
 
 
 def _run(entry, args, mode, timeout):
+    target = entry["target"]
+    if target[0] != "status" and target[1] not in {s.id for s in usable_specs()}:
+        return {"ok": False, "error": "that isn't available any more"}
     future = _executor.submit(_execute, entry["target"], args, mode)
     try:
         result = future.result(timeout=timeout)

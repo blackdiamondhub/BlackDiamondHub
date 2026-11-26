@@ -440,6 +440,7 @@ class RemoteSpec:
     card: str | None = None
     tools: str | None = None
     run_tool: str | None = None
+    assistant: bool = True
     settings: tuple = ()
     settings_pages: tuple = ()
     provides: dict = field(default_factory=dict, hash=False)
@@ -527,6 +528,10 @@ def spec_from_manifest(install, manifest):
     app_id = install.app_id
     hooks = set(manifest.get("hooks") or ())
     markers = {h: f"{PREFIX}{app_id}:{h}" if h in hooks else None for h in REMOTE_HOOKS}
+    # Like PluginSpec, an app that opts out of the assistant has no tools.
+    assistant = manifest.get("assistant", True) is not False
+    if not assistant:
+        markers.update(tools=None, run_tool=None)
     provides = {cap: f"{PREFIX}{app_id}:provide:{cap}"
                 for cap in manifest.get("provides") or () if isinstance(cap, str)}
     stat_keys = tuple((str(k), str(v)) for k, v in manifest.get("stat_keys") or ())
@@ -535,7 +540,7 @@ def spec_from_manifest(install, manifest):
         tiles=_tiles(app_id, manifest), settings=_settings(app_id, manifest),
         settings_pages=_pages(app_id, manifest), provides=provides, stat_keys=stat_keys,
         saver_sources=_saver_sources(app_id, manifest),
-        permissions=tuple(manifest.get("permissions") or ()), **markers)
+        permissions=tuple(manifest.get("permissions") or ()), assistant=assistant, **markers)
 
 
 _lock = threading.Lock()
