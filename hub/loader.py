@@ -14,7 +14,7 @@ ENTRY_POINT_GROUP = "blackdiamondhub.plugins"
 
 # Spec fields holding "module.attribute" paths that are resolved lazily.
 DOTTED_FIELDS = ("status", "shortcuts", "run_shortcut", "run_action",
-                 "websocket_routes", "stay", "card")
+                 "websocket_routes", "stay", "card", "tools", "run_tool")
 _DOTTED = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)+")
 
 

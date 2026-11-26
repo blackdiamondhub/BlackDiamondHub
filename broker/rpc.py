@@ -25,6 +25,7 @@ AUDITED = frozenset({
     "alerts.push", "alerts.dismiss", "state.set", "state.delete", "events.subscribe",
     "secrets.get", "secrets.set", "secrets.delete",
     "shares.missing", "shares.put_blob", "shares.publish", "shares.list", "shares.open",
+    "tools.open", "tools.call",
 })
 
 # Ops whose audit entry records only the secret's name, never the payload.
@@ -33,7 +34,7 @@ SECRET_OPS = frozenset({"secrets.get", "secrets.set", "secrets.delete"})
 
 class OpError(Exception):
     STATUS = {"forbidden": 403, "invalid": 400, "unknown_op": 404, "not_found": 404,
-              "rate_limited": 429, "too_large": 413, "ha_error": 500,
+              "rate_limited": 429, "too_large": 413, "bad_session": 400, "ha_error": 500,
               "announce_error": 500, "error": 500}
 
     def __init__(self, code, message):
@@ -590,6 +591,43 @@ def stays_current(install, grants, payload):
                      "key": modes.stay_key(stay)}}
 
 
+def _session(install, payload):
+    from hub import tools
+
+    try:
+        return tools.load_session(payload.get("token"), install.app_id)
+    except tools.BadSession as exc:
+        raise OpError(tools.BAD_SESSION, str(exc)) from None
+
+
+def tools_open(install, grants, payload):
+    """Start an assistant session; the hub picks its mode (see ``hub.tools``)."""
+    from hub import tools
+
+    _require(grants, g.TOOLS)
+    kind = payload.get("kind", tools.VOICE)
+    if kind not in tools.KINDS:
+        raise invalid(f"unknown session kind {kind!r}")
+    display = _str(payload, "display", required=False)
+    return tools.open_session(install.app_id, kind, display)
+
+
+def tools_list(install, grants, payload):
+    from hub import tools
+
+    _require(grants, g.TOOLS)
+    session = _session(install, payload)
+    return {"tools": tools.listing(tools.session_mode(session["kind"]))}
+
+
+def tools_call(install, grants, payload):
+    from hub import tools
+
+    _require(grants, g.TOOLS)
+    session = _session(install, payload)
+    return tools.call(session, payload.get("name"), payload.get("args"))
+
+
 OPS = {
     "settings.get": settings_get,
     "state.get": state_get,
@@ -625,6 +663,9 @@ OPS = {
     "shares.publish": shares_publish,
     "shares.list": shares_list,
     "shares.open": shares_open,
+    "tools.open": tools_open,
+    "tools.list": tools_list,
+    "tools.call": tools_call,
 }
 
 UPLOAD_OPS = frozenset({"ha.upload_media", "shares.put_blob"})

@@ -23,6 +23,7 @@ import requests
 from bdh_sdk.identity import signed_headers
 from bdh_sdk.plugins import ALL_MODES, CHOICE, MULTI, Setting
 from bdh_sdk.provides import MAX_SAVER_SOURCES, SAVER_TEXT_MAX, SaverSource
+from bdh_sdk.tools import ToolError
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -37,7 +38,9 @@ MANIFEST_RETRY = 60.0
 # How often to retry while an app's manifest is missing or an old version's.
 STALE_RETRY = 10.0
 HOOK_TIMEOUT = (2.0, 5.5)
-REMOTE_HOOKS = ("status", "shortcuts", "run_shortcut", "run_action", "stay", "card")
+REMOTE_HOOKS = ("status", "shortcuts", "run_shortcut", "run_action", "stay", "card", "tools", "run_tool")
+# An assistant tool may take a while (it may call out to a service).
+TOOL_TIMEOUT = (2.0, 20.0)
 # How old a sleeping app's cached tiles may get before the hub wakes it, unless
 # its manifest says otherwise (``wake_every``).
 DEFAULT_WAKE_EVERY = 6 * 3600
@@ -209,6 +212,13 @@ def call_hook(app_id, hook, timeout=HOOK_TIMEOUT, *, wake=True, **args):
         raise RemoteError(f"{app_id} {hook}: {exc}") from exc
     except requests.RequestException as exc:
         raise RemoteError(f"{app_id} {hook}: {exc}") from exc
+    if resp.status_code == 422 and hook == "run_tool":
+        # The tool reported a failure for the assistant (bdh_sdk.tools.ToolError).
+        try:
+            message = resp.json()["message"]
+        except (ValueError, KeyError, TypeError):
+            message = ""
+        raise ToolError(str(message or "the tool failed")[:300])
     if resp.status_code != 200:
         raise RemoteError(f"{app_id} {hook}: HTTP {resp.status_code}")
     try:
@@ -338,6 +348,9 @@ def hook(path):
     elif name == "run_action":
         def run(row_id, action_id, mode=None):
             return call_hook(app_id, "run_action", row_id=row_id, action_id=action_id, mode=mode)
+    elif name == "run_tool":
+        def run(tool_id, args, mode=None):
+            return call_hook(app_id, "run_tool", TOOL_TIMEOUT, tool_id=tool_id, args=args, mode=mode)
     elif name.startswith("provide:"):
         capability = name.split(":", 1)[1]
 
@@ -425,6 +438,8 @@ class RemoteSpec:
     run_action: str | None = None
     stay: str | None = None
     card: str | None = None
+    tools: str | None = None
+    run_tool: str | None = None
     settings: tuple = ()
     settings_pages: tuple = ()
     provides: dict = field(default_factory=dict, hash=False)

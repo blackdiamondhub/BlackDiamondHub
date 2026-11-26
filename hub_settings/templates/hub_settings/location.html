@@ -94,6 +94,22 @@
         </div>
         <p class="loc-msg">The same as the °C/°F switch on the home screen; every app uses it.</p>
     </section>
+    <section class="hst-card">
+        <h3>Assistant</h3>
+        <input type="hidden" name="assistant_form" value="1">
+        <div class="hst-row">
+            <label class="lbl" for="assistant-control">
+                <b>Can control things when no stay is active</b>
+                <small>Off: between stays, the voice assistant can only answer questions. Guests can always use what the home screen offers them.</small>
+            </label>
+            <div class="ctl">
+                <span class="hst-tog">
+                    <input type="checkbox" role="switch" id="assistant-control" name="assistant_dashboard_control"{% if assistant_control %} checked{% endif %}>
+                    <span></span>
+                </span>
+            </div>
+        </div>
+    </section>
 </form>
 {{ zones|json_script:"loc-zones" }}
 <script>

@@ -120,6 +120,35 @@ class RemoteSpecTests(TestCase):
         self.assertIn({"hook": "run_shortcut", "shortcut_id": "lights"}, bodies)
         self.assertIn({"hook": "run_action", "row_id": "front", "action_id": "snap", "mode": "guest"}, bodies)
 
+    def test_tools_list_and_run_through_the_gateway(self):
+        from hub import tools
+
+        self.install.manifest = manifest(hooks=["tools", "run_tool"])
+        self.install.save()
+        remote.installs_changed()
+        reply = [{"id": "snap", "title": "Snap", "description": "Take a snapshot.", "params": {},
+                  "modes": ["guest", "owner"], "confirm": False, "readonly": False}]
+        app = FakeApp(self.install, {"tools": reply, "run_tool": {"saved": 1}})
+        with mock.patch("broker.remote.requests.request", side_effect=app), \
+                mock.patch("hub.status.current_stay", return_value=object()):
+            self.assertIn("cams__snap", [t["name"] for t in tools.listing("guest")])
+            self.assertNotIn("cams__snap", [t["name"] for t in tools.listing("dashboard")])
+            session = {"sid": "s1", "kind": "voice", "app": "x", "display": ""}
+            self.assertEqual(tools.call(session, "cams__snap", {}), {"ok": True, "result": {"saved": 1}})
+        self.assertIn({"hook": "run_tool", "tool_id": "snap", "args": {}, "mode": "guest"},
+                      [b for _m, _p, b in app.calls])
+
+    def test_tool_error_message_reaches_the_model(self):
+        from bdh_sdk.tools import ToolError
+
+        resp = mock.Mock(status_code=422)
+        resp.json.return_value = {"error": "tool_error", "message": "The hot tub is offline"}
+        with mock.patch("broker.remote.requests.request", return_value=resp):
+            with self.assertRaisesMessage(ToolError, "The hot tub is offline"):
+                remote.call_hook("cams", "run_tool", tool_id="x", args={})
+            with self.assertRaises(remote.RemoteError):
+                remote.call_hook("cams", "run_action", row_id="r", action_id="a")
+
     def test_failing_app_is_skipped(self):
         with mock.patch("broker.remote.requests.request", return_value=mock.Mock(status_code=500)):
             data = status.home_data("guest")
