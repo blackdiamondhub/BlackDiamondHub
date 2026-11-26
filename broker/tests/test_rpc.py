@@ -365,6 +365,40 @@ class DisplaysStatusTests(RpcTestCase):
         self.assertLessEqual(result["ready_since"], result["now"])
 
 
+class StaysCurrentTests(RpcTestCase):
+    def test_needs_grant_and_returns_stay_with_identity_key(self):
+        from datetime import datetime, timedelta, timezone
+
+        from django.test import RequestFactory
+
+        from hub.context_processors import stay_key
+
+        mt = timezone(timedelta(hours=-7))
+        stay = {"guest": "The Smiths", "arrival": datetime(2027, 1, 4, 16, tzinfo=mt),
+                "checkout": datetime(2027, 1, 8, 11, tzinfo=mt), "owner": False}
+        with mock.patch("hub.status.current_stay", return_value=stay) as cur:
+            self.refused("stays.current")
+            cur.assert_not_called()
+            self.app.granted_permissions = self.app.requested_permissions = [g.STAYS_READ]
+            self.app.save()
+            result = self.ok("stays.current")
+            page_key = stay_key(RequestFactory().get("/"))["hub_stay_key"]()
+        self.assertEqual(result, {"stay": {
+            "guest": "The Smiths", "arrival": "2027-01-04T16:00:00-07:00",
+            "checkout": "2027-01-08T11:00:00-07:00", "owner": False, "key": page_key}})
+        self.assertEqual(len(page_key), 12)
+
+    def test_no_stay(self):
+        self.app.granted_permissions = self.app.requested_permissions = [g.STAYS_READ]
+        self.app.save()
+        with mock.patch("hub.status.current_stay", return_value=None):
+            self.assertEqual(self.ok("stays.current"), {"stay": None})
+        owners = {"guest": "Owners", "arrival": None, "checkout": None, "owner": True}
+        with mock.patch("hub.status.current_stay", return_value=owners):
+            stay = self.ok("stays.current")["stay"]
+        self.assertEqual((stay["arrival"], stay["checkout"], stay["owner"]), (None, None, True))
+
+
 class EventOpTests(RpcTestCase):
     def test_publish_own_namespace_and_grants(self):
         with mock.patch("broker.events_bridge.publish") as pub:

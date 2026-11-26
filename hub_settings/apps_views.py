@@ -41,6 +41,7 @@ PERMISSIONS = (
     ("alerts", "fa-bell", "Show alerts on the hub", ""),
     ("media", "fa-photo-film", "Upload media", ""),
     ("displays.read", "fa-display", "See which screens are checking in", ""),
+    ("stays.read", "fa-suitcase-rolling", "See who is staying at the lodge", ""),
     ("events.subscribe:", "fa-tower-broadcast", "Listen to hub events", None),
     ("events.publish:", "fa-paper-plane", "Send hub events", None),
 )

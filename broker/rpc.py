@@ -574,6 +574,22 @@ def displays_status(install, grants, payload):
     }
 
 
+def stays_current(install, grants, payload):
+    """The stay in progress (cached, last-good, never past checkout), or None."""
+    from hub import modes, status
+
+    _require(grants, g.STAYS_READ)
+    stay = status.current_stay()
+    if not stay:
+        return {"stay": None}
+
+    def iso(t):
+        return t.isoformat() if t else None
+    return {"stay": {"guest": stay["guest"], "arrival": iso(stay["arrival"]),
+                     "checkout": iso(stay["checkout"]), "owner": bool(stay["owner"]),
+                     "key": modes.stay_key(stay)}}
+
+
 OPS = {
     "settings.get": settings_get,
     "state.get": state_get,
@@ -603,6 +619,7 @@ OPS = {
     "speakers.tts": speakers_tts,
     "hub.brand": hub_brand,
     "displays.status": displays_status,
+    "stays.current": stays_current,
     "shares.missing": shares_missing,
     "shares.put_blob": shares_put_blob,
     "shares.publish": shares_publish,
