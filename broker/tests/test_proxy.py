@@ -271,6 +271,70 @@ class AppProxyTests(ProxyTestCase):
         self.assertEqual(sent[-1], {"type": "websocket.close", "code": 4403})
         self.assertIn(self.install.app_id, lifecycle._running_until, "a refusal isn't the app being down")
 
+    def test_websocket_closed_for_the_client_when_the_app_goes_away(self):
+        # Daphne keeps a client's socket open if the proxy returns without closing
+        # it: a restarted app must not leave the kiosk streaming into nothing.
+        import asyncio
+
+        class Gone(Exception):
+            pass
+
+        def upstream(fail_send, close_code):
+            class Upstream:
+                subprotocol = None
+
+                def __init__(self):
+                    self.close_code = None
+
+                async def send(self, data):
+                    if fail_send:
+                        self.close_code = close_code
+                        raise Gone("sent 1006")
+
+                async def close(self):
+                    pass
+
+                def __aiter__(self):
+                    return self
+
+                async def __anext__(self):
+                    if fail_send:
+                        await asyncio.Event().wait()
+                    self.close_code = close_code
+                    raise Gone("no close frame")
+
+            return Upstream()
+
+        for fail_send, close_code, expected in ((False, None, 1011), (True, None, 1011),
+                                                (False, 1012, 1012), (False, 1000, 1000)):
+            with self.subTest(fail_send=fail_send, close_code=close_code):
+                async def connect(url, headers, subprotocols, fail_send=fail_send, close_code=close_code):
+                    return upstream(fail_send, close_code)
+
+                old = proxy._ws_connect
+                proxy._ws_connect = connect
+                self.addCleanup(setattr, proxy, "_ws_connect", old)
+
+                async def go():
+                    inbox = [{"type": "websocket.connect"}, {"type": "websocket.receive", "bytes": b"pcm"}]
+                    sent = []
+
+                    async def receive():
+                        if inbox:
+                            return inbox.pop(0)
+                        await asyncio.Event().wait()  # the client stays connected
+
+                    async def send(message):
+                        sent.append(message)
+
+                    await asyncio.wait_for(proxy.app_proxy(scope(self.port, "/voice/api/listen",
+                                                                 kind="websocket"), receive, send), 5)
+                    return sent
+
+                sent = async_to_sync(go)()
+                self.assertEqual(sent[0]["type"], "websocket.accept")
+                self.assertEqual(sent[-1], {"type": "websocket.close", "code": expected})
+
 
 class HelperTests(TestCase):
     def test_app_cookies(self):
