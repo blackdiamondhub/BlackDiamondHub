@@ -326,13 +326,16 @@ async def _websocket(scope, receive, send, install):
         lifecycle.forget(install.app_id)
         await send({"type": "websocket.close", "code": 1013})
         return
+    client_gone = False
     try:
         await send({"type": "websocket.accept", "subprotocol": upstream.subprotocol})
 
         async def client_to_app():
+            nonlocal client_gone
             while True:
                 msg = await receive()
                 if msg["type"] == "websocket.disconnect":
+                    client_gone = True
                     return
                 if msg.get("bytes") is not None:
                     await upstream.send(msg["bytes"])
@@ -345,13 +348,31 @@ async def _websocket(scope, receive, send, install):
                     await send({"type": "websocket.send", "bytes": data})
                 else:
                     await send({"type": "websocket.send", "text": data})
-            await send({"type": "websocket.close", "code": 1000})
 
         tasks = [asyncio.ensure_future(client_to_app()), asyncio.ensure_future(app_to_client())]
-        _done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
             task.cancel()
+        for task in done:
+            if not task.cancelled() and task.exception() is not None:
+                log.info("%s websocket ended: %r", install.app_id, task.exception())
     except Exception as exc:
         log.debug("%s websocket ended: %s", install.app_id, exc)
     finally:
+        if not client_gone:
+            # However the app's side ended (a clean close, a dropped connection, a
+            # failed send), close the client's too: daphne leaves it open when the
+            # app returns without closing, and the client would talk to nobody.
+            try:
+                await send({"type": "websocket.close", "code": _client_close_code(upstream)})
+            except Exception:
+                pass
         await upstream.close()
+
+
+def _client_close_code(upstream):
+    """The app's close code if a client may be sent it, else 1011 (server error)."""
+    code = getattr(upstream, "close_code", None)
+    if isinstance(code, int) and (code in (1000, 1001, 1011, 1012, 1013, 1014) or 3000 <= code <= 4999):
+        return code
+    return 1011
