@@ -3,7 +3,7 @@
 Grants use the manifest permission grammar (``bdh_sdk.plugins.valid_permission``):
 ``ha.read:<entity glob>``, ``ha.call:<domain>.<service|*>``,
 ``events.publish:<topic pattern>``, ``events.subscribe:<topic pattern>``,
-``alerts``, ``speakers``, ``media``, ``displays.read``, plus the admin-only ``ha.ws``.
+``alerts``, ``speakers``, ``media``, ``displays.read``, ``stays.read``, plus the admin-only ``ha.ws``.
 """
 from fnmatch import fnmatchcase
 
@@ -13,6 +13,7 @@ ALERTS = "alerts"
 SPEAKERS = "speakers"
 MEDIA = "media"
 DISPLAYS_READ = "displays.read"
+STAYS_READ = "stays.read"
 HA_WS = "ha.ws"
 
 

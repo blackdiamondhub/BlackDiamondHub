@@ -22,6 +22,19 @@ def stay_active(request) -> bool:
     return current_stay(request) is not None
 
 
+def stay_key(stay):
+    """An opaque id for ``stay`` (a ``status.current_stay`` dict), "" for None.
+
+    The one place the key is made: pages (``hub_stay_key``), the visitor
+    identity sent to apps and the ``stays.current`` broker op all use it.
+    """
+    if not stay:
+        return ""
+    from bdh_sdk import stays
+
+    return stays.key(stay["guest"], stay["arrival"])
+
+
 def welcome(stay):
     """Template context for the guest welcome card."""
     checkout = stay["checkout"]
