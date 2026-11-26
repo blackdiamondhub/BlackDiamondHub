@@ -187,6 +187,24 @@ def schedule_api(request):
     return response
 
 
+@require_GET
+def kiosk_api(request):
+    """For the BDH Display kiosk app: each container app's origin on this host.
+
+    The kiosk connects to some app websockets itself, without a page open (e.g.
+    the voice app's listen socket), so it needs the app's port.
+    """
+    from broker import remote
+    from hub.modes import plugins
+
+    host = request.get_host()
+    apps = {spec.id: remote.app_origin(spec.port, host)
+            for spec in plugins() if getattr(spec, "remote", False)}
+    response = JsonResponse({"apps": apps})
+    response["Cache-Control"] = "no-store"
+    return response
+
+
 HEARTBEAT_KEEP = timedelta(days=7)
 
 

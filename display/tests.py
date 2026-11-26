@@ -692,6 +692,31 @@ class HeartbeatTests(TestCase):
         self.assertIn(reverse("display_heartbeat"), html)
 
 
+class KioskApiTests(TestCase):
+    def setUp(self):
+        from broker.tests.base import make_install, reset_broker
+
+        reset_broker()
+        self.addCleanup(reset_broker)
+        self.install = make_install()
+
+    def apps(self):
+        resp = self.client.get(reverse("display_kiosk"))
+        self.assertEqual(resp["Cache-Control"], "no-store")
+        return resp.json()["apps"]
+
+    def test_lists_container_app_origins(self):
+        self.assertEqual(self.apps(), {"cams": f"http://testserver:{self.install.port}"})
+
+    def test_disabled_app_is_left_out(self):
+        from broker.tests.base import reset_broker
+
+        self.install.enabled = False
+        self.install.save()
+        reset_broker()
+        self.assertEqual(self.apps(), {})
+
+
 class PageLoadTests(TestCase):
     def send(self, ip="192.168.1.99", **data):
         return Client(enforce_csrf_checks=True).post(reverse("display_page_load"), data, REMOTE_ADDR=ip)
