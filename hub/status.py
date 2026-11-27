@@ -263,18 +263,18 @@ def _run_hook(kind, plugin_id, path, convert, ttl, mode=None):
         close_old_connections()
 
 
-def _submit(kind, plugin_id, path, convert, ttl, mode=None):
-    """Start the hook unless the same one is already running."""
+def _submit(kind, plugin_id, path, convert, ttl, mode=None, executor=None):
+    """Start the hook (in ``executor``, else the shared pool) unless the same one is already running."""
     key = _fresh_key(kind, plugin_id, mode)
     with _inflight_lock:
         future = _inflight.get(key)
         if future is None or future.done():
-            future = _executor.submit(_run_hook, kind, plugin_id, path, convert, ttl, mode)
+            future = (executor or _executor).submit(_run_hook, kind, plugin_id, path, convert, ttl, mode)
             _inflight[key] = future
     return future
 
 
-def _gather(jobs, timeout, grace=None):
+def _gather(jobs, timeout, grace=None, executors=None, fallback=None):
     """Run (kind, plugin_id, path, convert, ttl[, mode]) jobs; return {(kind, id): entry}.
 
     A job with a mode calls its hook with ``mode=`` and is cached per mode.
@@ -284,7 +284,19 @@ def _gather(jobs, timeout, grace=None):
     With ``grace``, a hook still running after ``grace`` seconds is served
     from its last good result (if any) marked ``refreshing`` and finishes in
     the background; only hooks with no last good result wait for ``timeout``.
+
+    ``executors`` maps a kind to the pool its hooks run in (default: the
+    shared one). ``fallback(kind, plugin_id, mode)`` may supply a last good
+    result the cache no longer has.
     """
+    executors = executors or {}
+
+    def last_good(kind, plugin_id, mode):
+        last = cache.get(_last_key(kind, plugin_id, mode))
+        if last is None and fallback is not None:
+            last = fallback(kind, plugin_id, mode)
+        return last
+
     results, pending, modes = {}, {}, {}
     for kind, plugin_id, path, convert, ttl, *rest in jobs:
         mode = rest[0] if rest else None
@@ -293,7 +305,8 @@ def _gather(jobs, timeout, grace=None):
         if hit is not None:
             results[(kind, plugin_id)] = {**hit, "stale": False}
         else:
-            pending[(kind, plugin_id)] = _submit(kind, plugin_id, path, convert, ttl, mode)
+            pending[(kind, plugin_id)] = _submit(kind, plugin_id, path, convert, ttl, mode,
+                                                 executors.get(kind))
 
     started = time.monotonic()
     if pending and grace is not None:
@@ -302,7 +315,7 @@ def _gather(jobs, timeout, grace=None):
             if future.done():
                 continue
             mode = modes[(kind, plugin_id)]
-            last = cache.get(_last_key(kind, plugin_id, mode))
+            last = last_good(kind, plugin_id, mode)
             if last is not None:
                 stale = cache.get(_failed_key(kind, plugin_id, mode)) is not None
                 results[(kind, plugin_id)] = {**last, "stale": stale, "refreshing": True}
@@ -317,7 +330,7 @@ def _gather(jobs, timeout, grace=None):
             logger.warning("%s hook for %s failed: %s", kind, plugin_id, future.exception())
         else:
             logger.warning("%s hook for %s timed out", kind, plugin_id)
-        last = cache.get(_last_key(kind, plugin_id, modes[(kind, plugin_id)]))
+        last = last_good(kind, plugin_id, modes[(kind, plugin_id)])
         if last is not None:
             results[(kind, plugin_id)] = {**last, "stale": True}
         if grace is not None and not future.done():

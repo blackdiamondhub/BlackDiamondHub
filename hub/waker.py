@@ -1,4 +1,5 @@
-"""Keeps apps with no homepage tile fresh by polling their status hooks.
+"""Keeps apps with no homepage tile fresh by polling their status hooks,
+and keeps the assistant's tools warm (``hub.tools.warm``).
 
 The homepage wakes sleeping apps by polling their tiles; an app without a
 tile (a background feed) would otherwise sleep until someone opens it.
@@ -24,16 +25,23 @@ def tick():
     return status.wake_hidden()
 
 
+def warm_tools():
+    from . import tools
+
+    return tools.warm()
+
+
 def _loop(every):
     from django.db import close_old_connections
 
     # Let the server finish starting first.
     time.sleep(30)
     while True:
-        try:
-            tick()
-        except Exception:
-            log.exception("waking tile-less apps failed")
-        finally:
-            close_old_connections()
+        for job, what in ((tick, "waking tile-less apps"), (warm_tools, "warming assistant tools")):
+            try:
+                job()
+            except Exception:
+                log.exception("%s failed", what)
+            finally:
+                close_old_connections()
         time.sleep(every)

@@ -22,11 +22,18 @@ With the ``assistant_dashboard_control`` hub setting off, DASHBOARD sessions
 only get read-only tools. Each open and call is published, by the hub, as
 ``assistant/<sid>/open`` and ``assistant/<sid>/call`` (apps may not publish
 ``assistant/``), for a supervisor to audit.
+
+Apps' tools are listed in their own pool and, once an app has listed them,
+always served: a slow or failed refresh serves the last good list (kept for
+the life of the process) while it finishes in the background. The waker
+calls :func:`warm` shortly after start and every few minutes, so even the
+first conversation after a restart finds sleeping apps' tools ready.
 """
 import hashlib
 import json
 import logging
 import secrets
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
@@ -50,6 +57,10 @@ SALT = "bdh.assistant.session"
 OWNER_KIND = "owner"
 TOOLS_TTL = 60
 LIST_TIMEOUT = 6.0
+# The waker keeps tools warm in the modes a voice session can be in.
+WARM_MODES = (GUEST, DASHBOARD)
+# Warming may wake sleeping apps, so it waits longer than a listing.
+WARM_TIMEOUT = 60.0
 CALL_TIMEOUT = 25.0
 MAX_RESULT = 16 * 1024
 AUDIT_RESULT = 300
@@ -60,6 +71,15 @@ DEFAULT_APPS = ("scenes", "fireplace")
 STATUS_TOOL = "hub__status"
 
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="hub-tool")
+# Tools hooks get their own pool so a listing never queues behind homepage
+# status/shortcut hooks (or sleeping apps being woken) in status's shared one.
+_list_executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix="hub-tools-list")
+_EXECUTORS = {"tools": _list_executor}
+# Each app's last good tools per mode, for the life of the process: tool
+# declarations rarely change, so a slow or failing refresh (or the cache
+# dropping the entry) never takes an app's tools out of a listing.
+_known = {}
+_known_lock = threading.Lock()
 
 
 class BadSession(Exception):
@@ -150,6 +170,74 @@ def _tools_job(spec, mode):
             mode if status._takes_mode(spec.tools) else None)
 
 
+def _known_tools(kind, plugin_id, mode):
+    if kind != "tools":
+        return None
+    with _known_lock:
+        return _known.get((plugin_id, mode))
+
+
+def _remember(results, jobs):
+    """Keep every app's tools that ``results`` has, for :func:`_known_tools`."""
+    with _known_lock:
+        for kind, plugin_id, _path, _convert, _ttl, mode in jobs:
+            entry = results.get((kind, plugin_id))
+            if kind == "tools" and entry and not entry.get("missing") and "updated" in entry:
+                known = _known.get((plugin_id, mode))
+                if known is None or entry["updated"] >= known["updated"]:
+                    _known[(plugin_id, mode)] = {"value": entry["value"], "updated": entry["updated"]}
+
+
+def forget():
+    """Drop the remembered tools (tests)."""
+    with _known_lock:
+        _known.clear()
+
+
+def _tooled(specs, mode):
+    return [s for s in specs if getattr(s, "tools", None) and getattr(s, "run_tool", None) and _app_shows(s, mode)]
+
+
+def warm(modes=WARM_MODES, timeout=WARM_TIMEOUT):
+    """List every assistant app's tools in ``modes`` so a conversation never
+    starts on a cold cache (after a restart, say). Returns ``{mode: [ids missing]}``.
+    """
+    missing = {}
+    specs = usable_specs()
+    for mode in modes:
+        jobs = [_tools_job(s, mode) for s in _tooled(specs, mode)]
+        results = status._gather(jobs, timeout, executors=_EXECUTORS, fallback=_known_tools) if jobs else {}
+        _remember(results, jobs)
+        missing[mode] = _missing(results, jobs)
+    return missing
+
+
+def _missing(results, jobs):
+    return [plugin_id for kind, plugin_id, *_ in jobs
+            if (results.get((kind, plugin_id)) or {"missing": True}).get("missing")]
+
+
+def warm_soon():
+    """:func:`warm` in the background, in the server process only (e.g. once the
+    admin lets the assistant use more apps)."""
+    from .events import is_server
+
+    if not is_server():
+        return None
+
+    def run():
+        try:
+            warm()
+        except Exception:
+            log.exception("warming assistant tools failed")
+        finally:
+            close_old_connections()
+
+    thread = threading.Thread(target=run, name="hub-tools-warm", daemon=True)
+    thread.start()
+    return thread
+
+
 def _app_shows(spec, mode):
     return status._visible(spec, mode) if spec.tiles else True
 
@@ -180,15 +268,22 @@ def catalog(mode, timeout=LIST_TIMEOUT):
     specs = usable_specs()
     labels = {s.id: quick.app_label(s) for s in specs}
     bar = quick.prefs()
-    tooled = [s for s in specs if getattr(s, "tools", None) and getattr(s, "run_tool", None) and _app_shows(s, mode)]
+    tooled = _tooled(specs, mode)
     shortcutted = [s for s in specs if s.shortcuts and s.run_shortcut and quick.app_allows(bar, s.id, mode)]
     actioned = [s for s in specs if s.status and s.run_action and status._visible(s, mode)]
+    tools_jobs = [_tools_job(s, mode) for s in tooled]
+    started = time.monotonic()
     results = status._gather(
-        [_tools_job(s, mode) for s in tooled]
+        tools_jobs
         + [("shortcuts", s.id, s.shortcuts, status._shortcuts_value, status.SHORTCUTS_TTL)
            for s in shortcutted]
         + [status._status_job(s, mode) for s in actioned],
-        timeout, grace=status.REFRESH_GRACE)
+        timeout, grace=status.REFRESH_GRACE, executors=_EXECUTORS, fallback=_known_tools)
+    _remember(results, tools_jobs)
+    missing = _missing(results, tools_jobs)
+    if missing:
+        log.warning("assistant tools listing (%s) took %.1fs without %s (never listed successfully yet)",
+                    mode, time.monotonic() - started, ", ".join(missing))
 
     def value(kind, plugin_id):
         entry = results.get((kind, plugin_id)) or {}
