@@ -96,6 +96,7 @@ def _lodge_sections():
         {"id": "home", "label": "Home layout", "icon": "fa-table-cells-large", "url": reverse("hub_settings_home")},
         {"id": "quick", "label": "Quick actions", "icon": "fa-bolt", "url": reverse("hub_settings_quick")},
         {"id": "ha", "label": "Home Assistant", "icon": "fa-home", "url": reverse("hub_settings_ha")},
+        {"id": "speech", "label": "Speech", "icon": "fa-volume-up", "url": reverse("hub_settings_speech")},
         {"id": "apps", "label": "Apps", "icon": "fa-puzzle-piece", "url": reverse("hub_settings_apps"),
          "count": len(plugins())},
         {"id": "push", "label": "Push internals", "icon": "fa-broadcast-tower",

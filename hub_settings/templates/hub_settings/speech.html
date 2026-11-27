@@ -1,0 +1,153 @@
+{% extends 'hub_settings/_layout.html' %}
+
+{% block section %}
+<style>
+    .hst-sp-test { display: flex; align-items: center; gap: 12px; padding: 12px 22px 16px; flex-wrap: wrap; }
+    .hst-sp-test output { color: var(--mut); font-size: 14px; }
+    .hst-sp-test output.ok { color: var(--ok); }
+    .hst-sp-test output.bad { color: var(--red); }
+    .hst-sp-test .hst-btn { height: 38px; padding: 0 16px; font-size: 14px; }
+    .hst-sp-text { padding: 12px 22px 0; }
+    .hst-sp-text .hst-in { width: 100%; }
+    .hst-card .hst-sp-note { padding: 0 22px 14px; color: var(--mut); font-size: 13px; margin: 0; }
+    .hst-card .hst-sp-note.err { color: var(--red); }
+</style>
+<form method="post" novalidate{% if has_errors %} data-dirty{% endif %} id="hst-speech"
+      data-preview-url="{% url 'hub_settings_speech_preview' %}" data-test-url="{% url 'hub_settings_speech_test' %}">
+    {% csrf_token %}
+    <div class="hst-head">
+        <div>
+            <h2>Speech</h2>
+            <p>The voice announcements and spoken alerts use. Each message is made once and kept, so repeats never go to the cloud.</p>
+        </div>
+        <div class="act"><button type="submit" class="hst-btn" data-save>Save</button></div>
+    </div>
+    {% if just_saved %}<div class="hst-note ok" role="status"><i class="fas fa-check" aria-hidden="true"></i> Saved.</div>{% endif %}
+    {% if message %}<div class="hst-note bad" role="alert">{{ message }}</div>
+    {% elif has_errors %}<div class="hst-note bad" role="alert">Some values need fixing.</div>{% endif %}
+
+    <section class="hst-card">
+        <h3>Engine</h3>
+        <div role="radiogroup" aria-label="Engine">
+            {% for val, label in engines %}
+            <label class="hst-row">
+                <span class="lbl"><b>{{ label }}</b>
+                    <small>{% if val == 'google' %}The default. Needs no account.{% elif val == 'azure' %}Natural neural voices. Needs an Azure Speech key (the free tier is plenty); falls back to Google if Azure fails.{% else %}Home Assistant's own TTS engine, as before the hub made its own speech.{% endif %}</small>
+                </span>
+                <span class="ctl"><input type="radio" name="engine" value="{{ val }}"{% if val == engine %} checked{% endif %}></span>
+            </label>
+            {% endfor %}
+        </div>
+        {% if errors.engine %}<p class="hst-sp-note err">{{ errors.engine }}</p>{% endif %}
+    </section>
+
+    <section class="hst-card">
+        <h3>Azure Speech</h3>
+        <div class="hst-row">
+            <label class="lbl" for="sp-region">
+                <b>Region</b>
+                {% if errors.region %}<small class="err">{{ errors.region }}</small>{% else %}<small>Where the Speech resource lives, like westus3.</small>{% endif %}
+            </label>
+            <div class="ctl">
+                <input type="text" class="hst-in txt{% if errors.region %} bad{% endif %}" id="sp-region" name="region"
+                       value="{{ region }}" maxlength="30" autocapitalize="off" autocomplete="off" spellcheck="false">
+            </div>
+        </div>
+        <div class="hst-row secret">
+            <label class="lbl" for="sp-key">
+                <b>Key</b>
+                {% if errors.key %}<small class="err">{{ errors.key }}</small>{% else %}<small>Key 1 or 2 of the Speech resource. Never shown again once saved.</small>{% endif %}
+            </label>
+            <div class="ctl">
+                <span class="hst-secret" data-key-state>{% if key_set %}<i class="fas fa-lock" aria-hidden="true"></i> &bull;&bull;&bull;&bull; saved{% else %}not set{% endif %}</span>
+                {% if key_set %}
+                <button type="submit" name="clear_key" value="1" class="hst-reset" formnovalidate title="Forget the saved key">Clear</button>
+                {% endif %}
+                {% if vault_ok %}
+                <input type="password" class="hst-in txt{% if errors.key %} bad{% endif %}" id="sp-key" name="key"
+                       value="" autocomplete="new-password" spellcheck="false"
+                       placeholder="{% if key_set %}Replace (blank keeps it){% else %}Enter to set{% endif %}">
+                {% else %}
+                <small class="err">The secret store has no key on this hub, so a key can't be saved; see the README.</small>
+                {% endif %}
+            </div>
+        </div>
+        <div class="hst-row">
+            <label class="lbl" for="sp-voice">
+                <b>Voice</b>
+                {% if errors.voice %}<small class="err">{{ errors.voice }}</small>{% else %}<small>The house voice. {% if not voice_saved %}Until you save one, an app may ask for its own.{% endif %}{% if not key_set %} Save a key to choose from every voice.{% endif %}</small>{% endif %}
+            </label>
+            <div class="ctl">
+                <select class="hst-in{% if errors.voice %} bad{% endif %}" id="sp-voice" name="voice">
+                    {% for val, label in voices %}<option value="{{ val }}"{% if val == voice %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                </select>
+            </div>
+        </div>
+    </section>
+
+    <section class="hst-card" data-test-card>
+        <h3>Test</h3>
+        <div class="hst-sp-text">
+            <input type="text" class="hst-in txt" name="text" value="{{ sample }}" maxlength="300" aria-label="Text to speak" data-clean>
+        </div>
+        <div class="hst-sp-test">
+            <button type="button" class="hst-btn ghost" data-play>Play here</button>
+            {% if speakers %}
+            <select class="hst-in" name="speaker" aria-label="Speaker" data-clean>
+                {% for eid, label in speakers %}<option value="{{ eid }}">{{ label }}</option>{% endfor %}
+            </select>
+            <button type="button" class="hst-btn ghost" data-speak>Play on speaker</button>
+            {% endif %}
+            <output aria-live="polite"></output>
+        </div>
+        <p class="hst-sp-note">Tests use the saved settings, so save first. {{ clip_count }} message{{ clip_count|pluralize }} kept; ones unused for 90 days are dropped.</p>
+    </section>
+</form>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var form = document.getElementById('hst-speech');
+        var card = form.querySelector('[data-test-card]');
+        var out = card.querySelector('output');
+        var csrf = form.querySelector('input[name="csrfmiddlewaretoken"]').value;
+        var NAMES = { google: 'Google', azure: 'Azure Speech', ha: 'Home Assistant' };
+        var player = null;
+        function post(url) {
+            var body = new URLSearchParams();
+            body.set('text', form.elements['text'].value);
+            if (form.elements['speaker']) body.set('speaker', form.elements['speaker'].value);
+            return fetch(url, {
+                method: 'POST', body: body, credentials: 'same-origin',
+                headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
+            });
+        }
+        function show(ok, text) { out.className = ok ? 'ok' : 'bad'; out.textContent = text; }
+        card.addEventListener('click', function (e) {
+            var play = e.target.closest('[data-play]');
+            var speak = e.target.closest('[data-speak]');
+            if (!play && !speak) return;
+            var btn = play || speak;
+            btn.disabled = true;
+            out.className = ''; out.textContent = play ? 'Making it…' : 'Sending…';
+            if (play) {
+                post(form.dataset.previewUrl).then(function (r) {
+                    if (!r.ok) return r.json().then(function (d) { show(false, d.message); });
+                    var engine = r.headers.get('X-Speech-Engine');
+                    return r.blob().then(function (blob) {
+                        if (player) { player.pause(); URL.revokeObjectURL(player.src); }
+                        player = new Audio(URL.createObjectURL(blob));
+                        return player.play().then(function () {
+                            show(true, 'Playing (' + (NAMES[engine] || engine) + ').');
+                        });
+                    });
+                }).catch(function () { show(false, "Couldn't play it."); })
+                  .finally(function () { btn.disabled = false; });
+                return;
+            }
+            post(form.dataset.testUrl).then(function (r) { return r.json(); })
+                .then(function (d) { show(d.ok, d.message); })
+                .catch(function () { show(false, "Couldn't run the test."); })
+                .finally(function () { btn.disabled = false; });
+        });
+    });
+</script>
+{% endblock %}

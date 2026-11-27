@@ -28,6 +28,7 @@ Installed from their own repos via `sites/sunpeaks/apps.txt`:
 - **Frontend**: Bootstrap 5 (crispy-bootstrap5), Font Awesome 6 icons
 - **Auth**: Django auth + social-auth-app-django (Spotify OAuth)
 - **Home Assistant**: REST API at `192.168.10.212:8123`; URL and token are set on Settings → Home Assistant (`HAInstance` rows, token in the vault), not in `.env`
+- **Speech**: the hub makes announcement/alert speech itself (`hub_settings/speech.py` → `bdh_sdk.speakers.set_synth`): Settings → Speech picks Google (default) or Azure Speech (key in the vault); falls back Azure → Google → HA TTS; clips cached in `SpeechClip`, pruned daily after 90 days unused
 - **Containerization**: Docker + docker-compose (see Deployment section)
 - **Environment**: `.env` file for secrets (not committed)
 

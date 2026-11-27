@@ -71,4 +71,6 @@ fi
 ( while sleep 86400; do python manage.py clearsessions || true; done ) &
 # Hourly: old app-share revisions and blobs nothing uses any more.
 ( while sleep 3600; do python manage.py shares_gc >/dev/null || true; done ) &
+# Daily: spoken clips (Settings → Speech) unused for 90 days.
+( while sleep 86400; do python manage.py speech_prune >/dev/null || true; done ) &
 exec daphne --proxy-headers "${endpoints[@]}" BlackDiamondHub.asgi:application

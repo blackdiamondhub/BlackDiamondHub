@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class AppSetting(models.Model):
@@ -103,3 +104,26 @@ class HAInstance(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.id})"
+
+
+class SpeechClip(models.Model):
+    """A message spoken once by the hub's speech engine, kept so it's never made again.
+
+    ``key`` is the sha256 of engine, voice and text (``hub_settings.speech.clip_key``).
+    Clips unused for 90 days are deleted by ``manage.py speech_prune``.
+    """
+
+    key = models.CharField(primary_key=True, max_length=64)
+    engine = models.CharField(max_length=16)
+    voice = models.CharField(max_length=80, blank=True)
+    text = models.TextField()
+    audio = models.BinaryField()
+    content_type = models.CharField(max_length=40)
+    created = models.DateTimeField(auto_now_add=True)
+    last_used = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-last_used"]
+
+    def __str__(self):
+        return f"{self.engine} {self.voice or '-'}: {self.text[:40]}"

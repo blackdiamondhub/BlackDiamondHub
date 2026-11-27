@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import apps_views, ha_views, views
+from . import apps_views, ha_views, speech_views, views
 
 urlpatterns = [
     path("", views.index, name="hub_settings"),
@@ -11,6 +11,9 @@ urlpatterns = [
     path("home-assistant/", ha_views.ha_settings, name="hub_settings_ha"),
     path("home-assistant/test/", ha_views.ha_test, name="hub_settings_ha_test"),
     path("home-assistant/status/", ha_views.ha_status, name="hub_settings_ha_status"),
+    path("speech/", speech_views.speech_settings, name="hub_settings_speech"),
+    path("speech/preview/", speech_views.speech_preview, name="hub_settings_speech_preview"),
+    path("speech/test/", speech_views.speech_test, name="hub_settings_speech_test"),
     path("apps/", apps_views.installed, name="hub_settings_apps"),
     path("apps/live/", apps_views.installed_live, name="hub_settings_apps_live"),
     path("apps/update-all/", apps_views.update_all, name="hub_settings_apps_update_all"),

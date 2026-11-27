@@ -35,3 +35,9 @@ class HubSettingsConfig(AppConfig):
         post_delete.connect(ha.clear, sender=HAInstance, dispatch_uid="hub_settings_ha_delete")
         post_save.connect(ha.clear, sender=AppSecret, dispatch_uid="hub_settings_ha_secret_save")
         post_delete.connect(ha.clear, sender=AppSecret, dispatch_uid="hub_settings_ha_secret_delete")
+
+        from bdh_sdk import speakers
+
+        from . import speech
+
+        speakers.set_synth(speech.synth)

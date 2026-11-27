@@ -185,6 +185,28 @@ and the badge shows the unread count the app keeps in its app state. Without
 the app they are hidden. A site turns it on with `runtime = "container"` under
 `[apps.feedback]` in its `site.toml` (Sun Peaks does; Mercer Island doesn't).
 
+### Speech
+
+The hub makes the speech for announcements on Sonos and for spoken alerts on
+the screens itself (hub_settings/speech.py, installed with
+dh_sdk.speakers.set_synth), so they don't need Home Assistant's cloud TTS.
+Settings → Speech (/settings/speech/, staff only) picks the engine:
+
+- **Google** (default, no account): Google Translate's free voice, via gTTS.
+- **Azure Speech**: a neural voice (default n-US-AvaNeural) from an Azure
+  Speech resource (the free F0 tier is plenty). Enter its region (default
+  westus3) and key; the key is kept in the secret store and the page only
+  says whether one is saved.
+- **Home Assistant**: HA's own TTS engine, as before the hub made speech.
+
+If an engine fails the hub logs it and falls back: Azure → Google → Home
+Assistant's TTS. The voice saved on the page is the house voice and wins over
+the one an app asks for; until one is saved an app's Azure voice name
+(AvaNeural means n-US-AvaNeural) is used. Each clip is made once and kept
+in the database (SpeechClip, keyed by engine, voice and text); Sonos plays it
+from HA's local media (folder dh-tts) as an announcement, so music ducks
+and resumes. Clips unused for 90 days are deleted daily by
+manage.py speech_prune. Alexa still speaks announcements itself.
 ### Secrets
 
 App passwords, API keys and tokens live in an encrypted secret store
