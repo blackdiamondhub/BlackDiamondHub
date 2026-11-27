@@ -42,10 +42,17 @@
         <div class="lbl"><b>Not enough memory</b><small>{{ no_room }}</small></div>
     </div>
     {% endif %}
+    {% if no_ha %}
+    <a class="hst-row ap-perm" href="{% url 'hub_settings_ha' %}" id="ap-no-ha">
+        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true" style="color:#ffd36b"></i>
+        <div class="lbl"><b>Needs Home Assistant</b><small>{{ no_ha_text }}</small></div>
+        <i class="fas fa-chevron-right" aria-hidden="true"></i>
+    </a>
+    {% endif %}
 </section>
 {% if changelog %}<section class="hst-card"><h3>What's new</h3><div class="hst-row"><div class="lbl"><small>{{ changelog|linebreaksbr }}</small></div></div></section>{% endif %}
 <div style="display:flex;align-items:center;gap:16px">
-    <button class="hst-btn" type="submit"{% if not enabled or not fits %} disabled{% endif %}><i class="fas fa-download" aria-hidden="true"></i> Install</button>
+    <button class="hst-btn" type="submit"{% if not enabled or not fits or no_ha %} disabled{% endif %}><i class="fas fa-download" aria-hidden="true"></i> Install</button>
     <span class="ap-sub">Turning a permission off may limit features.</span>
 </div>
 </form>

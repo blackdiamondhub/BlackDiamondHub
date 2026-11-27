@@ -37,6 +37,10 @@ class AppsPageTests(SupervisorMixin, CatalogTestCase, TestCase):
         self.client.force_login(self.staff)
         self.served = catalog_data(version(permissions=["alerts", "speakers"], network="lan"))
         catalog.refresh(force=True)
+        patcher = patch("hub_settings.apps_views.ha_config.instances",
+                        return_value=[{"id": "ha", "name": "Home Assistant", "site": "", "default": True}])
+        self.ha_instances = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def install(self, **kw):
         return self.client.post(reverse("hub_settings_store_app", args=["hello"]), kw)
@@ -281,6 +285,27 @@ class AppsPageTests(SupervisorMixin, CatalogTestCase, TestCase):
             self.assertContains(sheet, 'type="submit" disabled')
             self.install(perm=["alerts"])
         self.assertFalse(AppInstall.objects.exists())
+
+    def test_app_needing_home_assistant_is_blocked_until_it_is_set_up(self):
+        self.ha_instances.return_value = []
+        self.assertContains(self.client.get(reverse("hub_settings_store")), "needs Home Assistant")
+        sheet = self.client.get(reverse("hub_settings_store_app", args=["hello"]))
+        self.assertContains(sheet, "Needs Home Assistant")
+        self.assertContains(sheet, reverse("hub_settings_ha"))
+        self.assertContains(sheet, 'type="submit" disabled')
+        self.install(perm=["alerts"])
+        self.assertFalse(AppInstall.objects.exists())
+        # An app that never touches Home Assistant installs as usual.
+        self.served = catalog_data(version(permissions=["alerts"], network="outbound"))
+        catalog.refresh(force=True)
+        self.assertNotContains(self.client.get(reverse("hub_settings_store")), "needs Home Assistant")
+        self.assertNotContains(self.client.get(reverse("hub_settings_store_app", args=["hello"])), "Needs Home Assistant")
+        self.install(perm=["alerts"])
+        self.assertTrue(AppInstall.objects.exists())
+
+    def test_store_does_not_flag_home_assistant_once_it_is_set_up(self):
+        self.assertNotContains(self.client.get(reverse("hub_settings_store")), "needs Home Assistant")
+        self.assertNotContains(self.client.get(reverse("hub_settings_store_app", args=["hello"])), "Needs Home Assistant")
 
     def test_unknown_app_is_404(self):
         self.assertEqual(self.client.get(reverse("hub_settings_store_app", args=["nope"])).status_code, 404)

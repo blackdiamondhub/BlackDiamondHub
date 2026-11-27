@@ -39,3 +39,9 @@ class Command(BaseCommand):
                           f"{', LAN allowed' if record.allow_lan else ''})")
         if record.upstream:
             self.stdout.write(f"  upstream {record.upstream}")
+        from broker import grants
+        from hub_settings import ha
+
+        if grants.needs_ha(record.requested_permissions) and not ha.instances():
+            self.stderr.write(f"Warning: {app_id} works through Home Assistant, which isn't set up "
+                              "on this hub (Settings › Home Assistant).")
