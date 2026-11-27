@@ -13,3 +13,7 @@ source_winter = "cam"
 source_spring = "cam"
 source_summer = "cam"
 source_fall = "cam"
+
+# Speech from the fake HA's TTS (tests/e2e/fake_ha.py), never the internet.
+[apps.hub]
+speech_engine = "ha"

@@ -25,6 +25,7 @@ django-crispy-forms==2.3
 django-tables2==2.7.0
 djlint==1.35.2
 EditorConfig==0.12.4
+gTTS==2.5.4
 h11==0.14.0
 html-tag-names==0.1.2
 html-void-elements==0.1.0
