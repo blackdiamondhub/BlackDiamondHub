@@ -22,6 +22,12 @@ HA_WS = "ha.ws"
 HUB_TOPICS = frozenset({"assistant"})
 
 
+def needs_ha(permissions):
+    """Whether these permissions only work with Home Assistant set up
+    (``ha.*``, and ``speakers``, which lists and plays through it)."""
+    return any(p == SPEAKERS or p.startswith("ha.") for p in permissions or ())
+
+
 def _with_prefix(grants, prefix):
     return [g[len(prefix):] for g in grants if g.startswith(prefix)]
 

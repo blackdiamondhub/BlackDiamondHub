@@ -18,10 +18,11 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from broker import catalog, jobs, services, shares, supervisor
+from broker import catalog, grants, jobs, services, shares, supervisor
 from broker.models import AppInstall, AuditEntry, ShareBlob, ShareGrant
 from hub.modes import plugins
 
+from . import ha as ha_config
 from .views import _icon, _label, _render, _settings_url, _version, saved_redirect, staff_page
 
 log = logging.getLogger(__name__)
@@ -261,6 +262,7 @@ def installed_live(request):
 def store(request):
     data = _catalog()
     have = {r.app_id for r in AppInstall.objects.all()} | {s.id for s in plugins()}
+    ha_ready = bool(ha_config.instances())
     apps = []
     for app_id, entry in sorted(catalog.apps(data).items(), key=lambda kv: (kv[1].get("name") or kv[0]).lower()):
         if app_id in have:
@@ -273,6 +275,7 @@ def store(request):
                      "icon": entry.get("icon") or "", "version": newest["version"],
                      "beta": catalog.is_beta(newest),
                      "lan": newest.get("network") == "lan",
+                     "no_ha": not ha_ready and grants.needs_ha(newest.get("permissions")),
                      "url": reverse("hub_settings_store_app", args=[app_id])})
     return _render(request, "hub_settings/store.html", "apps", tabs=_tabs("store"), apps=apps,
                    enabled=supervisor.enabled(), catalog_ok=data is not None)
@@ -288,6 +291,12 @@ def _fits(entry):
 
 
 NO_ROOM = "There isn't enough memory for this app. Uninstall another app first."
+NO_HA = "This app works through Home Assistant. Set it up under Settings › Home Assistant first."
+
+
+def _missing_ha(permissions):
+    """Whether the app needs Home Assistant and this hub has none set up."""
+    return grants.needs_ha(permissions) and not ha_config.instances()
 
 
 @staff_page
@@ -303,12 +312,16 @@ def store_app(request, app_id):
         messages.error(request, str(exc))
         return redirect("hub_settings_store")
     want = services.requested(entry)
+    no_ha = _missing_ha(want["permissions"])
     if request.method == "POST":
         if not supervisor.enabled():
             messages.error(request, "App containers aren't set up on this hub.")
             return redirect("hub_settings_store")
         if not _fits(entry):
             messages.error(request, NO_ROOM)
+            return redirect("hub_settings_store_app", app_id)
+        if no_ha:
+            messages.error(request, NO_HA)
             return redirect("hub_settings_store_app", app_id)
         chosen = [p for p in request.POST.getlist("perm") if p in want["permissions"]]
         try:
@@ -327,7 +340,7 @@ def store_app(request, app_id):
                    perms=[{"value": p, **describe(p)} for p in want["permissions"]],
                    network=NETWORK_INFO.get(want["network"]), lan=want["network"] == "lan",
                    companions=want["companions"], fits=_fits(entry), no_room=NO_ROOM,
-                   enabled=supervisor.enabled())
+                   no_ha=no_ha, no_ha_text=NO_HA, enabled=supervisor.enabled())
 
 
 def _record(app_id):
