@@ -6,6 +6,7 @@ import time
 DEFAULT = (20.0, 60.0)
 SLOW = {
     "speakers.announce": (0.2, 3.0),
+    "speakers.play": (0.2, 3.0),
     "speakers.tts": (0.5, 5.0),
     "ha.get_tts": (0.5, 5.0),
     "ha.upload_media": (0.5, 5.0),

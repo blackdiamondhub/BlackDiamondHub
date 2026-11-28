@@ -266,7 +266,8 @@ def cached(key):
     if now - row.last_used > TOUCH_EVERY:
         _touch(key, now)
     audio = bytes(row.audio)
-    _remember(key, audio, row.content_type, now)
+    if row.kind != SpeechClip.CUSTOM:  # apps' clips are large and played once
+        _remember(key, audio, row.content_type, now)
     return audio, row.content_type
 
 

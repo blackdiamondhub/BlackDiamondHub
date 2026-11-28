@@ -9,7 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from . import speech, vault
-from .models import AppSetting, SpeechClip
+from .models import AppSetting, Speaker, SpeechClip
 
 KEY = b"\x07" * 32
 AZURE_SECRET = "azure-speech-key-0123456789abcdef"
@@ -209,3 +209,24 @@ class SpeechPageTests(SpeechCase):
             resp = self.client.post(reverse("hub_settings_speech_test"), {"speaker": "media_player.elsewhere"})
             self.assertEqual(resp.status_code, 400)
             announce.assert_called_once()
+            Speaker.objects.create(native_id="sonos:RINCON_X", kind=Speaker.SONOS, name="Deck")
+            resp = self.client.post(reverse("hub_settings_speech_test"), {"text": "Hi", "speaker": "sonos:RINCON_X"})
+            self.assertTrue(resp.json()["ok"])
+            self.assertEqual(announce.call_args.args, ("Hi", ["sonos:RINCON_X"]))
+
+    def test_speakers_section(self):
+        Speaker.objects.create(native_id="sonos:RINCON_X", kind=Speaker.SONOS, name="Deck", online=False,
+                               legacy_id="media_player.deck", caps={"audio": True, "audio_clip": True})
+        page = self.client.get(self.url).content.decode()
+        self.assertIn("sonos:RINCON_X", page)
+        self.assertIn("media_player.deck", page)
+        with mock.patch("hub_settings.speakers.inventory.refresh") as refresh:
+            self.assertEqual(self.client.post(self.url, {"refresh_speakers": "1"}).status_code, 302)
+        refresh.assert_called_once_with(force=True)
+        resp = self.client.post(self.url, {"engine": "google", "max_volume": "101", "lan_base": "hub.lan/x"})
+        self.assertEqual(set(resp.context["errors"]), {"max_volume", "lan_base"})
+        resp = self.client.post(self.url, {"engine": "google", "max_volume": "45", "lan_base": "http://10.0.0.2:8000/"})
+        self.assertEqual(resp.status_code, 302)
+        from . import speakers as hub_speakers
+
+        self.assertEqual((hub_speakers.max_volume(), hub_speakers.lan_base_override()), (45, "http://10.0.0.2:8000"))

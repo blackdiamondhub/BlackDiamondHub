@@ -21,7 +21,7 @@ MAX_SUBSCRIPTIONS = 32
 
 # Ops worth an audit entry even when allowed (they change something).
 AUDITED = frozenset({
-    "ha.call_service", "ha.upload_media", "ha.ws_commands", "speakers.announce",
+    "ha.call_service", "ha.upload_media", "ha.ws_commands", "speakers.announce", "speakers.play",
     "alerts.push", "alerts.dismiss", "state.set", "state.delete", "events.subscribe",
     "secrets.get", "secrets.set", "secrets.delete",
     "shares.missing", "shares.put_blob", "shares.publish", "shares.list", "shares.open",
@@ -516,6 +516,13 @@ def speakers_list(install, grants, payload):
     return [list(pair) for pair in _speakers_call(speakers.list_speakers) or ()]
 
 
+def speakers_devices(install, grants, payload):
+    from bdh_sdk import speakers
+
+    _require(grants, g.SPEAKERS)
+    return _speakers_call(speakers.devices) or []
+
+
 def _tts_kwargs(payload):
     kwargs = {"voice": _str(payload, "voice", required=False)}
     if payload.get("tts_engine") is not None:
@@ -523,19 +530,56 @@ def _tts_kwargs(payload):
     return kwargs
 
 
+def _speaker_ids(payload):
+    ids = payload.get("speakers")
+    if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+        raise invalid("speakers must be a list of strings")
+    return ids
+
+
+def _volume(payload):
+    volume = payload.get("volume")
+    if volume is not None and (isinstance(volume, bool) or not isinstance(volume, (int, float))):
+        raise invalid("volume must be a number")
+    return volume
+
+
 def speakers_announce(install, grants, payload):
     from bdh_sdk import speakers
 
     _require(grants, g.SPEAKERS)
-    ids = payload.get("speakers")
-    if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
-        raise invalid("speakers must be a list of strings")
-    volume = payload.get("volume")
-    if volume is not None and (isinstance(volume, bool) or not isinstance(volume, (int, float))):
-        raise invalid("volume must be a number")
-    failed = _speakers_call(speakers.announce, _str(payload, "message"), ids, volume,
-                            _str(payload, "chime", required=False), **_tts_kwargs(payload))
-    return list(failed or ())
+    ids, volume = _speaker_ids(payload), _volume(payload)
+    detail = payload.get("detail") is True
+    kwargs = _tts_kwargs(payload)
+    if detail:
+        kwargs["detail"] = True
+    try:
+        message = speakers.check_message(_str(payload, "message"))
+    except ValueError as exc:
+        raise invalid(str(exc)) from None
+    result = _speakers_call(speakers.announce, message, ids, volume,
+                            _str(payload, "chime", required=False), **kwargs)
+    if detail:
+        return dict(result or {})
+    return list(result or ())
+
+
+def speakers_play(install, grants, payload):
+    from bdh_sdk import speakers
+
+    _require(grants, g.SPEAKERS)
+    ids, volume = _speaker_ids(payload), _volume(payload)
+    try:
+        audio = base64.b64decode(_str(payload, "audio").encode("ascii"), validate=True)
+    except (binascii.Error, ValueError):
+        raise invalid("audio must be base64") from None
+    if len(audio) > speakers.MAX_PLAY_BYTES:
+        raise OpError("too_large", "audio must be at most 2 MB")
+    detail = payload.get("detail") is True
+    result = _speakers_call(speakers.play, audio, ids, volume, night=payload.get("night") is True, detail=detail)
+    if detail:
+        return dict(result or {})
+    return list(result or ())
 
 
 def speakers_tts(install, grants, payload):
@@ -653,7 +697,9 @@ OPS = {
     "ha.instances": ha_instances,
     "ha.registry": ha_registry,
     "speakers.list": speakers_list,
+    "speakers.devices": speakers_devices,
     "speakers.announce": speakers_announce,
+    "speakers.play": speakers_play,
     "speakers.tts": speakers_tts,
     "hub.brand": hub_brand,
     "displays.status": displays_status,
@@ -668,7 +714,7 @@ OPS = {
     "tools.call": tools_call,
 }
 
-UPLOAD_OPS = frozenset({"ha.upload_media", "shares.put_blob"})
+UPLOAD_OPS = frozenset({"ha.upload_media", "shares.put_blob", "speakers.play"})
 
 
 def max_body(op):
