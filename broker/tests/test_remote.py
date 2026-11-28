@@ -284,6 +284,128 @@ class SleepingAppTests(TestCase):
         self.assertEqual(self.starts, 0)
 
 
+def _tool(tool_id):
+    return {"id": tool_id, "title": tool_id.title(), "description": f"{tool_id} things.", "params": {},
+            "modes": ["guest", "dashboard", "owner"], "confirm": False, "readonly": False}
+
+
+@override_settings(HUB_PLUGINS=())
+class UpgradeTests(TestCase):
+    """Nothing the hub cached about an app (tools, status, last good results)
+    outlives an install, update or uninstall, even one done by another
+    process (``app_autoupdate``) while the app is slow, asleep or failing."""
+
+    OLD = [_tool("heat")]
+    NEW = [_tool("heat"), _tool("heaters")]
+
+    def setUp(self):
+        from hub import tools
+        from hub_settings.models import AppSetting
+
+        reset_broker()
+        cache.clear()
+        tools.forget()
+        self.addCleanup(reset_broker)
+        self.addCleanup(tools.forget)
+        AppSetting.objects.create(app_id="hub", key="assistant_apps", value=["cams"])
+        hooks = ["status", "tools", "run_tool"]
+        self.install = make_install(runtime="container", lifecycle="on_demand",
+                                    manifest=manifest(hooks=hooks), version="1.2.0")
+        self.hooks = hooks
+        self.replies = {"tools": self.OLD, "status": {"text": "old", "level": "info"}}
+        self.delay, self.failing, self.awake, self.starts = 0, False, True, 0
+        patches = [
+            mock.patch("broker.remote.requests.request", side_effect=self.request),
+            mock.patch("broker.supervisor.enabled", return_value=True),
+            mock.patch("broker.supervisor.start", side_effect=self.start),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def request(self, method, url, data=None, headers=None, timeout=None):
+        if not self.awake:
+            raise requests.ConnectionError("refused")
+        time.sleep(self.delay)
+        if self.failing:
+            return mock.Mock(status_code=500)
+        body = json.loads(data) if data else {}
+        resp = mock.Mock(status_code=200)
+        resp.json.return_value = {"result": copy.deepcopy(self.replies.get(body.get("hook")))}
+        return resp
+
+    def start(self, app_id, wait=False):
+        self.starts += 1
+        self.awake = True
+        return {"healthy": True}
+
+    def names(self, mode="guest"):
+        from hub import tools
+
+        return sorted(t["name"] for t in tools.listing(mode) if t["name"].startswith("cams__"))
+
+    def upgrade(self):
+        """What another process's ``app_autoupdate`` does: no signal reaches this one."""
+        from broker.models import AppInstall
+        from django.utils import timezone
+
+        AppInstall.objects.filter(pk=self.install.pk).update(
+            version="1.3.0", manifest=manifest(hooks=self.hooks, version="1.3.0"), updated=timezone.now())
+        self.replies = {"tools": self.NEW, "status": {"text": "new", "level": "info"}}
+
+    def test_next_listing_after_an_upgrade_has_the_new_tools_while_the_app_is_slow(self):
+        self.assertEqual(self.names(), ["cams__heat"])
+        self.upgrade()
+        self.delay = 1.0  # longer than REFRESH_GRACE: the old list would have been served
+        self.assertEqual(self.names(), ["cams__heat", "cams__heaters"])
+
+    def test_old_tools_are_never_served_after_an_upgrade(self):
+        self.assertEqual(self.names(), ["cams__heat"])
+        self.upgrade()
+        self.failing = True
+        self.assertEqual(self.names(), [])
+
+    def test_upgraded_app_asleep_is_woken_for_its_new_tools(self):
+        self.assertEqual(self.names(), ["cams__heat"])
+        self.upgrade()
+        self.awake = False
+        self.assertEqual(self.names(), ["cams__heat", "cams__heaters"])
+        self.assertEqual(self.starts, 1)
+
+    def test_rewarm_after_an_upgrade_keeps_the_new_tools_through_failures(self):
+        from hub import tools
+        from hub_settings import store
+
+        tools.warm()
+        self.assertEqual(self.names(), ["cams__heat"])
+        # Run every 30 s: one query, and no settings read that would keep
+        # hub_settings.store's cache warm (hiding other processes' writes).
+        with self.assertNumQueries(1):
+            store.clear()
+            self.assertIsNone(tools.warm_if_changed())
+        self.upgrade()
+        self.assertEqual(tools.warm_if_changed(), {"guest": [], "dashboard": []})
+        self.failing = True
+        cache.clear()  # every fresh entry expired; only the remembered list is left
+        self.assertEqual(self.names(), ["cams__heat", "cams__heaters"])
+
+    def test_uninstalled_app_tools_disappear_at_once(self):
+        from broker.models import AppInstall
+        from django.db.models.signals import post_delete
+
+        self.assertEqual(self.names(), ["cams__heat"])
+        with mock.patch.object(post_delete, "send"):
+            AppInstall.objects.filter(pk=self.install.pk).delete()
+        self.assertEqual(self.names(), [])
+
+    def test_status_last_good_does_not_outlive_an_upgrade(self):
+        self.assertEqual(status.home_data("guest")["status"]["cams"]["text"], "old")
+        self.upgrade()
+        remote.installs_changed()
+        self.failing = True
+        self.assertNotIn("cams", status.home_data("guest")["status"])
+
+
 class ManifestFetchTests(TestCase):
     def setUp(self):
         reset_broker()

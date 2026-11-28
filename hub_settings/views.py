@@ -539,6 +539,9 @@ def _save_assistant(request):
     if chosen != sorted(a["id"] for a in _assistant_apps() if a["on"]):
         AppSetting.objects.update_or_create(
             app_id="hub", key=ASSISTANT_APPS, defaults={"value": chosen, "updated_by": request.user})
+        from hub import tools
+
+        tools.warm_soon()
 
 
 def _assistant_control():

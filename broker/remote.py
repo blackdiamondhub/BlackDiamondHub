@@ -431,6 +431,9 @@ class RemoteSpec:
     id: str
     port: int
     version: str = ""
+    # Changes with every install, update and new manifest; the hub's hook
+    # caches are keyed by it so nothing cached outlives the version it came from.
+    revision: str = ""
     tiles: tuple = ()
     status: str | None = None
     shortcuts: str | None = None
@@ -537,6 +540,7 @@ def spec_from_manifest(install, manifest):
     stat_keys = tuple((str(k), str(v)) for k, v in manifest.get("stat_keys") or ())
     return RemoteSpec(
         id=app_id, port=install.port, version=install.version or str(manifest.get("version") or ""),
+        revision=f"{install.pk}:{install.version}:{manifest.get('version') or ''}",
         tiles=_tiles(app_id, manifest), settings=_settings(app_id, manifest),
         settings_pages=_pages(app_id, manifest), provides=provides, stat_keys=stat_keys,
         saver_sources=_saver_sources(app_id, manifest),
@@ -547,6 +551,7 @@ _lock = threading.Lock()
 _specs = None
 _installs = {}
 _last_attempt = {}
+_signature = None
 
 
 def installs_changed(instance=None, signal=None, **_kwargs):
@@ -605,9 +610,19 @@ def _load(local_ids):
     return tuple(specs), installs, missing
 
 
+def _installs_signature():
+    """Changes whenever an install is added, saved or removed (by any process)."""
+    from django.db.models import Count, Max
+
+    from .models import AppInstall
+
+    row = AppInstall.objects.aggregate(n=Count("id"), last=Max("updated"))
+    return row["n"], row["last"]
+
+
 def remote_specs(local_ids=()):
     """Specs for every enabled container app with a manifest (cached)."""
-    global _specs
+    global _specs, _signature
     with _lock:
         cached = _specs
     # Re-read every minute too: `broker_refresh` runs in another process.
@@ -615,6 +630,7 @@ def remote_specs(local_ids=()):
     if cached is not None and time.monotonic() - cached[3] < (STALE_RETRY if cached[2] else MANIFEST_RETRY):
         return cached[0]
     try:
+        signature = _installs_signature()
         specs, installs, missing = _load(set(local_ids))
     except Exception as exc:
         # Before migrations or from async code: keep whatever we had.
@@ -622,9 +638,28 @@ def remote_specs(local_ids=()):
         return cached[0] if cached else ()
     with _lock:
         _specs = (specs, installs, missing, time.monotonic())
+        _signature = signature
         _installs.clear()
         _installs.update(installs)
     return specs
+
+
+def reload_if_changed():
+    """Forget the cached specs if an install changed since they were read, e.g.
+    an update or uninstall run by a management command in another process.
+    One query; for callers that must not act on a stale app list (the assistant)."""
+    with _lock:
+        loaded = _signature if _specs is not None else None
+    if loaded is None:
+        return False
+    try:
+        changed = _installs_signature() != loaded
+    except Exception as exc:
+        log.debug("install check unavailable: %s", exc)
+        return False
+    if changed:
+        installs_changed()
+    return changed
 
 
 def spec_for(app_id):

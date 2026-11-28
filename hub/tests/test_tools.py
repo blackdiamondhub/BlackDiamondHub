@@ -143,6 +143,8 @@ class GatewayTestCase(TestCase):
         STATE.clear()
         reset_broker()
         self.addCleanup(reset_broker)
+        tools.forget()
+        self.addCleanup(tools.forget)
         self.allow("lights", "alarm", "heat", LONG_ID, "stays")
 
     def allow(self, *app_ids):
@@ -257,6 +259,113 @@ class DashboardControlTests(GatewayTestCase):
     def test_on_by_default(self):
         self.assertTrue(tools.dashboard_control())
         self.assertIn("heat__set_temp", self.names(DASHBOARD))
+
+
+# Many apps whose tools hooks can be made slow or failing, like on-demand
+# container apps that must be woken first.
+MANY = [f"app{i:02d}" for i in range(20)]
+SLOW = {}
+
+
+def _many_tools(app_id):
+    def hook(mode):
+        plan = SLOW.get(app_id)
+        if plan == "fail":
+            raise RuntimeError("app is restarting")
+        if plan is not None:
+            plan.wait(10)
+        return [Tool("ask", "Ask", f"Ask {app_id}.", readonly=True, modes=ALL_MODES)]
+    return hook
+
+
+def _many_run(tool_id, args):
+    return "ok"
+
+
+for _id in MANY:
+    globals()[f"{_id}_tools"] = _many_tools(_id)
+
+MANY_PLUGINS = tuple(
+    PluginSpec(id=i, app=i, tools=f"hub.tests.test_tools.{i}_tools", run_tool="hub.tests.test_tools._many_run")
+    for i in MANY)
+
+
+@override_settings(HUB_PLUGINS=MANY_PLUGINS)
+class SlowToolsTests(GatewayTestCase):
+    """A listing must never lose an app's tools to a slow refresh (2026-11-27:
+    seven sleeping apps' tools hooks timed out together after a restart, and a
+    whole voice conversation ran without their tools)."""
+
+    def setUp(self):
+        super().setUp()
+        self.allow(*MANY)
+        SLOW.clear()
+        self.addCleanup(SLOW.clear)
+        self.gate = threading.Event()
+        self.addCleanup(self.drain)
+
+    def drain(self):
+        self.gate.set()
+        from concurrent.futures import wait
+
+        from hub import status
+
+        wait(list(status._inflight.values()), timeout=10)
+
+    def slow(self, *app_ids):
+        for app_id in app_ids or MANY:
+            SLOW[app_id] = self.gate
+
+    def apps_listed(self, mode=GUEST, timeout=tools.LIST_TIMEOUT):
+        return {name.split("__")[0] for name in tools.catalog(mode, timeout) if name != "hub__status"}
+
+    def saturate_shared_pool(self):
+        from hub import status
+
+        for _ in range(status._executor._max_workers * 2):
+            status._executor.submit(self.gate.wait, 10)
+
+    def test_listed_once_every_app_stays_listed(self):
+        self.saturate_shared_pool()
+        self.assertEqual(self.apps_listed(), set(MANY))
+        # The cache loses everything (expiry, culling); every refresh is slow and a few fail.
+        cache.clear()
+        self.slow()
+        SLOW["app03"] = SLOW["app11"] = "fail"
+        started = time.monotonic()
+        self.assertEqual(self.apps_listed(timeout=2.0), set(MANY))
+        self.assertLess(time.monotonic() - started, 1.5)
+
+    def test_expired_tools_are_served_while_refreshing(self):
+        self.assertEqual(self.apps_listed(), set(MANY))
+        for app_id in MANY:
+            cache.delete(tools.status._fresh_key("tools", app_id, GUEST))
+        self.slow()
+        started = time.monotonic()
+        self.assertEqual(self.apps_listed(timeout=5.0), set(MANY))
+        self.assertLess(time.monotonic() - started, 1.5)
+
+    def test_tools_dont_queue_behind_the_shared_pool(self):
+        self.saturate_shared_pool()
+        self.assertEqual(self.apps_listed(timeout=2.0), set(MANY))
+
+    def test_first_listing_waits_then_logs_what_is_missing(self):
+        self.slow("app01", "app02")
+        with self.assertLogs("hub.tools", "WARNING") as logs:
+            listed = self.apps_listed(timeout=0.5)
+        self.assertEqual(listed, set(MANY) - {"app01", "app02"})
+        self.assertEqual(len(logs.output), 1)
+        self.assertRegex(logs.output[0], r"\(guest\) took 0\.\ds without app01, app02")
+        # They finish in the background, so the next listing has them.
+        self.drain()
+        self.assertEqual(self.apps_listed(), set(MANY))
+
+    def test_warm_lists_ahead_of_the_first_conversation(self):
+        self.assertEqual(tools.warm(), {GUEST: [], DASHBOARD: []})
+        cache.clear()
+        self.slow()
+        for mode in (GUEST, DASHBOARD):
+            self.assertEqual(self.apps_listed(mode, timeout=2.0), set(MANY))
 
 
 def scenes_shortcuts():
