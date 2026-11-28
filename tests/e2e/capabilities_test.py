@@ -59,7 +59,9 @@ def test_denied_app_is_refused_everything_with_no_side_effect():
     calls = {
         "alerts.push": {"app": DENIED, "key": tag, "title": tag, "embed_url": f"/{DENIED}/", "ttl": 5},
         "speakers.list": {},
+        "speakers.devices": {},
         "speakers.announce": {"message": tag, "speakers": ["media_player.lounge"]},
+        "speakers.play": {"audio": base64.b64encode(b"ID3" + bytes(64)).decode(), "speakers": ["media_player.lounge"]},
         "speakers.tts": {"message": tag},
         "ha.get_tts": {"engine_id": "tts.e2e", "message": tag, "options": {}},
         "ha.upload_media": {"data": base64.b64encode(b"x").decode(), "folder": "e2e", "filename": f"{tag}.txt",
@@ -301,11 +303,20 @@ def test_network_policy_follows_manifest():
 def test_speakers_announce_and_tts_through_fake_ha():
     ha_reset()
     assert ["media_player.lounge", "Lounge (Sonos)"] in ok(PRODUCER, "speakers.list", {})
+    lounge = [d for d in ok(PRODUCER, "speakers.devices", {}) if d["legacy_id"] == "media_player.lounge"]
+    assert lounge and lounge[0]["id"] == "sonos:RINCON_E2E000000000001400", lounge
     message = f"e2e hello {NONCE}"
     assert ok(PRODUCER, "speakers.announce", {"message": message, "speakers": ["media_player.lounge"]}) == []
     played = poll("announcement played", lambda: _calls("/api/services/media_player/play_media"), 30)
     assert played[0]["body"]["entity_id"] in ("media_player.lounge", ["media_player.lounge"])
-    assert _mentions(played[0], message), played
+    # No Sonos on the CI LAN: the hub falls back to HA with its own signed clip URL.
+    url = played[0]["body"]["media_content_id"]
+    assert "/speech/clip/" in url and "sig=" in url, played
+    clip = requests.get(HUB.rstrip("/") + url[url.index("/speech/clip/"):], timeout=10)
+    assert clip.status_code == 200 and clip.headers["Content-Type"] == "audio/mpeg", clip.status_code
+    assert clip.content[:3] == b"ID3" or clip.content[:1] == b"\xff"
+    assert ok(PRODUCER, "speakers.announce", {"message": message, "speakers": ["media_player.lounge", "x"],
+                                              "detail": True}) == {"media_player.lounge": "played", "x": "failed"}
     audio = ok(PRODUCER, "speakers.tts", {"message": f"tts {NONCE}"})
     assert base64.b64decode(audio["audio"]).startswith(b"ID3")
 

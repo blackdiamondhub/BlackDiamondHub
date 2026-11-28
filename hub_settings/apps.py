@@ -39,5 +39,7 @@ class HubSettingsConfig(AppConfig):
         from bdh_sdk import speakers
 
         from . import speech
+        from .speakers import HubSpeakers
 
         speakers.set_synth(speech.synth)
+        speakers.set_backend(HubSpeakers())

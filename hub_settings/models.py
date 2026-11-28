@@ -113,7 +113,11 @@ class SpeechClip(models.Model):
     Clips unused for 90 days are deleted by ``manage.py speech_prune``.
     """
 
+    SPEECH, ANNOUNCE, CUSTOM = "speech", "announce", "custom"
+    KINDS = [(SPEECH, "Speech"), (ANNOUNCE, "Chime and speech"), (CUSTOM, "App clip")]
+
     key = models.CharField(primary_key=True, max_length=64)
+    kind = models.CharField(max_length=16, choices=KINDS, default=SPEECH)
     engine = models.CharField(max_length=16)
     voice = models.CharField(max_length=80, blank=True)
     text = models.TextField()
@@ -127,3 +131,37 @@ class SpeechClip(models.Model):
 
     def __str__(self):
         return f"{self.engine} {self.voice or '-'}: {self.text[:40]}"
+
+
+class Speaker(models.Model):
+    """A speaker the hub plays on (``hub_settings.speakers``).
+
+    ``native_id`` is ``sonos:<RINCON uid>``, ``alexa:<HA instance>:<entity>``
+    or ``ha:<HA instance>:<entity>``. ``legacy_id`` is the Home Assistant
+    entity id apps saved before the hub had its own speakers (default
+    instance only); it is kept when HA goes away so those ids keep working.
+    ``ha_instance``/``ha_entity`` are the HA route to the speaker, used when
+    the direct one fails. Rows are never deleted automatically: a speaker
+    that disappears goes offline.
+    """
+
+    SONOS, ALEXA, HA = "sonos", "alexa", "ha"
+    KINDS = [(SONOS, "Sonos"), (ALEXA, "Alexa"), (HA, "Home Assistant")]
+
+    native_id = models.CharField(max_length=200, unique=True)
+    kind = models.CharField(max_length=16, choices=KINDS)
+    driver = models.CharField(max_length=16)
+    name = models.CharField(max_length=200)
+    legacy_id = models.CharField(max_length=200, null=True, blank=True, db_index=True)
+    caps = models.JSONField(default=dict)
+    online = models.BooleanField(default=True)
+    last_seen = models.DateTimeField(null=True, blank=True)
+    address = models.CharField(max_length=64, blank=True)
+    ha_instance = models.CharField(max_length=64, blank=True)
+    ha_entity = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.native_id})"

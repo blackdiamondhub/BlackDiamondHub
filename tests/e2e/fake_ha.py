@@ -20,7 +20,8 @@ ENTITIES = [
     {"entity_id": "lock.safe", "device_id": "dev-safe", "platform": "august", "name": None,
      "original_name": "Safe", "translation_key": None, "disabled_by": None},
     {"entity_id": "media_player.lounge", "device_id": None, "platform": "sonos", "name": None,
-     "original_name": "Lounge", "translation_key": None, "disabled_by": None},
+     "original_name": "Lounge", "translation_key": None, "disabled_by": None,
+     "unique_id": "RINCON_E2E000000000001400"},
 ]
 STATES = {
     "light.kitchen": {"state": "off", "attributes": {"friendly_name": "Kitchen"}},

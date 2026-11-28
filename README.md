@@ -189,11 +189,11 @@ the app they are hidden. A site turns it on with `runtime = "container"` under
 
 The hub makes the speech for announcements on Sonos and for spoken alerts on
 the screens itself (hub_settings/speech.py, installed with
-dh_sdk.speakers.set_synth), so they don't need Home Assistant's cloud TTS.
+bdh_sdk.speakers.set_synth), so they don't need Home Assistant's cloud TTS.
 Settings → Speech (/settings/speech/, staff only) picks the engine:
 
 - **Google** (default, no account): Google Translate's free voice, via gTTS.
-- **Azure Speech**: a neural voice (default n-US-AvaNeural) from an Azure
+- **Azure Speech**: a neural voice (default en-US-AvaNeural) from an Azure
   Speech resource (the free F0 tier is plenty). Enter its region (default
   westus3) and key; the key is kept in the secret store and the page only
   says whether one is saved.
@@ -202,11 +202,47 @@ Settings → Speech (/settings/speech/, staff only) picks the engine:
 If an engine fails the hub logs it and falls back: Azure → Google → Home
 Assistant's TTS. The voice saved on the page is the house voice and wins over
 the one an app asks for; until one is saved an app's Azure voice name
-(AvaNeural means n-US-AvaNeural) is used. Each clip is made once and kept
-in the database (SpeechClip, keyed by engine, voice and text); Sonos plays it
-from HA's local media (folder dh-tts) as an announcement, so music ducks
-and resumes. Clips unused for 90 days are deleted daily by
-manage.py speech_prune. Alexa still speaks announcements itself.
+(AvaNeural means en-US-AvaNeural) is used. Each clip is made once and kept
+in the database (SpeechClip, keyed by engine, voice and text). Clips unused
+for 90 days are deleted daily by manage.py speech_prune.
+
+#### Speakers
+
+The hub talks to the speakers itself (hub_settings/speakers, installed with
+bdh_sdk.speakers.set_backend). It keeps an inventory (the Speaker table) built
+from Sonos discovery on the LAN and Home Assistant's media players. Each
+speaker has a native id (`sonos:RINCON_...`, `alexa:<entity>`, `ha:<entity>`)
+and keeps its HA entity id as a legacy id, so apps that saved `media_player.*`
+ids keep working; both resolve, also while HA is down. speakers.list still
+returns the legacy ids.
+
+- **Sonos**: the chime and the speech are joined into one MP3 and played with
+  Sonos' audio-clip API, so music ducks and resumes without HA. The speaker
+  fetches it from the hub at `/speech/clip/<id>.mp3` with a signed,
+  short-lived URL (served before the host/session checks, Range supported).
+  If the clip can't be sent the hub falls back to Home Assistant's announce.
+- **Alexa**: HA's announce, as before.
+- **Other HA players**: play_media with announce, if they support it.
+
+A message is at most 200 characters (about 15 s of speech; the SDK's
+`speakers.MAX_TTS_TEXT`). A longer one is refused as `invalid` before
+anything plays, on every speaker including Alexa.
+
+One announcement plays per speaker at a time; more queue briefly and are
+refused when the queue is full. Each call has one deadline (about 110 s,
+under the apps' 120 s timeout) covering the inventory lookup, the speech,
+the wait for a turn and the playing; with too little time left it's refused
+as busy. A slow inventory refresh doesn't hold an announcement up: it uses
+the saved speakers. An app's clip is stored only when it's about to play. Settings -> Speech lists the speakers (Refresh
+rescans), sets the max volume apps may use with speakers.play (default 60)
+and, if the speakers can't reach the hub's usual address, a "Hub address for
+speakers" base URL (e.g. `http://192.168.10.216:8000`).
+
+Apps get two broker ops: `speakers.devices` (the inventory with native and
+legacy ids) and `speakers.play` (the app's own MP3/WAV, at most 2 MB and 60 s,
+Sonos only, refused at night). announce can also return per-speaker results
+(`detail`).
+
 ### Secrets
 
 App passwords, API keys and tokens live in an encrypted secret store
