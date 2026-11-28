@@ -19,15 +19,16 @@ ENTITIES = [
      "original_name": "Porch", "translation_key": None, "disabled_by": None},
     {"entity_id": "lock.safe", "device_id": "dev-safe", "platform": "august", "name": None,
      "original_name": "Safe", "translation_key": None, "disabled_by": None},
-    {"entity_id": "media_player.lounge", "device_id": None, "platform": "sonos", "name": None,
-     "original_name": "Lounge", "translation_key": None, "disabled_by": None,
-     "unique_id": "RINCON_E2E000000000001400"},
+    # No Sonos on the CI LAN (and the hub never lists a Sonos HA alone knows): an HA player that announces.
+    {"entity_id": "media_player.lounge", "device_id": None, "platform": "cast", "name": None,
+     "original_name": "Lounge", "translation_key": None, "disabled_by": None, "unique_id": "e2e-lounge"},
 ]
 STATES = {
     "light.kitchen": {"state": "off", "attributes": {"friendly_name": "Kitchen"}},
     "light.porch": {"state": "on", "attributes": {"friendly_name": "Porch"}},
     "lock.safe": {"state": "locked", "attributes": {"friendly_name": "Safe"}},
-    "media_player.lounge": {"state": "idle", "attributes": {"friendly_name": "Lounge"}},
+    "media_player.lounge": {"state": "idle", "attributes": {"friendly_name": "Lounge",
+                                                            "supported_features": 512 | 1048576}},
 }
 AUDIO = b"ID3\x03\x00\x00\x00\x00\x00\x00fake-tts-audio"
 

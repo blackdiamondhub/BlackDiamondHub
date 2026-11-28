@@ -10,7 +10,10 @@ not listed twice.
 Only this site's speakers are kept: Home Assistant's default (local)
 instance alone is asked, and Sonos only from the households local HA knows
 (:func:`sonos.topology`). Rows another HA instance or another household
-left behind are pruned. Satellites, subs and stereo-pair secondaries are
+left behind are pruned. A Sonos is listed only while the local household's
+live topology has it: HA entities pick the household (available ones only)
+and give rooms their legacy ids, but never add a player. One the topology
+hasn't had for :data:`GRACE` (or ever) is pruned; until then it's offline. Satellites, subs and stereo-pair secondaries are
 not rooms: their ids (and HA entities) become ``aliases`` of the room they
 play in, so a pick saved with one of them plays on that room.
 
@@ -24,6 +27,7 @@ leaves them the saved rows.
 import logging
 import threading
 import time
+from datetime import timedelta
 
 from django.db.models import Q
 from django.utils import timezone
@@ -35,6 +39,7 @@ log = logging.getLogger(__name__)
 TTL = 300
 UNKNOWN_TTL = 30
 REQUEST_WAIT = 10
+GRACE = timedelta(days=7)
 SONOS_DRIVER, ALEXA_DRIVER, HA_DRIVER = "sonos", "ha_alexa", "ha_media"
 TITLES = {"sonos": "Sonos", "alexa": "Alexa", "ha": "Home Assistant"}
 PLAY_MEDIA, MEDIA_ANNOUNCE = 512, 1048576
@@ -98,13 +103,15 @@ def _local_uids(default, data):
     """The Sonos uids this site's Home Assistant knows (as last seen, while it's down)."""
     from hub_settings.models import Speaker
 
-    if data is not None:
-        return {e.get("unique_id") for e in data[0]
-                if e.get("platform") == "sonos" and e.get("unique_id")}
+    if data is not None:  # stale entities (e.g. another site's, left in HA) don't vote
+        entries, states = data
+        return {e.get("unique_id") for e in entries
+                if e.get("platform") == "sonos" and e.get("unique_id")
+                and (states.get(e.get("entity_id")) or {}).get("state", "unavailable") != "unavailable"}
     if default is None:
         return set()
     return {r.split(":", 1)[1] for r in Speaker.objects.filter(kind=Speaker.SONOS, ha_instance=str(default))
-            .values_list("native_id", flat=True)}
+            .exclude(household="").values_list("native_id", flat=True)}
 
 
 def _refresh_sonos(local_uids=()):
@@ -145,8 +152,10 @@ def _refresh_sonos(local_uids=()):
     households = {r.get("household") for r in rooms} - {None, ""}
     if households:  # another site's household, from before the hub kept to its own
         Speaker.objects.filter(kind=Speaker.SONOS).exclude(household="").exclude(household__in=households).delete()
-    Speaker.objects.filter(kind=Speaker.SONOS).exclude(native_id__in=[f"sonos:{u}" for u in seen]).update(
-        online=False)
+    gone = Speaker.objects.filter(kind=Speaker.SONOS).exclude(native_id__in=[f"sonos:{u}" for u in seen])
+    # never in this site's topology, or not for a while: not a speaker here any more
+    gone.filter(Q(address="") | Q(last_seen__isnull=True) | Q(last_seen__lt=now - GRACE)).delete()
+    gone.update(online=False)
     return seen
 
 
@@ -193,13 +202,10 @@ def _refresh_ha(native_seen, iid, data):
                     room.aliases = room.aliases + [eid]
                     room.save(update_fields=["aliases"])
                 continue
-            row, _ = Speaker.objects.get_or_create(
-                native_id=f"sonos:{uid}", defaults={"kind": Speaker.SONOS, "driver": SONOS_DRIVER, "name": name})
+            row = Speaker.objects.filter(native_id=f"sonos:{uid}").first()
+            if row is None:  # not in this site's topology: HA alone never adds a Sonos
+                continue
             row.ha_instance, row.ha_entity, row.legacy_id = str(iid), eid, eid
-            if native_seen is None or uid not in native_seen:
-                row.online = available or (native_seen is None and row.online and bool(row.address))
-                if available:
-                    row.last_seen = now
             row.caps = sonos_caps(row.caps.get("audio_clip", bool(row.address)), eid)
             row.save()
             continue
