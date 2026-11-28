@@ -25,9 +25,11 @@ only get read-only tools. Each open and call is published, by the hub, as
 
 Apps' tools are listed in their own pool and, once an app has listed them,
 always served: a slow or failed refresh serves the last good list (kept for
-the life of the process) while it finishes in the background. The waker
-calls :func:`warm` shortly after start and every few minutes, so even the
-first conversation after a restart finds sleeping apps' tools ready.
+as long as that version of the app is installed) while it finishes in the
+background. The waker calls :func:`warm` shortly after start and every few
+minutes (and :func:`warm_if_changed` after an app is installed, updated or
+removed), so even the first conversation after a restart finds sleeping
+apps' tools ready. Nothing cached is ever served for another version.
 """
 import hashlib
 import json
@@ -75,11 +77,14 @@ _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="hub-tool")
 # status/shortcut hooks (or sleeping apps being woken) in status's shared one.
 _list_executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix="hub-tools-list")
 _EXECUTORS = {"tools": _list_executor}
-# Each app's last good tools per mode, for the life of the process: tool
-# declarations rarely change, so a slow or failing refresh (or the cache
-# dropping the entry) never takes an app's tools out of a listing.
+# Each app's last good tools per mode (and the revision they came from), for
+# the life of the process: tool declarations only change with the app's
+# version, so a slow or failing refresh (or the cache dropping the entry)
+# never takes an app's tools out of a listing.
 _known = {}
 _known_lock = threading.Lock()
+# The apps (and their revisions) the last full warm listed.
+_warmed = None
 
 
 class BadSession(Exception):
@@ -173,8 +178,14 @@ def _tools_job(spec, mode):
 def _known_tools(kind, plugin_id, mode):
     if kind != "tools":
         return None
+    stamp = status._stamp(plugin_id)
     with _known_lock:
-        return _known.get((plugin_id, mode))
+        known = _known.get((plugin_id, mode))
+        if known is not None and known["stamp"] != stamp:
+            # Another version's tools (since installed, updated or removed): never served.
+            del _known[(plugin_id, mode)]
+            known = None
+        return known
 
 
 def _remember(results, jobs):
@@ -183,15 +194,31 @@ def _remember(results, jobs):
         for kind, plugin_id, _path, _convert, _ttl, mode in jobs:
             entry = results.get((kind, plugin_id))
             if kind == "tools" and entry and not entry.get("missing") and "updated" in entry:
+                stamp = entry.get("stamp", "")
                 known = _known.get((plugin_id, mode))
-                if known is None or entry["updated"] >= known["updated"]:
-                    _known[(plugin_id, mode)] = {"value": entry["value"], "updated": entry["updated"]}
+                if known is None or known["stamp"] != stamp or entry["updated"] >= known["updated"]:
+                    _known[(plugin_id, mode)] = {"value": entry["value"], "updated": entry["updated"],
+                                                 "stamp": stamp}
 
 
 def forget():
     """Drop the remembered tools (tests)."""
+    global _warmed
     with _known_lock:
         _known.clear()
+        _warmed = None
+
+
+def _current_specs():
+    """:func:`usable_specs`, re-read first if an app was installed, updated or
+    removed since (by another process, say), so no listing lags behind it."""
+    from django.conf import settings
+
+    if "broker" in settings.INSTALLED_APPS:
+        from broker.remote import reload_if_changed
+
+        reload_if_changed()
+    return usable_specs()
 
 
 def _tooled(specs, mode):
@@ -202,14 +229,33 @@ def warm(modes=WARM_MODES, timeout=WARM_TIMEOUT):
     """List every assistant app's tools in ``modes`` so a conversation never
     starts on a cold cache (after a restart, say). Returns ``{mode: [ids missing]}``.
     """
+    global _warmed
     missing = {}
-    specs = usable_specs()
+    specs = _current_specs()
+    warmed = _revisions(specs)
     for mode in modes:
         jobs = [_tools_job(s, mode) for s in _tooled(specs, mode)]
         results = status._gather(jobs, timeout, executors=_EXECUTORS, fallback=_known_tools) if jobs else {}
         _remember(results, jobs)
         missing[mode] = _missing(results, jobs)
+    if modes == WARM_MODES:
+        with _known_lock:
+            _warmed = warmed
     return missing
+
+
+def _revisions(specs):
+    return frozenset((s.id, getattr(s, "revision", "") or "") for s in specs if getattr(s, "tools", None))
+
+
+def warm_if_changed():
+    """:func:`warm` when an assistant app was installed, updated or removed since
+    the last warm, so its new tools are listed before a conversation needs them."""
+    specs = _current_specs()
+    with _known_lock:
+        if _warmed == _revisions(specs):
+            return None
+    return warm()
 
 
 def _missing(results, jobs):
@@ -265,7 +311,7 @@ def catalog(mode, timeout=LIST_TIMEOUT):
 
     An entry is what ``tools.list`` shows plus ``target``, what it runs.
     """
-    specs = usable_specs()
+    specs = _current_specs()
     labels = {s.id: quick.app_label(s) for s in specs}
     bar = quick.prefs()
     tooled = _tooled(specs, mode)

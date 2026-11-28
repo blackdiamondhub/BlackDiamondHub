@@ -202,16 +202,27 @@ def _card_value(result):
     }
 
 
-def _fresh_key(kind, plugin_id, mode=None):
-    return f"hub:{kind}:{plugin_id}" + (f":{mode}" if mode else "")
+def _stamp(plugin_id):
+    """The installed revision of ``plugin_id`` (container apps; "" otherwise)."""
+    for spec in plugins():
+        if spec.id == plugin_id:
+            return getattr(spec, "revision", "") or ""
+    return ""
 
 
-def _last_key(kind, plugin_id, mode=None):
-    return _fresh_key(kind, plugin_id, mode) + ":last"
+def _fresh_key(kind, plugin_id, mode=None, stamp=None):
+    # Keyed by the app's revision: an install, update or removal never sees
+    # (or serves as last good) what the previous version said.
+    stamp = _stamp(plugin_id) if stamp is None else stamp
+    return f"hub:{kind}:{plugin_id}" + (f":{mode}" if mode else "") + (f"@{stamp}" if stamp else "")
 
 
-def _failed_key(kind, plugin_id, mode=None):
-    return _fresh_key(kind, plugin_id, mode) + ":failed"
+def _last_key(kind, plugin_id, mode=None, stamp=None):
+    return _fresh_key(kind, plugin_id, mode, stamp) + ":last"
+
+
+def _failed_key(kind, plugin_id, mode=None, stamp=None):
+    return _fresh_key(kind, plugin_id, mode, stamp) + ":failed"
 
 
 def _takes_mode(path):
@@ -235,37 +246,39 @@ def _call(hook, mode):
 def _run_hook(kind, plugin_id, path, convert, ttl, mode=None):
     from broker.remote import Asleep, waking
 
+    # Before the call: a result from the old version never lands under a new one's keys.
+    stamp = _stamp(plugin_id)
+    fresh_key, last_key = _fresh_key(kind, plugin_id, mode, stamp), _last_key(kind, plugin_id, mode, stamp)
+    failed_key = _failed_key(kind, plugin_id, mode, stamp)
     try:
         hook = _resolve(path)
         try:
             value = convert(_call(hook, mode))
         except Asleep as asleep:
-            last = cache.get(_last_key(kind, plugin_id, mode))
+            last = cache.get(last_key)
             if last is not None and time.time() - last["updated"] < asleep.wake_every:
                 # Keep showing what it said last time; don't start it just for a tile.
-                cache.set(_fresh_key(kind, plugin_id, mode), last,
-                          ttl(last["value"]) if callable(ttl) else ttl)
+                cache.set(fresh_key, last, ttl(last["value"]) if callable(ttl) else ttl)
                 return last
             with waking():
                 value = convert(_call(hook, mode))
     except Exception:
         # Remembered so a background refresh that fails still shows as stale.
-        cache.set(_failed_key(kind, plugin_id, mode), True, LAST_GOOD_TTL)
+        cache.set(failed_key, True, LAST_GOOD_TTL)
         raise
     else:
-        entry = {"value": value, "updated": time.time()}
-        cache.set(_fresh_key(kind, plugin_id, mode), entry,
-                  ttl(value) if callable(ttl) else ttl)
-        cache.set(_last_key(kind, plugin_id, mode), entry, _keep_for(hook))
-        cache.delete(_failed_key(kind, plugin_id, mode))
+        entry = {"value": value, "updated": time.time(), "stamp": stamp}
+        cache.set(fresh_key, entry, ttl(value) if callable(ttl) else ttl)
+        cache.set(last_key, entry, _keep_for(hook))
+        cache.delete(failed_key)
         return entry
     finally:
         close_old_connections()
 
 
-def _submit(kind, plugin_id, path, convert, ttl, mode=None, executor=None):
+def _submit(kind, plugin_id, path, convert, ttl, mode=None, executor=None, stamp=None):
     """Start the hook (in ``executor``, else the shared pool) unless the same one is already running."""
-    key = _fresh_key(kind, plugin_id, mode)
+    key = _fresh_key(kind, plugin_id, mode, stamp)
     with _inflight_lock:
         future = _inflight.get(key)
         if future is None or future.done():
@@ -291,8 +304,10 @@ def _gather(jobs, timeout, grace=None, executors=None, fallback=None):
     """
     executors = executors or {}
 
+    stamps = {}
+
     def last_good(kind, plugin_id, mode):
-        last = cache.get(_last_key(kind, plugin_id, mode))
+        last = cache.get(_last_key(kind, plugin_id, mode, stamps[plugin_id]))
         if last is None and fallback is not None:
             last = fallback(kind, plugin_id, mode)
         return last
@@ -301,12 +316,14 @@ def _gather(jobs, timeout, grace=None, executors=None, fallback=None):
     for kind, plugin_id, path, convert, ttl, *rest in jobs:
         mode = rest[0] if rest else None
         modes[(kind, plugin_id)] = mode
-        hit = cache.get(_fresh_key(kind, plugin_id, mode))
+        if plugin_id not in stamps:
+            stamps[plugin_id] = _stamp(plugin_id)
+        hit = cache.get(_fresh_key(kind, plugin_id, mode, stamps[plugin_id]))
         if hit is not None:
             results[(kind, plugin_id)] = {**hit, "stale": False}
         else:
             pending[(kind, plugin_id)] = _submit(kind, plugin_id, path, convert, ttl, mode,
-                                                 executors.get(kind))
+                                                 executors.get(kind), stamps[plugin_id])
 
     started = time.monotonic()
     if pending and grace is not None:
@@ -317,7 +334,7 @@ def _gather(jobs, timeout, grace=None, executors=None, fallback=None):
             mode = modes[(kind, plugin_id)]
             last = last_good(kind, plugin_id, mode)
             if last is not None:
-                stale = cache.get(_failed_key(kind, plugin_id, mode)) is not None
+                stale = cache.get(_failed_key(kind, plugin_id, mode, stamps[plugin_id])) is not None
                 results[(kind, plugin_id)] = {**last, "stale": stale, "refreshing": True}
                 del pending[(kind, plugin_id)]
     if pending:

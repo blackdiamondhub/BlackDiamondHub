@@ -11,10 +11,12 @@ import time
 log = logging.getLogger(__name__)
 
 EVERY = 600
+# How often to check whether an assistant app was installed, updated or removed.
+CHECK = 30
 
 
-def start(every=EVERY):
-    thread = threading.Thread(target=_loop, args=(every,), name="hub-waker", daemon=True)
+def start(every=EVERY, check=CHECK):
+    thread = threading.Thread(target=_loop, args=(every, check), name="hub-waker", daemon=True)
     thread.start()
     return thread
 
@@ -31,17 +33,30 @@ def warm_tools():
     return tools.warm()
 
 
-def _loop(every):
+def rewarm_tools():
+    from . import tools
+
+    return tools.warm_if_changed()
+
+
+def _run(jobs):
     from django.db import close_old_connections
 
+    for job, what in jobs:
+        try:
+            job()
+        except Exception:
+            log.exception("%s failed", what)
+        finally:
+            close_old_connections()
+
+
+def _loop(every, check=CHECK):
     # Let the server finish starting first.
     time.sleep(30)
     while True:
-        for job, what in ((tick, "waking tile-less apps"), (warm_tools, "warming assistant tools")):
-            try:
-                job()
-            except Exception:
-                log.exception("%s failed", what)
-            finally:
-                close_old_connections()
-        time.sleep(every)
+        _run(((tick, "waking tile-less apps"), (warm_tools, "warming assistant tools")))
+        due = time.monotonic() + every
+        while time.monotonic() < due:
+            time.sleep(min(check, max(0, due - time.monotonic())))
+            _run(((rewarm_tools, "re-warming assistant tools"),))
