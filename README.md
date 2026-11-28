@@ -230,7 +230,11 @@ instance (e.g. `ha_mi` at Sun Peaks) is never asked. Sonos rooms come from
 this site's household: the household of the players the local HA knows,
 or, if it knows none, of players on the hub's own subnet. Other households
 reachable over a routed link are ignored, and saved rows from another site
-are pruned on refresh. Only rooms that play on their own are listed: a home
+are pruned on refresh. A Sonos is listed only while this household's live
+topology has it: HA's Sonos entities (available ones only) help pick the
+household and give rooms their legacy ids, but never add a player, so a
+stale entity left in HA isn't shown. A room missing from the topology shows
+offline for a week (unplugged), then is pruned. Only rooms that play on their own are listed: a home
 theater's sub and surrounds and a stereo pair's second speaker are hidden,
 and their old ids (`sonos:RINCON_...` or HA entity) are kept as aliases of
 the room, so a saved pick still plays on the room's soundbar/coordinator.

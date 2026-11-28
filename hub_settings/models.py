@@ -144,7 +144,8 @@ class Speaker(models.Model):
     the direct one fails. A speaker that disappears goes offline; rows are
     only deleted when they turn out not to be this site's (another
     household's Sonos, another HA instance's speakers) or not a room (a
-    satellite, sub or stereo-pair secondary). ``household`` is a Sonos
+    satellite, sub or stereo-pair secondary), or a Sonos this site's
+    topology never had or hasn't had for a week. ``household`` is a Sonos
     room's household id; ``aliases`` are other ids that mean this room: the
     hidden members (``sonos:<uid>``) and their HA entities.
     """
