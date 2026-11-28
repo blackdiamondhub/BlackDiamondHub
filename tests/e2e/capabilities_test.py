@@ -302,14 +302,14 @@ def test_network_policy_follows_manifest():
 
 def test_speakers_announce_and_tts_through_fake_ha():
     ha_reset()
-    assert ["media_player.lounge", "Lounge (Sonos)"] in ok(PRODUCER, "speakers.list", {})
+    assert ["media_player.lounge", "Lounge (Home Assistant)"] in ok(PRODUCER, "speakers.list", {})
     lounge = [d for d in ok(PRODUCER, "speakers.devices", {}) if d["legacy_id"] == "media_player.lounge"]
-    assert lounge and lounge[0]["id"] == "sonos:RINCON_E2E000000000001400", lounge
+    assert lounge and re.fullmatch(r"ha:[^:]+:media_player\.lounge", lounge[0]["id"]), lounge
     message = f"e2e hello {NONCE}"
     assert ok(PRODUCER, "speakers.announce", {"message": message, "speakers": ["media_player.lounge"]}) == []
     played = poll("announcement played", lambda: _calls("/api/services/media_player/play_media"), 30)
     assert played[0]["body"]["entity_id"] in ("media_player.lounge", ["media_player.lounge"])
-    # No Sonos on the CI LAN: the hub falls back to HA with its own signed clip URL.
+    # An HA player: the hub has HA play its own signed clip URL.
     url = played[0]["body"]["media_content_id"]
     assert "/speech/clip/" in url and "sig=" in url, played
     clip = requests.get(HUB.rstrip("/") + url[url.index("/speech/clip/"):], timeout=10)

@@ -2,11 +2,13 @@ import asyncio
 import struct
 import threading
 import time
+from datetime import timedelta
 from unittest import mock
 
 from bdh_sdk import ha
 from bdh_sdk import speakers as sdk
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
 from . import speakers as hub
 from .models import AppSetting, Speaker, SpeechClip
@@ -136,7 +138,7 @@ class InventoryCase(TestCase):
         self.instances = [{"id": 1, "name": "HA", "site": "", "default": True}]
         self.ha_calls = []
         self.topology = mock.patch.object(sonos, "topology", side_effect=lambda seeds, local_uids=(): self.rooms)
-        self.topology.start()
+        self.topology_mock = self.topology.start()
         self.addCleanup(self.topology.stop)
         for target, fn in (("capabilities", mock.AsyncMock(return_value={UID: ["PLAYBACK", "AUDIO_CLIP"]})),
                            ("lan_address", mock.Mock(return_value="10.0.0.2"))):
@@ -197,6 +199,31 @@ class InventoryTests(InventoryCase):
         self.entries = self.entries[1:]
         inventory.refresh(force=True)
         self.assertFalse(Speaker.objects.get(native_id=f"sonos:{UID}").online)
+
+    def test_ha_never_adds_a_sonos_and_its_stale_entities_dont_pick_the_household(self):
+        # SP's own HA still has MI's Deck, unavailable; a row for it was saved from HA before.
+        Speaker.objects.create(native_id="sonos:RINCON_MI_DECK", kind=Speaker.SONOS, driver="sonos", name="Deck",
+                               legacy_id="media_player.deck", ha_instance="1", ha_entity="media_player.deck",
+                               last_seen=timezone.now())
+        self.entries = self.entries + [{"entity_id": "media_player.deck", "platform": "sonos",
+                                        "unique_id": "RINCON_MI_DECK"}]
+        self.states = self.states + [{"entity_id": "media_player.deck", "state": "unavailable", "attributes": {}}]
+        inventory.refresh(force=True)
+        self.assertEqual(self.topology_mock.call_args.kwargs["local_uids"], {UID})
+        self.assertFalse(Speaker.objects.filter(native_id="sonos:RINCON_MI_DECK").exists())
+        self.assertNotIn("media_player.deck", [p[0] for p in inventory.pairs()])
+        self.assertIsNone(inventory.resolve(["media_player.deck"], wait=0)["media_player.deck"])
+
+    def test_a_room_missing_from_the_topology_is_offline_for_a_week_then_pruned(self):
+        inventory.refresh(force=True)
+        self.rooms = [{"uid": "RINCON_OTHER", "name": "Deck", "address": "10.0.0.87"}]
+        Speaker.objects.filter(native_id=f"sonos:{UID}").update(last_seen=timezone.now() - timedelta(days=6))
+        inventory.refresh(force=True)
+        self.assertFalse(Speaker.objects.get(native_id=f"sonos:{UID}").online)
+        Speaker.objects.filter(native_id=f"sonos:{UID}").update(last_seen=timezone.now() - timedelta(days=8))
+        inventory.refresh(force=True)
+        self.assertFalse(Speaker.objects.filter(native_id=f"sonos:{UID}").exists())
+        self.assertTrue(Speaker.objects.filter(native_id="sonos:RINCON_OTHER").exists())
 
     def test_slow_refresh_leaves_announcements_the_saved_rows(self):
         inventory.refresh(force=True)
