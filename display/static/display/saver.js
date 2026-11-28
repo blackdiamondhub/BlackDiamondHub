@@ -154,12 +154,17 @@
     }
     function applyNight() { if (root) root.classList.toggle('night', isNight()); }
     // A UniFi Connect screen can also switch its backlight off; the hub turns it back on in the morning.
+    // Once it's off, the saver closes behind the dark screen: the tap that wakes the backlight never
+    // reaches the page, so a saver left up would stay black under a lit screen until the next tap.
     let askedSleep = false;
     function sleepAtNight() {
         applyNight();
         if (cfg.sleep && !askedSleep && isNight()) {
             askedSleep = true;
-            navigator.sendBeacon(cfg.sleep);
+            fetch(cfg.sleep, {method: 'POST', keepalive: true})
+                .then(r => r.json())
+                .then(d => { if (d && d.asleep && root && root.classList.contains('on')) hide(false); })
+                .catch(() => {});
         }
     }
 
