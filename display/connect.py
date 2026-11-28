@@ -3,8 +3,9 @@
 The screensaver goes black at night on any screen. A UniFi Connect display can
 also switch its backlight off: when its saver shows during the night the page
 asks for that (:func:`sleep`), and :func:`wake_due` turns it back on once the
-night is over. A tap on the screen also wakes it (the page reloads), and it
-sleeps again after the screensaver timeout.
+night is over. The page then closes its saver behind the dark screen, since the
+tap that wakes the backlight never reaches the page. A tap wakes the screen
+(the display reloads the page) and it sleeps again after the screensaver timeout.
 
 Set up on the Display settings page: the console's address, a local user and
 its password. Without them nothing here does anything.

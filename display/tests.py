@@ -3,6 +3,7 @@ import io
 import os
 import shutil
 import tempfile
+import time
 from datetime import date, timedelta
 from unittest import mock
 
@@ -1165,6 +1166,37 @@ class SaverBrokenPhotoSeleniumTest(SeleniumTestCase):
         """)
         WebDriverWait(self.browser, 20).until(lambda d: d.execute_script("return 'saverOnWithPhoto' in window"))
         self.assertTrue(self.browser.execute_script("return window.saverOnWithPhoto"))
+
+
+@tag("selenium")
+@override_settings(HUB_PLUGINS=BASE)
+class SaverSleepSeleniumTest(SeleniumTestCase):
+    """At night a Connect screen's backlight goes off; the tap that wakes it never reaches the page,
+    so the saver must not be left up behind it (regression: black screen, backlight on)."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(store.clear)
+        for target, value in (("display.connect.configured", True),
+                              ("display.schedule.window", {"offset": 0, "from": 60, "until": 120})):
+            patcher = mock.patch(target, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def saver_after_sleep(self, asleep):
+        with mock.patch("display.connect.sleep", return_value=asleep) as sleep:
+            self.browser.get(self.live_server_url + "/?saver=1&saver_night=1&saver_season=summer")
+            WebDriverWait(self.browser, 20).until(lambda d: sleep.called)
+            WebDriverWait(self.browser, 20).until(lambda d: d.execute_script(
+                "return document.readyState === 'complete'"))
+            time.sleep(2)  # let the answer arrive and the saver react
+        return self.browser.execute_script("return document.querySelector('.bdh-saver').classList.contains('on')")
+
+    def test_saver_closes_once_the_screen_is_off(self):
+        self.assertFalse(self.saver_after_sleep(True))
+
+    def test_saver_stays_when_the_screen_cant_go_off(self):
+        self.assertTrue(self.saver_after_sleep(False))
 
 
 @tag("selenium")
