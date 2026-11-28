@@ -232,7 +232,7 @@ def warm(modes=WARM_MODES, timeout=WARM_TIMEOUT):
     global _warmed
     missing = {}
     specs = _current_specs()
-    warmed = _revisions(specs)
+    warmed = _revisions(plugins())
     for mode in modes:
         jobs = [_tools_job(s, mode) for s in _tooled(specs, mode)]
         results = status._gather(jobs, timeout, executors=_EXECUTORS, fallback=_known_tools) if jobs else {}
@@ -249,11 +249,19 @@ def _revisions(specs):
 
 
 def warm_if_changed():
-    """:func:`warm` when an assistant app was installed, updated or removed since
-    the last warm, so its new tools are listed before a conversation needs them."""
-    specs = _current_specs()
+    """:func:`warm` when an app with tools was installed, updated or removed since
+    the last warm, so its new tools are listed before a conversation needs them.
+
+    Cheap enough to run every few seconds: one query, no settings read (a
+    change to the assistant apps warms through :func:`warm_soon`)."""
+    from django.conf import settings
+
+    if "broker" in settings.INSTALLED_APPS:
+        from broker.remote import reload_if_changed
+
+        reload_if_changed()
     with _known_lock:
-        if _warmed == _revisions(specs):
+        if _warmed == _revisions(plugins()):
             return None
     return warm()
 

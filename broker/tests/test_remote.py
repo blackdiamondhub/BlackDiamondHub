@@ -374,10 +374,15 @@ class UpgradeTests(TestCase):
 
     def test_rewarm_after_an_upgrade_keeps_the_new_tools_through_failures(self):
         from hub import tools
+        from hub_settings import store
 
         tools.warm()
         self.assertEqual(self.names(), ["cams__heat"])
-        self.assertIsNone(tools.warm_if_changed())
+        # Run every 30 s: one query, and no settings read that would keep
+        # hub_settings.store's cache warm (hiding other processes' writes).
+        with self.assertNumQueries(1):
+            store.clear()
+            self.assertIsNone(tools.warm_if_changed())
         self.upgrade()
         self.assertEqual(tools.warm_if_changed(), {"guest": [], "dashboard": []})
         self.failing = True
