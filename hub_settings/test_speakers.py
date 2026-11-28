@@ -133,7 +133,9 @@ class InventoryCase(TestCase):
              "attributes": {"friendly_name": "Radio", "supported_features": 512}},
         ]
         self.ha_up = True
-        self.topology = mock.patch.object(sonos, "topology", side_effect=lambda seeds: self.rooms)
+        self.instances = [{"id": 1, "name": "HA", "site": "", "default": True}]
+        self.ha_calls = []
+        self.topology = mock.patch.object(sonos, "topology", side_effect=lambda seeds, local_uids=(): self.rooms)
         self.topology.start()
         self.addCleanup(self.topology.stop)
         for target, fn in (("capabilities", mock.AsyncMock(return_value={UID: ["PLAYBACK", "AUDIO_CLIP"]})),
@@ -142,7 +144,7 @@ class InventoryCase(TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
         patchers = [
-            mock.patch("hub_settings.ha.instances", return_value=[{"id": 1, "name": "HA", "site": "", "default": True}]),
+            mock.patch("hub_settings.ha.instances", side_effect=lambda: self.instances),
             mock.patch("bdh_sdk.ha.ws_commands", side_effect=self._ws),
             mock.patch("bdh_sdk.ha.get_all_states", side_effect=self._states),
         ]
@@ -151,6 +153,7 @@ class InventoryCase(TestCase):
             self.addCleanup(p.stop)
 
     def _ws(self, *messages, instance=None):
+        self.ha_calls.append(instance)
         if not self.ha_up:
             raise ha.HAError("down")
         return [self.entries]
@@ -216,6 +219,112 @@ class InventoryTests(InventoryCase):
         started.assert_called_once()
         self.assertEqual(got["media_player.kitchen"].native_id, f"sonos:{UID}")
         self.assertEqual((again["media_player.kitchen"].native_id, again["nope"]), (f"sonos:{UID}", None))
+
+
+    def test_only_the_local_home_assistant_and_household(self):
+        # Left by the hub before it kept to its own site: MI's speakers via HA "ha_mi".
+        for native, kind, extra in (
+                ("alexa:ha_mi:media_player.mi_echo", Speaker.ALEXA, {}),
+                ("ha:ha_mi:media_player.voice", Speaker.HA, {}),
+                ("sonos:RINCON_MI_LIVING", Speaker.SONOS, {}),
+                ("sonos:RINCON_MI_OLD", Speaker.SONOS, {"household": "Sonos_MI", "address": "192.168.1.94"})):
+            Speaker.objects.create(native_id=native, kind=kind, driver="x", name="MI", ha_instance="ha_mi", **extra)
+        self.instances = self.instances + [{"id": "ha_mi", "name": "MI", "site": "", "default": False}]
+        self.rooms = [{"uid": UID, "name": "Kitchen", "address": "10.0.0.58", "household": "Sonos_SP", "hidden": []}]
+        inventory.refresh(force=True)
+        self.assertEqual(set(Speaker.objects.values_list("native_id", flat=True)),
+                         {f"sonos:{UID}", "alexa:1:media_player.echo", "ha:1:media_player.tv"})
+        self.assertEqual(set(self.ha_calls), {1})
+        self.assertEqual([p[0] for p in inventory.pairs()], ["media_player.echo", "media_player.kitchen", "media_player.tv"])
+
+    def test_satellites_subs_and_pair_secondaries_mean_their_room(self):
+        bar, left, sub = "RINCON_BAR", "RINCON_SAT_L", "RINCON_SUB"
+        Speaker.objects.create(native_id=f"sonos:{left}", kind=Speaker.SONOS, driver="sonos", name="Surround L",
+                               legacy_id="media_player.unnamed_room_6", ha_instance="1",
+                               ha_entity="media_player.unnamed_room_6")
+        self.rooms = [{"uid": bar, "name": "Living Room", "address": "10.0.0.101", "household": "Sonos_SP",
+                       "hidden": [left, sub]}]
+        self.entries = [
+            {"entity_id": "media_player.unnamed_room_3", "platform": "sonos", "unique_id": bar},
+            {"entity_id": "media_player.unnamed_room_6", "platform": "sonos", "unique_id": left},
+            {"entity_id": "media_player.sub", "platform": "sonos", "unique_id": sub},
+        ]
+        self.states = [{"entity_id": e["entity_id"], "state": "idle", "attributes": {}} for e in self.entries]
+        with mock.patch.object(sonos, "capabilities", mock.AsyncMock(return_value={bar: ["AUDIO_CLIP"]})):
+            inventory.refresh(force=True)
+        self.assertEqual(inventory.pairs(), [("media_player.unnamed_room_3", "Living Room (Sonos)")])
+        ids = ["media_player.unnamed_room_6", "media_player.sub", f"sonos:{sub}", f"sonos:{bar}"]
+        got = inventory.resolve(ids)
+        self.assertEqual({i: got[i].native_id for i in ids}, dict.fromkeys(ids, f"sonos:{bar}"))
+        (job,), _ = hub.plan({"x": got["media_player.sub"]}, "hi")
+        self.assertEqual((job.route, job.row.native_id), ("sonos", f"sonos:{bar}"))
+
+
+class TopologyTests(SimpleTestCase):
+    """``sonos.topology`` against fake soco players: SP's household and MI's, reachable over a routed link."""
+
+    def setUp(self):
+        def zone(uid, ip, name, household, visible=True, sat_map=None):
+            return mock.Mock(uid=uid, ip_address=ip, player_name=name, household_id=household, is_visible=visible,
+                             _ht_sat_chan_map=sat_map, _channel_map=None, group=None)
+
+        sat = "RINCON_BAR:LF,RF;RINCON_SUB:SW;RINCON_L:LR,LTR;RINCON_R:RR,RTR"
+        sp = [zone("RINCON_BAR", "192.168.10.101", "Living Room", "SP", sat_map=sat),
+              zone("RINCON_L", "192.168.10.10", "Living Room", "SP", False, "RINCON_BAR:LF,RF;RINCON_L:LR,LTR"),
+              zone("RINCON_R", "192.168.10.149", "Living Room", "SP", False, "RINCON_BAR:LF,RF;RINCON_R:RR,RTR"),
+              zone("RINCON_SUB", "192.168.10.18", "Sub", "SP", False, "RINCON_BAR:LF,RF;RINCON_SUB:SW"),
+              zone("RINCON_DECK", "192.168.10.8", "Lower Deck", "SP")]
+        mi = [zone("RINCON_MI", "192.168.1.94", "Living Room", "MI")]
+        for group in (sp, mi):
+            for z in group:
+                z.all_zones = set(group)
+        players = {z.ip_address: z for z in sp + mi}
+        self.discover = mock.Mock(return_value=set(players.values()))
+        for target, value in (("soco.SoCo", mock.Mock(side_effect=lambda ip: players[ip])),
+                              ("soco.discover", self.discover),
+                              ("hub_settings.speakers.sonos.lan_address", mock.Mock(return_value="192.168.10.216"))):
+            patcher = mock.patch(target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def rooms(self, **kw):
+        return {r["uid"]: r for r in sonos.topology(**kw)}
+
+    def test_keeps_the_household_local_ha_knows_with_members_under_their_room(self):
+        rooms = self.rooms(seeds=["192.168.1.94"], local_uids={"RINCON_L"})
+        self.assertEqual(set(rooms), {"RINCON_BAR", "RINCON_DECK"})
+        self.assertEqual(rooms["RINCON_BAR"]["hidden"], ["RINCON_L", "RINCON_R", "RINCON_SUB"])
+        self.assertEqual(rooms["RINCON_BAR"]["household"], "SP")
+        self.discover.assert_called_once()  # the seed was the other site's
+
+    def test_without_local_ha_it_keeps_the_hubs_subnet(self):
+        with mock.patch.object(sonos, "local_network", return_value=sonos.ipaddress.IPv4Network("192.168.10.0/24")):
+            self.assertEqual(set(self.rooms(seeds=["192.168.10.8"])), {"RINCON_BAR", "RINCON_DECK"})
+        self.discover.assert_not_called()
+
+    def test_local_network_is_the_on_link_route(self):
+        import os
+        import tempfile
+
+        table = ("Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n"
+                 "eth0\t00000000\t010AA8C0\t0003\t0\t0\t0\t00000000\n"
+                 "eth0\t000AA8C0\t00000000\t0001\t0\t0\t0\t00FEFFFF\n"
+                 "wg0\t0001A8C0\t020AA8C0\t0003\t0\t0\t0\t00FFFFFF\n")
+        with tempfile.NamedTemporaryFile("w", suffix=".route", delete=False) as f:
+            f.write(table)
+        self.addCleanup(os.unlink, f.name)
+        self.assertEqual(str(sonos.local_network("192.168.10.216", f.name)), "192.168.10.0/23")
+        self.assertEqual(str(sonos.local_network("192.168.1.5", f.name)), "192.168.1.0/24")  # routed: a /24 guess
+
+
+class LoopTests(SimpleTestCase):
+    def test_close_closes_the_session_and_a_later_use_starts_again(self):
+        session = loop.run(loop.session(), 5)
+        first = loop.loop()
+        loop.close()
+        self.assertTrue(session.closed)
+        self.assertIsNot(loop.loop(), first)
+        self.assertEqual(loop.run(asyncio.sleep(0, "ok"), 5), "ok")
 
 
 def row(kind, online=True, **kw):

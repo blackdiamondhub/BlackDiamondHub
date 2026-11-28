@@ -141,8 +141,12 @@ class Speaker(models.Model):
     entity id apps saved before the hub had its own speakers (default
     instance only); it is kept when HA goes away so those ids keep working.
     ``ha_instance``/``ha_entity`` are the HA route to the speaker, used when
-    the direct one fails. Rows are never deleted automatically: a speaker
-    that disappears goes offline.
+    the direct one fails. A speaker that disappears goes offline; rows are
+    only deleted when they turn out not to be this site's (another
+    household's Sonos, another HA instance's speakers) or not a room (a
+    satellite, sub or stereo-pair secondary). ``household`` is a Sonos
+    room's household id; ``aliases`` are other ids that mean this room: the
+    hidden members (``sonos:<uid>``) and their HA entities.
     """
 
     SONOS, ALEXA, HA = "sonos", "alexa", "ha"
@@ -159,6 +163,8 @@ class Speaker(models.Model):
     address = models.CharField(max_length=64, blank=True)
     ha_instance = models.CharField(max_length=64, blank=True)
     ha_entity = models.CharField(max_length=200, blank=True)
+    household = models.CharField(max_length=64, blank=True)
+    aliases = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["name"]

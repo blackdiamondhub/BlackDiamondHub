@@ -473,6 +473,10 @@ class HubSpeakers:
     def list_speakers(self):
         return inventory.pairs()
 
+    def close(self):
+        """Close the speaker connections (also done at exit)."""
+        loop.close()
+
     def devices(self):
         return inventory.devices()
 
