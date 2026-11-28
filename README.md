@@ -224,6 +224,17 @@ returns the legacy ids.
 - **Alexa**: HA's announce, as before.
 - **Other HA players**: play_media with announce, if they support it.
 
+A hub only uses its own site's speakers. Alexa and other HA players come
+from the default (local) Home Assistant instance only; another site's
+instance (e.g. `ha_mi` at Sun Peaks) is never asked. Sonos rooms come from
+this site's household: the household of the players the local HA knows,
+or, if it knows none, of players on the hub's own subnet. Other households
+reachable over a routed link are ignored, and saved rows from another site
+are pruned on refresh. Only rooms that play on their own are listed: a home
+theater's sub and surrounds and a stereo pair's second speaker are hidden,
+and their old ids (`sonos:RINCON_...` or HA entity) are kept as aliases of
+the room, so a saved pick still plays on the room's soundbar/coordinator.
+
 A message is at most 200 characters (about 15 s of speech; the SDK's
 `speakers.MAX_TTS_TEXT`). A longer one is refused as `invalid` before
 anything plays, on every speaker including Alexa.
@@ -241,7 +252,8 @@ speakers" base URL (e.g. `http://192.168.10.216:8000`).
 Apps get two broker ops: `speakers.devices` (the inventory with native and
 legacy ids) and `speakers.play` (the app's own MP3/WAV, at most 2 MB and 60 s,
 Sonos only, refused at night). announce can also return per-speaker results
-(`detail`).
+(`detail`). The speaker connections close at exit, or with
+`HubSpeakers().close()` after one-off use (e.g. in `manage.py shell`).
 
 ### Secrets
 
