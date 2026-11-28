@@ -356,6 +356,17 @@ class SpeakerTests(RpcTestCase):
                              {"a": "played"})
         self.assertIs(announce.call_args.kwargs["detail"], True)
 
+    @mock.patch.object(limiter, "allow", return_value=True)
+    def test_announce_message_limit(self, _allow):
+        self.grant()
+        with mock.patch("bdh_sdk.speakers._backend") as backend:
+            backend.announce.return_value = []
+            self.assertEqual(self.ok("speakers.announce", {"message": "x" * 200, "speakers": ["a"]}), [])
+            backend.announce.reset_mock()
+            resp = self.refused("speakers.announce", {"message": "x" * 201, "speakers": ["a"]}, code="invalid", status=400)
+        backend.announce.assert_not_called()
+        self.assertIn("at most 200 characters", resp.json()["error"]["message"])
+
     def test_play(self):
         allow = mock.patch.object(limiter, "allow", return_value=True)  # SLOW allows only 3 in a burst
         allow.start()

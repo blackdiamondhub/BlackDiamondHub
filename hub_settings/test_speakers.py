@@ -1,5 +1,6 @@
 import asyncio
 import struct
+import threading
 import time
 from unittest import mock
 
@@ -9,7 +10,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from . import speakers as hub
 from .models import AppSetting, Speaker, SpeechClip
-from .speakers import audio, clips, inventory, sonos
+from .speakers import audio, clips, inventory, loop, sonos
 
 # One MPEG-2 layer III frame, 24 kHz mono 64 kbps: 192 bytes, 576 samples (24 ms).
 FRAME_24K = b"\xff\xf3\x84\xc0" + bytes(188)
@@ -194,6 +195,28 @@ class InventoryTests(InventoryCase):
         inventory.refresh(force=True)
         self.assertFalse(Speaker.objects.get(native_id=f"sonos:{UID}").online)
 
+    def test_slow_refresh_leaves_announcements_the_saved_rows(self):
+        inventory.refresh(force=True)
+        inventory._refreshed["at"] = time.monotonic() - inventory.TTL - 1
+        release, started = threading.Event(), mock.Mock()
+
+        def slow(**kwargs):
+            started()
+            release.wait(5)
+
+        with mock.patch.object(inventory, "refresh", side_effect=slow):
+            start = time.monotonic()
+            got = inventory.resolve(["media_player.kitchen"], wait=0.2)
+            # Already running: joined (bounded), not started again, even for an unknown id.
+            again = inventory.resolve(["media_player.kitchen", "nope"], wait=0.2)
+            elapsed = time.monotonic() - start
+            release.set()
+            inventory._bg["thread"].join(5)
+        self.assertLess(elapsed, 2)
+        started.assert_called_once()
+        self.assertEqual(got["media_player.kitchen"].native_id, f"sonos:{UID}")
+        self.assertEqual((again["media_player.kitchen"].native_id, again["nope"]), (f"sonos:{UID}", None))
+
 
 def row(kind, online=True, **kw):
     native = {"sonos": f"sonos:{UID}", "alexa": "alexa:1:media_player.echo", "ha": "ha:1:media_player.tv"}[kind]
@@ -297,10 +320,11 @@ class BackendTests(InventoryCase):
             self.addCleanup(patcher.stop)
         self.play_clip = mock.AsyncMock(return_value={})
         self.call = mock.Mock(return_value=(True, None))
+        self.tts = mock.Mock(return_value=(speech(), "audio/mpeg"))
         for patcher in (mock.patch.object(sonos, "play_clip", self.play_clip),
                         mock.patch.object(hub, "_call_service", self.call),
                         mock.patch.object(hub, "HOLD_MARGIN", -60),
-                        mock.patch("bdh_sdk.speakers.ha_tts_audio", return_value=(speech(), "audio/mpeg"))):
+                        mock.patch("bdh_sdk.speakers.ha_tts_audio", self.tts)):
             patcher.start()
             self.addCleanup(patcher.stop)
         inventory.refresh(force=True)
@@ -366,3 +390,56 @@ class BackendTests(InventoryCase):
     def test_play_skips_alexa(self):
         result = sdk.play(wav(1), ["alexa:1:media_player.echo"], detail=True)
         self.assertEqual(result, {"alexa:1:media_player.echo": sdk.UNSUPPORTED})
+
+    def test_message_limit_is_200_characters_before_anything_plays(self):
+        ids = ["media_player.kitchen", "alexa:1:media_player.echo"]
+        self.assertEqual(sdk.announce("x" * 200, ids, detail=True), {i: sdk.PLAYED for i in ids})
+        self.call.reset_mock(), self.play_clip.reset_mock(), self.tts.reset_mock()
+        with mock.patch.object(hub.inventory, "resolve") as resolve:
+            for announce in (sdk.announce, hub.HubSpeakers().announce):
+                with self.assertRaisesRegex(ValueError, "message must be at most 200 characters"):
+                    announce("x" * 201, ids)
+        resolve.assert_not_called()
+        self.tts.assert_not_called()
+        self.play_clip.assert_not_called()
+        self.call.assert_not_called()
+
+    def test_slow_speech_leaves_no_time_and_is_refused_at_once(self):
+        def slow(*args, **kwargs):
+            time.sleep(0.3)
+            return speech(), "audio/mpeg"
+
+        self.tts.side_effect = slow
+        with mock.patch.object(hub, "CALL_TIMEOUT", hub.SEND_MARGIN + 0.2):
+            start = time.monotonic()
+            with self.assertRaisesRegex(sdk.AnnounceError, "busy"):
+                sdk.announce("Hi", ["media_player.kitchen"])
+        self.assertLess(time.monotonic() - start, 2)
+        self.play_clip.assert_not_called()
+
+    def test_waiting_for_a_turn_is_bounded_by_the_call_deadline(self):
+        loop.run(hub.gate.acquire(1), 5)  # another announcement is playing
+        self.addCleanup(hub._release)
+        with mock.patch.object(hub, "CALL_TIMEOUT", hub.SEND_MARGIN + 0.5):
+            start = time.monotonic()
+            with self.assertRaisesRegex(sdk.AnnounceError, "busy"):
+                sdk.announce("Hi", ["media_player.kitchen"])
+            with self.assertRaisesRegex(sdk.AnnounceError, "busy"):
+                sdk.play(wav(1), ["media_player.kitchen"])
+        self.assertLess(time.monotonic() - start, 3)
+        self.play_clip.assert_not_called()
+        # An app's clip is only stored once it's about to play.
+        self.assertFalse(SpeechClip.objects.filter(kind=SpeechClip.CUSTOM).exists())
+
+    def test_play_stores_only_what_plays_and_keeps_few(self):
+        from . import speech as hub_speech
+
+        self.assertEqual(sdk.play(wav(1), ["alexa:1:media_player.echo"], detail=True),
+                         {"alexa:1:media_player.echo": sdk.UNSUPPORTED})
+        self.assertFalse(SpeechClip.objects.filter(kind=SpeechClip.CUSTOM).exists())
+        with mock.patch.object(hub, "MAX_CUSTOM", 2):
+            for n in range(4):
+                sdk.play(wav(1 + n / 10), ["media_player.kitchen"])
+        self.assertEqual(SpeechClip.objects.filter(kind=SpeechClip.CUSTOM).count(), 2)
+        self.assertEqual(self.fetch(self.play_clip.call_args.args[2]), wav(1.3))
+        self.assertEqual(len(hub_speech._mem), 0)

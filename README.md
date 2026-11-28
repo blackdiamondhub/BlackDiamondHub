@@ -224,8 +224,16 @@ returns the legacy ids.
 - **Alexa**: HA's announce, as before.
 - **Other HA players**: play_media with announce, if they support it.
 
+A message is at most 200 characters (about 15 s of speech; the SDK's
+`speakers.MAX_TTS_TEXT`). A longer one is refused as `invalid` before
+anything plays, on every speaker including Alexa.
+
 One announcement plays per speaker at a time; more queue briefly and are
-refused when the queue is full. Settings -> Speech lists the speakers (Refresh
+refused when the queue is full. Each call has one deadline (about 110 s,
+under the apps' 120 s timeout) covering the inventory lookup, the speech,
+the wait for a turn and the playing; with too little time left it's refused
+as busy. A slow inventory refresh doesn't hold an announcement up: it uses
+the saved speakers. An app's clip is stored only when it's about to play. Settings -> Speech lists the speakers (Refresh
 rescans), sets the max volume apps may use with speakers.play (default 60)
 and, if the speakers can't reach the hub's usual address, a "Hub address for
 speakers" base URL (e.g. `http://192.168.10.216:8000`).

@@ -10,6 +10,9 @@ not listed twice.
 Refreshed at most every :data:`TTL` seconds when asked for, sooner when an
 id isn't known; a source that doesn't answer leaves its rows as they were,
 so ids saved by apps keep resolving while HA or the LAN is down.
+Announcements (:func:`resolve`) refresh in the background and wait at most
+:data:`REQUEST_WAIT` seconds for it: a slow refresh, or one already running,
+leaves them the saved rows.
 """
 import logging
 import threading
@@ -24,6 +27,7 @@ log = logging.getLogger(__name__)
 
 TTL = 300
 UNKNOWN_TTL = 30
+REQUEST_WAIT = 10
 SONOS_DRIVER, ALEXA_DRIVER, HA_DRIVER = "sonos", "ha_alexa", "ha_media"
 TITLES = {"sonos": "Sonos", "alexa": "Alexa", "ha": "Home Assistant"}
 PLAY_MEDIA, MEDIA_ANNOUNCE = 512, 1048576
@@ -31,6 +35,8 @@ API_CAPS = ("audio", "duck", "text", "volume")
 
 _lock = threading.Lock()
 _refreshed = {"at": None}
+_bg = {"thread": None}
+_bg_lock = threading.Lock()
 
 
 def reset():
@@ -215,12 +221,46 @@ def _lookup(ids):
     return {i: found.get(i) for i in ids}
 
 
-def resolve(ids):
-    """``{id: Speaker or None}`` for native or legacy ids, refreshing once for unknown ones."""
-    _safe_refresh()
+def _due(max_age):
+    at = _refreshed["at"]
+    return at is None or time.monotonic() - at >= max_age
+
+
+def _background(max_age):
+    from django.db import close_old_connections
+
+    try:
+        _safe_refresh(max_age=max_age)
+    finally:
+        close_old_connections()
+
+
+def _bounded_refresh(max_age, wait):
+    """Refresh if due (or join one running), waiting at most ``wait`` s for it."""
+    with _bg_lock:
+        thread = _bg["thread"]
+        if thread is None or not thread.is_alive():
+            if not _due(max_age):
+                return
+            thread = threading.Thread(target=_background, args=(max_age,), name="speakers-refresh", daemon=True)
+            _bg["thread"] = thread
+            thread.start()
+    if wait > 0:
+        thread.join(wait)
+    if thread.is_alive():
+        log.info("speakers: inventory refresh still running, using the saved speakers")
+
+
+def resolve(ids, wait=REQUEST_WAIT):
+    """``{id: Speaker or None}`` for native or legacy ids, refreshing once for unknown ones.
+
+    Waits at most ``wait`` seconds (capped at :data:`REQUEST_WAIT`) for refreshes.
+    """
+    end = time.monotonic() + max(0.0, min(wait, REQUEST_WAIT))
+    _bounded_refresh(TTL, end - time.monotonic())
     out = _lookup(ids)
     if any(v is None for v in out.values()):
-        _safe_refresh(max_age=UNKNOWN_TTL)
+        _bounded_refresh(UNKNOWN_TTL, end - time.monotonic())
         out = _lookup(ids)
     return out
 

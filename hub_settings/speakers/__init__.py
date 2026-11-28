@@ -15,6 +15,9 @@ container apps, Settings → Speech, alerts) goes through here:
 
 Announcements take turns: the next starts when the last one's clip has
 finished (:class:`Gate`); more than :data:`MAX_WAITING` waiting are refused.
+Each call has one deadline (:data:`CALL_TIMEOUT` from entry, under the SDK's
+120 s): finding speakers, making the speech and waiting for a turn all spend
+from it, and a call without time left to send is refused as busy.
 Speakers are known by native ids and by the HA entity ids apps saved before
 (see :mod:`.inventory`).
 """
@@ -33,12 +36,14 @@ from . import audio, clips, inventory, loop, sonos
 log = logging.getLogger(__name__)
 
 MAX_WAITING = 3
-CALL_TIMEOUT = 110  # under the SDK's 120 s announce timeout
+CALL_TIMEOUT = 110  # under the SDK's 120 s announce timeout, from the call's start
 WAIT_BUDGET = 80
+SEND_MARGIN = 15  # left for sending once it's our turn (Sonos connect + reply, HA call)
 MAX_HOLD = 65
 HOLD_MARGIN = 0.5
 GAP = 0.3  # between a chime and speech played as two clips
 CUSTOM_TTL = 3600
+MAX_CUSTOM = 20  # app clips kept at most (the newest)
 DEFAULT_MAX_VOLUME = 60
 MAX_VOLUME_KEY = "speakers_max_volume"
 LAN_BASE_KEY = "speech_lan_base"
@@ -101,6 +106,7 @@ class Clip:
 
 
 def _store(key, kind, data, ext, text=""):
+    """Save a clip; announcement clips are also kept in the speech memory cache, app clips aren't."""
     from hub_settings import speech
     from hub_settings.models import SpeechClip
 
@@ -112,7 +118,8 @@ def _store(key, kind, data, ext, text=""):
             "content_type": content_type, "last_used": now})
     except DatabaseError:
         log.warning("speakers: couldn't save clip %s", key[:12], exc_info=True)
-    speech._remember(key, data, content_type, now)
+    if kind != SpeechClip.CUSTOM:
+        speech._remember(key, data, content_type, now)
 
 
 def _sha(*parts):
@@ -155,15 +162,21 @@ def announce_clips(message, chime, speech_audio):
     return [Clip(chime_key, audio.MP3, chime_mp3.duration), Clip(speech_key, kind, speech_seconds)]
 
 
-def prune_custom(max_age=CUSTOM_TTL):
-    """Delete app clips older than ``max_age`` seconds; returns how many."""
+def prune_custom(max_age=CUSTOM_TTL, keep=None):
+    """Delete app clips older than ``max_age`` seconds and all but the newest ``keep``; returns how many."""
     from datetime import timedelta
 
     from hub_settings.models import SpeechClip
 
+    keep = MAX_CUSTOM if keep is None else keep
     cutoff = timezone.now() - timedelta(seconds=max_age)
     try:
-        return SpeechClip.objects.filter(kind=SpeechClip.CUSTOM, last_used__lt=cutoff).delete()[0]
+        custom = SpeechClip.objects.filter(kind=SpeechClip.CUSTOM)
+        deleted = custom.filter(last_used__lt=cutoff).delete()[0]
+        extra = list(custom.order_by("-last_used", "-pk").values_list("pk", flat=True)[keep:])
+        if extra:
+            deleted += SpeechClip.objects.filter(pk__in=extra).delete()[0]
+        return deleted
     except DatabaseError:
         log.warning("speakers: couldn't prune app clips", exc_info=True)
         return 0
@@ -358,9 +371,8 @@ async def _media(job, volume):
 
 
 async def deliver(jobs, message, volume, seconds):
-    """Send every job in parallel once it's our turn; ``{id: status}``."""
+    """Send every job in parallel (the turn is already ours, see :func:`_turn`); ``{id: status}``."""
     sdk = _sdk()
-    await gate.acquire(WAIT_BUDGET)
     played = False
     try:
         tasks, ids = [], []
@@ -381,14 +393,44 @@ async def deliver(jobs, message, volume, seconds):
         gate.hold(seconds + HOLD_MARGIN if played else 0)
 
 
-def _run(coro):
+def _remaining(deadline):
+    return deadline - time.monotonic()
+
+
+def _run(coro, deadline):
     sdk = _sdk()
     try:
-        return loop.run(coro, CALL_TIMEOUT)
+        return loop.run(coro, max(0.1, _remaining(deadline)))
     except Busy as exc:
         raise sdk.AnnounceError(f"speakers busy: {exc}") from None
     except TimeoutError:
         raise sdk.AnnounceError("timed out") from None
+
+
+def _turn(deadline):
+    """Wait for our turn on the speakers, leaving :data:`SEND_MARGIN` before ``deadline``."""
+    wait = min(WAIT_BUDGET, _remaining(deadline) - SEND_MARGIN)
+    if wait <= 0:
+        raise _sdk().AnnounceError("speakers busy: no time left to play")
+    _run(gate.acquire(wait), deadline)
+
+
+def _release():
+    """Give the turn back without playing (on the loop: the gate lives there)."""
+    loop.loop().call_soon_threadsafe(gate.hold, 0)
+
+
+def _send(jobs, message, volume, seconds, deadline, prepare=None):
+    """Take a turn, run ``prepare()`` (database work, here in the caller's thread), send."""
+    _turn(deadline)
+    try:
+        if prepare is not None:
+            prepare()
+        coro = deliver(jobs, message, volume, seconds)
+    except BaseException:
+        _release()
+        raise
+    return _run(coro, deadline)
 
 
 def _finish(what, ids, statuses, jobs, detail):
@@ -441,23 +483,22 @@ class HubSpeakers:
     def announce(self, message, speakers, volume=None, chime=None, tts_engine=None, voice=None, detail=False):
         from bdh_sdk.alerts import CHIMES, SILENT
 
+        deadline = time.monotonic() + CALL_TIMEOUT
         sdk = _sdk()
-        if not message or not str(message).strip():
-            raise ValueError("message is required")
+        # The one message limit (SDK MAX_TTS_TEXT, 200), before anything plays anywhere.
+        message = sdk.check_message(message)
         if chime not in (None, SILENT) and chime not in CHIMES:
             raise ValueError(f"unknown chime {chime!r}")
         volume = _volume(volume)
         ids = _ids(speakers)
-        message = " ".join(str(message).split())
-        jobs, statuses = plan(inventory.resolve(ids), message)
+        message = " ".join(message.split())
+        jobs, statuses = plan(inventory.resolve(ids, wait=_remaining(deadline) - SEND_MARGIN), message)
         clip_list, seconds = [], 0.0
         if any(j.route != "alexa" for j in jobs):
             try:
-                speech, _ctype = sdk.ha_tts_audio(message, tts_engine or sdk.DEFAULT_TTS, voice)
+                speech = sdk.ha_tts_audio(message, tts_engine or sdk.DEFAULT_TTS, voice)[0]
                 clip_list = announce_clips(message, None if chime in (None, SILENT) else chime, speech)
                 seconds = sum(c.seconds for c in clip_list) + GAP * (len(clip_list) - 1)
-            except ValueError:
-                raise
             except Exception as exc:  # noqa: BLE001 - no engine, HA down or unreadable audio
                 log.warning("speakers: couldn't make the speech: %s", exc)
                 for job in [j for j in jobs if j.route != "alexa"]:
@@ -465,12 +506,13 @@ class HubSpeakers:
                 jobs = [j for j in jobs if j.route == "alexa"]
         urls_for(jobs, clip_list)
         if jobs:
-            statuses.update(_run(deliver(jobs, message, volume, seconds)))
+            statuses.update(_send(jobs, message, volume, seconds, deadline))
         return _finish(f"announce {message[:40]!r} chime={chime or '-'}", ids, statuses, jobs, detail)
 
     def play(self, data, speakers, volume=None, night=False, detail=False):
         from hub_settings.models import SpeechClip
 
+        deadline = time.monotonic() + CALL_TIMEOUT
         sdk = _sdk()
         if not isinstance(data, (bytes, bytearray)) or not data:
             raise ValueError("audio is required")
@@ -491,12 +533,15 @@ class HubSpeakers:
         ids = _ids(speakers)
         if not night and night_now():
             raise sdk.AnnounceError("it's night on the hub (Settings → Display); pass night=True to play anyway")
-        jobs, statuses = plan(inventory.resolve(ids), None)
-        prune_custom()
-        data = bytes(data)
-        key = _sha("custom", hashlib.sha256(data).hexdigest())
-        _store(key, SpeechClip.CUSTOM, data, kind)
-        urls_for(jobs, [Clip(key, kind, seconds)])
+        jobs, statuses = plan(inventory.resolve(ids, wait=_remaining(deadline) - SEND_MARGIN), None)
         if jobs:
-            statuses.update(_run(deliver(jobs, None, volume, seconds)))
+            data = bytes(data)
+            key = _sha("custom", hashlib.sha256(data).hexdigest())
+            urls_for(jobs, [Clip(key, kind, seconds)])
+
+            def prepare():  # stored only once it's about to play
+                _store(key, SpeechClip.CUSTOM, data, kind)
+                prune_custom()
+
+            statuses.update(_send(jobs, None, volume, seconds, deadline, prepare))
         return _finish(f"play {seconds:.1f}s clip", ids, statuses, jobs, detail)

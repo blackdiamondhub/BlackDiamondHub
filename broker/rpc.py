@@ -553,7 +553,11 @@ def speakers_announce(install, grants, payload):
     kwargs = _tts_kwargs(payload)
     if detail:
         kwargs["detail"] = True
-    result = _speakers_call(speakers.announce, _str(payload, "message"), ids, volume,
+    try:
+        message = speakers.check_message(_str(payload, "message"))
+    except ValueError as exc:
+        raise invalid(str(exc)) from None
+    result = _speakers_call(speakers.announce, message, ids, volume,
                             _str(payload, "chime", required=False), **kwargs)
     if detail:
         return dict(result or {})
