@@ -11,6 +11,11 @@
     .hst-sp-text .hst-in { width: 100%; }
     .hst-card .hst-sp-note { padding: 0 22px 14px; color: var(--mut); font-size: 13px; margin: 0; }
     .hst-card .hst-sp-note.err { color: var(--red); }
+    .hst-sp-table { width: calc(100% - 44px); margin: 4px 22px 12px; border-collapse: collapse; font-size: 14px; }
+    .hst-sp-table th, .hst-sp-table td { text-align: left; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line, rgba(127,127,127,.2)); vertical-align: top; }
+    .hst-sp-table th { color: var(--mut); font-weight: 600; font-size: 12px; }
+    .hst-sp-table code { font-size: 12px; color: var(--mut); word-break: break-all; }
+    .hst-sp-table .off { color: var(--red); }
 </style>
 <form method="post" novalidate{% if has_errors %} data-dirty{% endif %} id="hst-speech"
       data-preview-url="{% url 'hub_settings_speech_preview' %}" data-test-url="{% url 'hub_settings_speech_test' %}">
@@ -23,6 +28,7 @@
         <div class="act"><button type="submit" class="hst-btn" data-save>Save</button></div>
     </div>
     {% if just_saved %}<div class="hst-note ok" role="status"><i class="fas fa-check" aria-hidden="true"></i> Saved.</div>{% endif %}
+    {% if refreshed %}<div class="hst-note ok" role="status"><i class="fas fa-check" aria-hidden="true"></i> Speakers refreshed.</div>{% endif %}
     {% if message %}<div class="hst-note bad" role="alert">{{ message }}</div>
     {% elif has_errors %}<div class="hst-note bad" role="alert">Some values need fixing.</div>{% endif %}
 
@@ -81,6 +87,52 @@
                 <select class="hst-in{% if errors.voice %} bad{% endif %}" id="sp-voice" name="voice">
                     {% for val, label in voices %}<option value="{{ val }}"{% if val == voice %} selected{% endif %}>{{ label }}</option>{% endfor %}
                 </select>
+            </div>
+        </div>
+    </section>
+
+    <section class="hst-card">
+        <h3>Speakers</h3>
+        <p class="hst-sp-note">Sonos rooms play straight from the hub (a chime and the speech as one clip, ducking the music); Alexa speaks the text itself; other Home Assistant players that can announce play through Home Assistant. Apps may use either id.</p>
+        {% if speaker_rows %}
+        <table class="hst-sp-table">
+            <thead><tr><th>Name</th><th>Kind</th><th>Can</th><th>Status</th><th>Ids</th></tr></thead>
+            <tbody>
+            {% for s in speaker_rows %}
+                <tr>
+                    <td>{{ s.row.name }}</td>
+                    <td>{{ s.row.get_kind_display }}</td>
+                    <td>{{ s.caps|join:", "|default:"-" }}</td>
+                    <td>{% if s.row.online %}online{% else %}<span class="off">offline</span>{% endif %}</td>
+                    <td><code>{{ s.row.native_id }}</code>{% if s.row.legacy_id %}<br><code>{{ s.row.legacy_id }}</code>{% endif %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="hst-sp-note">No speakers found yet.</p>
+        {% endif %}
+        <div class="hst-sp-test">
+            <button type="submit" name="refresh_speakers" value="1" class="hst-btn ghost" formnovalidate>Refresh speakers</button>
+        </div>
+        <div class="hst-row">
+            <label class="lbl" for="sp-maxvol">
+                <b>Max app volume</b>
+                {% if errors.max_volume %}<small class="err">{{ errors.max_volume }}</small>{% else %}<small>The loudest an app's own sound may play (0-100).</small>{% endif %}
+            </label>
+            <div class="ctl">
+                <input type="number" class="hst-in{% if errors.max_volume %} bad{% endif %}" id="sp-maxvol" name="max_volume"
+                       value="{{ max_volume }}" min="0" max="100" step="1">
+            </div>
+        </div>
+        <div class="hst-row">
+            <label class="lbl" for="sp-lanbase">
+                <b>Hub address for speakers</b>
+                {% if errors.lan_base %}<small class="err">{{ errors.lan_base }}</small>{% else %}<small>Where speakers fetch clips from. Blank works it out; set it only if speakers can't reach the hub, like http://192.168.1.10:8000.</small>{% endif %}
+            </label>
+            <div class="ctl">
+                <input type="text" class="hst-in txt{% if errors.lan_base %} bad{% endif %}" id="sp-lanbase" name="lan_base"
+                       value="{{ lan_base }}" maxlength="100" autocapitalize="off" autocomplete="off" spellcheck="false">
             </div>
         </div>
     </section>

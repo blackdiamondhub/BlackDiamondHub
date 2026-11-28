@@ -2,18 +2,24 @@
 
 The Azure key is write-only, like Home Assistant tokens: the page only says
 whether one is saved. See :mod:`hub_settings.speech` for the engines, the
-fallbacks and the clip cache.
+fallbacks and the clip cache, and :mod:`hub_settings.speakers` for the
+speakers listed here.
 """
+import re
+
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 from django.views.decorators.http import require_POST
 
+from . import speakers as hub_speakers
 from . import speech, vault
-from .models import AppSetting, SpeechClip
+from .models import AppSetting, Speaker, SpeechClip
+from .speakers import inventory
 from .views import _render, saved_redirect, staff_page
 
 SAMPLE = "Hello from the Black Diamond Hub. Dinner is ready."
 TEST_SPEAKER_LIMIT = 200
+LAN_BASE_RE = re.compile(r"^https?://[A-Za-z0-9.\-\[\]:]+(:\d{1,5})?$")
 
 
 def _save(key, value, user):
@@ -32,6 +38,11 @@ def _speakers():
         return []
 
 
+def _speaker_rows():
+    return [{"row": r, "caps": [k for k in inventory.API_CAPS if r.caps.get(k)], "label": inventory.label(r)}
+            for r in Speaker.objects.order_by("name", "native_id")]
+
+
 def _page(request, errors=None, posted=None, status=200, message=""):
     cfg = speech.config()
     posted = posted or {}
@@ -45,6 +56,9 @@ def _page(request, errors=None, posted=None, status=200, message=""):
         engines=list(speech.ENGINES.items()), engine=posted.get("engine", cfg["engine"]),
         region=posted.get("region", cfg["region"]), voice=voice, voices=voices, voice_saved=bool(cfg["voice"]),
         key_set=key_set, vault_ok=vault.available(), speakers=_speakers(), sample=SAMPLE,
+        speaker_rows=_speaker_rows(), max_volume=posted.get("max_volume", hub_speakers.max_volume()),
+        lan_base=posted.get("lan_base", hub_speakers.lan_base_override()),
+        refreshed=request.GET.get("refreshed") == "1",
         clip_count=SpeechClip.objects.count(), errors=errors or {}, has_errors=bool(errors) or bool(message),
         message=message, just_saved=request.GET.get("saved") == "1", status=status,
     )
@@ -61,6 +75,9 @@ def speech_settings(request):
         vault.delete_secret(speech.VAULT_OWNER, speech.AZURE_KEY)
         speech.clear_voices()
         return saved_redirect(request, f"{request.path}?saved=1")
+    if post.get("refresh_speakers"):
+        inventory._safe_refresh(force=True)
+        return saved_redirect(request, f"{request.path}?refreshed=1")
 
     errors = {}
     engine = post.get("engine", "")
@@ -85,13 +102,23 @@ def speech_settings(request):
                 errors["key"] = str(exc)
     if engine == speech.AZURE and not key and not speech.key_saved():
         errors.setdefault("key", "Azure Speech needs a key.")
-    posted = {"engine": engine, "region": region, "voice": voice}
+    max_volume = post.get("max_volume", "").strip()
+    if max_volume and not (max_volume.isdigit() and 0 <= int(max_volume) <= 100):
+        errors["max_volume"] = "A number from 0 to 100."
+    lan_base = post.get("lan_base", "").strip().rstrip("/")
+    if lan_base and not LAN_BASE_RE.match(lan_base):
+        errors["lan_base"] = "Like http://192.168.1.10:8000, with no path."
+    posted = {"engine": engine, "region": region, "voice": voice, "max_volume": max_volume, "lan_base": lan_base}
     if errors:
         return _page(request, errors, posted, status=400)
 
     _save(speech.ENGINE_KEY, engine, request.user)
     _save(speech.REGION_KEY, None if region == speech.DEFAULT_REGION else region, request.user)
     _save(speech.VOICE_KEY, voice or None, request.user)
+    _save(hub_speakers.MAX_VOLUME_KEY,
+          None if not max_volume or int(max_volume) == hub_speakers.DEFAULT_MAX_VOLUME else int(max_volume),
+          request.user)
+    _save(hub_speakers.LAN_BASE_KEY, lan_base or None, request.user)
     if key:
         vault.set_secret(speech.VAULT_OWNER, speech.AZURE_KEY, key, user=request.user)
     speech.clear_voices()
@@ -136,7 +163,8 @@ def speech_test(request):
     from bdh_sdk import speakers
 
     speaker = request.POST.get("speaker", "")[:TEST_SPEAKER_LIMIT]
-    if speaker not in {eid for eid, _label in _speakers()}:
+    known = {eid for eid, _label in _speakers()} | set(Speaker.objects.values_list("native_id", flat=True))
+    if speaker not in known:
         return JsonResponse({"ok": False, "message": "Pick a speaker."}, status=400)
     try:
         text = _text(request)

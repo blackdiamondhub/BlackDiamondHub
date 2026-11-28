@@ -136,6 +136,8 @@ MIDDLEWARE = [
     'broker.middleware.BrokerPortMiddleware',
     # First, so container health checks skip the ALLOWED_HOSTS check.
     'hub.health.HealthCheckMiddleware',
+    # Signed speech clips for speakers on the LAN (no session, any Host).
+    'hub_settings.speakers.clips.ClipMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

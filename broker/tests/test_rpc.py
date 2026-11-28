@@ -340,6 +340,46 @@ class SpeakerTests(RpcTestCase):
             self.assertEqual(self.ok("speakers.announce", {"message": "hi", "speakers": ["a"], "volume": 0.5}), [])
         self.assertEqual(announce.call_args.args[:3], ("hi", ["a"], 0.5))
 
+    def grant(self):
+        self.app.granted_permissions = self.app.requested_permissions = ["speakers"]
+        self.app.save()
+
+    def test_devices_and_announce_detail(self):
+        self.refused("speakers.devices")
+        self.grant()
+        dev = {"id": "sonos:R", "legacy_id": "media_player.k", "name": "K", "kind": "sonos",
+               "caps": {"audio": True, "duck": True, "text": False, "volume": True}, "online": True}
+        with mock.patch("bdh_sdk.speakers.devices", return_value=[dev]):
+            self.assertEqual(self.ok("speakers.devices"), [dev])
+        with mock.patch("bdh_sdk.speakers.announce", return_value={"a": "played"}) as announce:
+            self.assertEqual(self.ok("speakers.announce", {"message": "hi", "speakers": ["a"], "detail": True}),
+                             {"a": "played"})
+        self.assertIs(announce.call_args.kwargs["detail"], True)
+
+    def test_play(self):
+        allow = mock.patch.object(limiter, "allow", return_value=True)  # SLOW allows only 3 in a burst
+        allow.start()
+        self.addCleanup(allow.stop)
+        audio = b"ID3" + bytes(300 * 1024)  # over the 256 KB op body limit, under the upload one
+        payload = {"audio": base64.b64encode(audio).decode(), "speakers": ["a"], "volume": 30}
+        self.refused("speakers.play", payload)
+        self.grant()
+        with mock.patch("bdh_sdk.speakers.play", return_value=[]) as play:
+            self.assertEqual(self.ok("speakers.play", payload), [])
+            self.assertEqual(self.ok("speakers.play", {**payload, "night": True, "detail": True}), {})
+            self.refused("speakers.play", {**payload, "audio": "not base64!"}, code="invalid", status=400)
+            self.refused("speakers.play", {**payload, "speakers": "a"}, code="invalid", status=400)
+            self.refused("speakers.play", {**payload, "volume": "loud"}, code="invalid", status=400)
+            big = base64.b64encode(bytes(2 * 1024 * 1024 + 1)).decode()
+            self.refused("speakers.play", {**payload, "audio": big}, code="too_large", status=413)
+        self.assertEqual(play.call_args_list[0].args, (audio, ["a"], 30))
+        self.assertEqual(play.call_args_list[0].kwargs, {"night": False, "detail": False})
+        self.assertEqual(play.call_args_list[1].kwargs, {"night": True, "detail": True})
+        with mock.patch("bdh_sdk.speakers.play", side_effect=ValueError("audio must be an MP3 or WAV")):
+            self.refused("speakers.play", payload, code="invalid", status=400)
+        entry = AuditEntry.objects.filter(op="speakers.play", allowed=True).latest("id")
+        self.assertNotIn(payload["audio"][:40], entry.detail)
+
 
 class DisplaysStatusTests(RpcTestCase):
     def test_needs_grant_and_leaks_no_page_details(self):
@@ -436,6 +476,7 @@ class RateLimitTests(RpcTestCase):
         self.assertEqual(sum(limiter.allow("cams", "speakers.announce", now=100.0) for _ in range(10)), 3)
         self.assertTrue(limiter.allow("other", "speakers.announce", now=100.0))
         self.assertTrue(limiter.allow("cams", "speakers.announce", now=106.0))
+        self.assertEqual(sum(limiter.allow("cams", "speakers.play", now=200.0) for _ in range(10)), 3)
 
 
 class AuditTests(TestCase):
